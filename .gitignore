@@ -1,0 +1,70 @@
+# =====================================================================
+# Smart-Church - files that must NEVER be committed
+# =====================================================================
+
+# ---------- Composer / Node ----------
+/vendor
+/node_modules
+composer.phar
+auth.json
+.phpunit.result.cache
+.php-cs-fixer.cache
+
+# ---------- Environment & secrets ----------
+.env
+.env.backup
+.env.production
+.env.local
+.env.cpanel
+.env.*.local
+
+# ---------- Framework build artefacts ----------
+/public/hot
+/public/storage
+/bootstrap/cache/*.php
+/storage/*.key
+
+# ---------- Runtime state (belongs to the server, not to git) ----------
+/storage/logs/*.log
+/storage/framework/cache/data/*
+!/storage/framework/cache/data/.gitignore
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
+/storage/app/public/*
+!/storage/app/public/.gitignore
+
+# ---------- User uploaded content (lives on the server only) ----------
+/public/display_photo/*
+!/public/display_photo/.gitignore
+/public/gallery_uploads/*
+!/public/gallery_uploads/.gitignore
+/public/uploads/*
+!/public/uploads/.gitignore
+
+# ---------- Local debug / scratch files ----------
+/check_table.php
+/check_tiu.php
+/debug_sg.php
+/debug_subgroup.php
+/fix_escape.php
+/task_progress.json
+/test-login.html
+/public/test-login.html
+
+# ---------- Editor / OS / tooling ----------
+docker-compose.override.yml
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+/.idea
+/.vscode
+/.fleet
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- GitHub Actions deployment state ----------
+.ftp-deploy-sync-state.json

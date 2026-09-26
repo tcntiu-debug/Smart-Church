@@ -1,0 +1,82 @@
+        .floating-settings-panel {
+            position: fixed;
+            top: 70px; /* Adjust based on your navbar height */
+            right: 20px;
+            width: 320px;
+            z-index: 1050; /* High z-index to be on top */
+            display: none; /* Hidden by default */
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            border-radius: 0.5rem;
+            background-color: #fff; /* Ensure it has a background */
+        }
+        .ms-dark-theme .floating-settings-panel {
+            background-color: #202124; /* Dark background for dark theme */
+        }
+        .settings-toggler {
+            cursor: pointer;
+            margin-left: auto; /* Pushes it to the far right */
+            font-size: 1.5rem;
+            padding: 0 15px;
+            color: #6c757d;
+        }
+        .ms-dark-theme .settings-toggler { color: #adb5bd; }
+
+        /* New Theme Option Styles */
+        .theme-option-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem; /* Space between items */
+        }
+        .theme-option {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .ms-dark-theme .theme-option { border-color: #5f6368; }
+        .theme-option:hover { background-color: #f8f9fa; }
+        .ms-dark-theme .theme-option:hover { background-color: #3c4043; }
+        
+        .theme-option input[type="radio"] {
+            display: none; /* Hide the original radio button */
+        }
+        .theme-option .radio-custom {
+            height: 20px;
+            width: 20px;
+            border: 2px solid #5f6368;
+            border-radius: 50%;
+            margin-right: 12px;
+            display: inline-block;
+            position: relative;
+        }
+        .ms-dark-theme .theme-option .radio-custom { border-color: #9aa0a6; }
+        .theme-option input[type="radio"]:checked + .radio-custom {
+            border-color: #0b57d0;
+        }
+        .theme-option input[type="radio"]:checked + .radio-custom::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #0b57d0;
+        }
+        .theme-option.selected {
+            border-color: #0b57d0;
+            background-color: rgba(66, 133, 244, 0.1);
+        }
+        .ms-dark-theme .theme-option.selected {
+             background-color: rgba(138, 180, 248, 0.1);
+        }
+        .theme-label {
+            flex-grow: 1; /* Makes the label take up available space */
+        }
+        .logout-section {
+            padding-top: 1rem;
+        }

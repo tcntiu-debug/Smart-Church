@@ -1,0 +1,43 @@
+# =====================================================================
+# Smart-Church - cPanel / shared hosting front controller
+# ---------------------------------------------------------------------
+# On cPanel the account document root is normally "public_html", and most
+# shared plans do not let you point it at Laravel's "public" folder. This
+# file therefore lives in the document root and forwards every public
+# request into "public/", so the application code (app/, config/,
+# database/, storage/, vendor/, .env) is never reachable from a URL.
+#
+# Local development is unaffected: "php artisan serve" does not read this
+# file.
+# =====================================================================
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Never intercept domain/SSL validation requests (AutoSSL, Let's Encrypt).
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+
+    # Leave requests that already resolve into public/ alone (prevents loops,
+    # and also makes subdirectory installs work).
+    RewriteCond %{REQUEST_URI} !/public/
+
+    # Everything else is handled by Laravel's front controller.
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+# Do not expose directory listings.
+<IfModule mod_autoindex.c>
+    Options -Indexes
+</IfModule>
+
+# Belt-and-braces: refuse direct HTTP access to sensitive files. This only
+# matters because the application is deployed inside the document root.
+<FilesMatch "(^\.env|^composer\.(json|lock)$|^artisan$|\.(log|sql|bak|old|ini|yml|yaml|lock|sh)$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
