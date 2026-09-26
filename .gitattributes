@@ -1,5 +1,14 @@
 * text=auto
 
+# Files consumed by Linux-based CI runners must use LF. A stray CR reaches bash as
+# a literal \r inside a YAML `run:` block and breaks the command.
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+
+# PowerShell scripts run natively on Windows, so keep them CRLF.
+*.ps1 text eol=crlf
+
 *.blade.php diff=html
 *.css diff=css
 *.html diff=html

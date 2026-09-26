@@ -11,7 +11,7 @@ name: Deploy to cPanel
 # Optional repository variables (same screen, "Variables" tab):
 #   CPANEL_PROTOCOL   ftps (default) | sftp | ftp
 #   CPANEL_PORT       21 (default) | 22 for sftp | 21 for ftp
-#   CPANEL_REMOTE_DIR remote directory to publish into, e.g. public_html/
+#   CPANEL_REMOTE_DIR remote directory to publish into (default: public_html/)
 #
 # See docs/CPANEL-DEPLOYMENT.md for the full walkthrough.
 # ---------------------------------------------------------------------------
@@ -108,7 +108,10 @@ jobs:
           password: ${{ secrets.CPANEL_PASSWORD }}
           protocol: ${{ vars.CPANEL_PROTOCOL || 'ftps' }}
           port: ${{ vars.CPANEL_PORT || 21 }}
-          server-dir: ${{ vars.CPANEL_REMOTE_DIR || '/' }}
+          # The MAIN cPanel account is jailed to your home directory, so "/" would drop
+          # the app NEXT TO public_html instead of inside it. Default to public_html/.
+          # A dedicated FTP account jailed to public_html/ must use "/" instead.
+          server-dir: ${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}
           local-dir: ./
           # Shared-hosting TLS certificates are frequently self-signed.
           security: loose
@@ -135,6 +138,7 @@ jobs:
             phpunit.xml
             tests/**
             docs/**
+            scripts/**
             README.md
             check_*.php
             debug_*.php
@@ -154,6 +158,6 @@ jobs:
             echo "| Commit | \`${GITHUB_SHA:0:7}\` |"
             echo "| Branch | \`${GITHUB_REF_NAME}\` |"
             echo "| Transport | \`${{ vars.CPANEL_PROTOCOL || 'ftps' }}:${{ vars.CPANEL_PORT || 21 }}\` |"
-            echo "| Remote directory | \`${{ vars.CPANEL_REMOTE_DIR || '/' }}\` |"
+            echo "| Remote directory | \`${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}\` |"
             echo "| Triggered by | @${GITHUB_ACTOR} |"
           } >> "$GITHUB_STEP_SUMMARY"

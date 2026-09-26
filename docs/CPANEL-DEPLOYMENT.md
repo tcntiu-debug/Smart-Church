@@ -48,7 +48,36 @@ git push -u origin master
 The first push opens a browser window (Windows Credential Manager). Sign in to GitHub
 once and every future push is silent. Nothing is stored in the project.
 
-## 3. Add the deployment secrets
+## 3. Connect GitHub to cPanel
+
+**There is no "link your hosting" button.** GitHub Actions is a headless Linux machine in
+Microsoft's cloud, and it reaches cPanel exactly the way FileZilla does: hostname +
+username + password over FTP/SFTP. "Connecting" the two means storing those three values
+as encrypted **GitHub Secrets**, which the workflow reads at deploy time. GitHub cannot
+discover them from your domain — you must supply them.
+
+### 3a. Find the three values in cPanel
+
+| What you need | Where to find it |
+| --- | --- |
+| **Hostname** | cPanel right-hand sidebar → **Server Information** / *Shared IP Address*. Usually `serverNNN.webhost.com`. `ftp.yourdomain.com` also works on most hosts. |
+| **Username** | cPanel right-hand sidebar → **Current User**, e.g. `tcnikoro`. The full list is in **FTP Accounts** → *Special FTP Accounts*. |
+| **Password** | Your main cPanel password. **FTP Accounts** → *Configure FTP Client* also shows the hostname, port and encryption mode the host recommends — the fastest way to get all three. |
+
+### 3b. Verify them before touching GitHub
+
+Wrong credentials cost you a red build and an unhelpful FTP log. Test them from your PC
+first — this logs in, lists the directory, writes a test file and deletes it again:
+
+```powershell
+cd c:\xampp\htdocs\Smart-Church
+.\scripts\test-cpanel-connection.ps1 -Server server123.webhost.com -Username tcnikoro
+```
+
+It prompts for the password securely, then prints the exact secret values to paste. It
+also tells you whether the app is already deployed in the target directory.
+
+### 3c. Add the secrets
 
 GitHub → your repository → **Settings** → **Secrets and variables** → **Actions**.
 
@@ -66,7 +95,17 @@ GitHub → your repository → **Settings** → **Secrets and variables** → **
 | --- | --- | --- |
 | `CPANEL_PROTOCOL` | `ftps` | `ftps` (port 21, encrypted), `sftp` (port 22, needs SSH enabled), or `ftp` (port 21, **unencrypted — avoid**). |
 | `CPANEL_PORT` | `21` | Use `22` when `CPANEL_PROTOCOL` is `sftp`. |
-| `CPANEL_REMOTE_DIR` | `/` | The directory to publish into. **Must end with a `/`**. e.g. `public_html/` or `public_html/smartchurch/`. |
+| `CPANEL_REMOTE_DIR` | `public_html/` | The directory to publish into. **Must end with a `/`**. See the warning below. |
+
+> ⚠️ **`CPANEL_REMOTE_DIR` is the setting that breaks most first deploys.** The main cPanel
+> account is jailed to your **home directory**, so the FTP path `/` means `/home/tcnikoro/`
+> — the app would land *beside* `public_html/`, where Apache never serves it, and the live
+> site would look completely unchanged even though the deploy went green. Keep the default
+> `public_html/`.
+> A dedicated FTP account jailed to `public_html/` is different: its `/` **is**
+> `public_html/`, so in that case set the value to `/`. Run
+> `.\scripts\test-cpanel-connection.ps1` to have it list the directory and show you exactly
+> where you are landing.
 
 > A dedicated FTP account scoped to the target directory is safer than the main cPanel
 > account. If you create one in cPanel → FTP Accounts, its username looks like
@@ -191,6 +230,8 @@ colliding. Only changed files are transferred.
 | Symptom | Likely cause / fix |
 | --- | --- |
 | `Missing repository secret: CPANEL_HOST` | Secrets not added, or added as *variables* instead of *secrets*. |
+| Deploy is green but the website is unchanged | `CPANEL_REMOTE_DIR` is wrong — the app was uploaded *beside* `public_html` instead of into it. Re-run `.\scripts\test-cpanel-connection.ps1` to see where you land. |
+| Everything uploads on every single run | The state file `.ftp-deploy-sync-state.json` is not surviving between runs. Harmless — just slower. |
 | `530 Login authentication failed` | Wrong password, or the FTP account was created for a different directory. Change the password and re-add the secret. |
 | `getaddrinfo ENOTFOUND` / timeout | Wrong `CPANEL_HOST`, or the host blocks FTP. Try `sftp` (port 22) via the variables. |
 | TLS/certificate errors | Keep `security: loose` (already set) or switch to `sftp`. |
