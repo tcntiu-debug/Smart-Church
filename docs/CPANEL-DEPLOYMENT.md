@@ -113,7 +113,46 @@ GitHub → your repository → **Settings** → **Secrets and variables** → **
 > in that case set `CPANEL_REMOTE_DIR` to `/` because the FTP account is already jailed
 > to the right folder.
 
-## 4. Create the production `.env` on cPanel
+### 3d. Your setup: deploying to a subdomain
+
+Create the subdomain **first** and point its document root at the app's `public` folder.
+That one decision puts `.env`, `app/` and `vendor/` *above* the web root, so they are
+physically unreachable over HTTP — no rewrite rules have to protect them.
+
+1. cPanel → **Domains** → **Create A New Domain** (older themes: **Subdomains**).
+2. Subdomain: e.g. `church` → creates `church.yourdomain.com`.
+3. **Document Root**: set it to `/home/tcnikoro/smart-church/public`
+   (cPanel creates the whole path, including `public/`).
+4. cPanel → **SSL/TLS Status** → **Run AutoSSL** so HTTPS works on the subdomain.
+
+Then set `CPANEL_REMOTE_DIR` to `smart-church/` — the app folder, **not** `public/`. The
+repo root is what gets uploaded, and the `public/` inside it becomes the document root.
+
+Resulting layout on the server:
+
+```
+/home/tcnikoro/smart-church/          <- CPANEL_REMOTE_DIR
+├── app/ bootstrap/ config/ routes/   <- NOT web-accessible
+├── .env                              <- NOT web-accessible
+├── vendor/                           <- NOT web-accessible
+└── public/                           <- document root of church.yourdomain.com
+    ├── .htaccess        (Laravel's own, already in the repo)
+    ├── index.php
+    ├── assets/  vendors/
+    ├── storage/         (symlink created by app:post-deploy)
+    └── uploads/  display_photo/  gallery_uploads/
+```
+
+Set `APP_URL=https://church.yourdomain.com` in the server `.env` so uploads, links and
+redirects all resolve to the subdomain.
+
+> Alternative: leave the document root at cPanel's default
+> (`/home/tcnikoro/church.yourdomain.com`) and set `CPANEL_REMOTE_DIR` to
+> `church.yourdomain.com/`. That also works — the repo's root `.htaccess` funnels traffic
+> into `public/` — but then `.env` is protected only by rewrite rules rather than by being
+> outside the web root.
+
+
 
 This is the only file the pipeline will never touch, so it survives every deploy.
 

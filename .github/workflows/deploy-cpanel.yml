@@ -12,6 +12,8 @@ name: Deploy to cPanel
 #   CPANEL_PROTOCOL   ftps (default) | sftp | ftp
 #   CPANEL_PORT       21 (default) | 22 for sftp | 21 for ftp
 #   CPANEL_REMOTE_DIR remote directory to publish into (default: public_html/)
+#                     for a subdomain with docroot /home/USER/smart-church/public
+#                     use smart-church/
 #
 # See docs/CPANEL-DEPLOYMENT.md for the full walkthrough.
 # ---------------------------------------------------------------------------
