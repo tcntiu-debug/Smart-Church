@@ -141,63 +141,56 @@ jobs:
           echo "front controller and were exactly what the failed FTPS run never sent):"
           tar -tzf smart-church-deploy.tar.gz | grep -E '\.htaccess$|/artisan$|/composer\.json$|/server\.php$' || echo "::warning title=payload check::expected root files were not found in the archive"
 
-      - name: Publish to cPanel (SFTP)
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.CPANEL_HOST }}
-          username: ${{ secrets.CPANEL_USER }}
-          password: ${{ secrets.CPANEL_PASSWORD }}
-          port: ${{ vars.CPANEL_SSH_PORT || 22 }}
-          source: "smart-church-deploy.tar.gz"
-          # Account home directory; the archive is extracted from here in the next step.
-          target: "/home/${{ secrets.CPANEL_USER }}"
-          # Add --overwrite so re-deploys replace existing files (never --rm: that
-          # would delete the server .env and every uploaded photo/PDF).
-          overwrite: true
-          timeout: 60s
-          command_timeout: 30m
-          debug: false
+      - name: Publish to cPanel (SFTP/SSH)
+        env:
+          SSHPASS: ${{ secrets.CPANEL_PASSWORD }}
+          SSH_HOST: ${{ secrets.CPANEL_HOST }}
+          SSH_USER: ${{ secrets.CPANEL_USER }}
+          SSH_PORT: ${{ vars.CPANEL_SSH_PORT || 22 }}
+          REMOTE_DIR: ${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
 
-      - name: Extract build on server
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.CPANEL_HOST }}
-          username: ${{ secrets.CPANEL_USER }}
-          password: ${{ secrets.CPANEL_PASSWORD }}
-          port: ${{ vars.CPANEL_SSH_PORT || 22 }}
-          timeout: 60s
-          command_timeout: 15m
-          script: |
+          APP_DIR="/home/${SSH_USER}/${REMOTE_DIR%/}"
+          TARBALL="/home/${SSH_USER}/smart-church-deploy.tar.gz"
+          # sshpass -e reads the password from $SSHPASS - it never hits the command line.
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=25 -p ${SSH_PORT}"
+          SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=25 -P ${SSH_PORT}"
+
+          echo "==> Probing SSH login to ${SSH_USER}@${SSH_HOST}:${SSH_PORT}"
+          if ! sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" \
+              'echo connected to $(hostname); echo HOME=$HOME; command -v tar; command -v php || true' 2>ssh.err; then
+            echo "::error title=SSH login failed::$(tr '\n' '|' < ssh.err | head -c 900)"
+            exit 1
+          fi
+
+          echo "==> Uploading payload to ${TARBALL}"
+          if ! sshpass -e scp $SCP_OPTS smart-church-deploy.tar.gz "${SSH_USER}@${SSH_HOST}:${TARBALL}" 2>upload.err; then
+            echo "::error title=scp upload failed::$(tr '\n' '|' < upload.err | head -c 900)"
+            exit 1
+          fi
+
+          echo "==> Extracting into ${APP_DIR} and bootstrapping"
+          if ! sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" "
             set -e
-            APP_DIR="/home/${{ secrets.CPANEL_USER }}/${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}"
-            APP_DIR="${APP_DIR%/}"
-            TARBALL="/home/${{ secrets.CPANEL_USER }}/smart-church-deploy.tar.gz"
-
-            echo "==> Application directory: $APP_DIR"
-            test -f "$TARBALL" || { echo "ERROR: payload $TARBALL was not uploaded"; exit 1; }
-            mkdir -p "$APP_DIR"
-
-            echo "==> Extracting payload (overwrites changed files, deletes nothing)..."
-            tar -xzf "$TARBALL" -C "$APP_DIR"
-            rm -f "$TARBALL"
-
-            echo "==> Root of the deployed app:"
-            ls -la "$APP_DIR"
-
-            # Best-effort application bootstrap. It needs the server .env + database,
-            # so it is skipped until those exist (docs Step 7 / Step 8).
-            if [ -f "$APP_DIR/.env" ]; then
-              cd "$APP_DIR"
-              if command -v php >/dev/null 2>&1; then
-                echo "==> php artisan app:post-deploy"
-                php artisan app:post-deploy || echo "WARNING: app:post-deploy returned a non-zero status"
-              else
-                echo "NOTE: 'php' is not on the non-interactive SSH PATH; run app:post-deploy from cPanel Terminal."
-              fi
+            test -f '${TARBALL}' || { echo 'payload missing'; exit 1; }
+            mkdir -p '${APP_DIR}'
+            tar -xzf '${TARBALL}' -C '${APP_DIR}'
+            rm -f '${TARBALL}'
+            ls -la '${APP_DIR}'
+            if [ -f '${APP_DIR}/.env' ]; then
+              cd '${APP_DIR}'
+              (command -v php >/dev/null 2>&1 && php artisan app:post-deploy) || echo 'NOTE: skipped or failed app:post-deploy'
             else
-              echo "NOTE: $APP_DIR/.env not found - skipping 'php artisan' (create the server .env first)."
+              echo 'NOTE: .env missing - skipping artisan (create the server .env first)'
             fi
-            echo "==> Publish complete."
+            echo 'Publish complete.'
+          " 2>extract.err; then
+            echo "::error title=remote extract failed::$(tr '\n' '|' < extract.err | head -c 900)"
+            exit 1
+          fi
 
       - name: Deployment summary
         if: always()
