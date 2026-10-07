@@ -56,7 +56,9 @@ git push  ->  GitHub Actions  ->  composer install --no-dev  ->  SFTP/FTPS uploa
 ```
 
 - Workflow: [`.github/workflows/deploy-cpanel.yml`](.github/workflows/deploy-cpanel.yml)
-- Setup guide, secrets table and troubleshooting:
+- Quick, filled-in guide for **dev.lit-grp.com**:
+  [`docs/DEPLOY-dev.lit-grp.com.md`](docs/DEPLOY-dev.lit-grp.com.md)
+- Full setup guide, secrets table and troubleshooting:
   [`docs/CPANEL-DEPLOYMENT.md`](docs/CPANEL-DEPLOYMENT.md)
 - After deploying, run once on the server:
 

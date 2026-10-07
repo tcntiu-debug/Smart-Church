@@ -1,7 +1,7 @@
 name: Deploy to cPanel
 
 # ---------------------------------------------------------------------------
-# Push to main/master  ->  build the app  ->  publish to cPanel over SFTP/FTPS
+# Push to main/master  ->  build the app  ->  publish to cPanel over FTPS
 #
 # Required repository secrets  (Settings > Secrets and variables > Actions):
 #   CPANEL_HOST      FTP/SFTP hostname, e.g. server123.webhost.com or your domain
@@ -9,11 +9,15 @@ name: Deploy to cPanel
 #   CPANEL_PASSWORD  matching password
 #
 # Optional repository variables (same screen, "Variables" tab):
-#   CPANEL_PROTOCOL   ftps (default) | sftp | ftp
-#   CPANEL_PORT       21 (default) | 22 for sftp | 21 for ftp
+#   CPANEL_PROTOCOL   ftps (default) | ftp   <- this action is FTP/FTPS only (no SFTP)
+#   CPANEL_PORT       21 (default)
 #   CPANEL_REMOTE_DIR remote directory to publish into (default: public_html/)
 #                     for a subdomain with docroot /home/USER/smart-church/public
 #                     use smart-church/
+#
+# NOTE: SamKirkland/FTP-Deploy-Action does NOT speak SFTP. If your host only allows
+# SSH/SFTP, replace the "Publish to cPanel" step with an SFTP-capable action
+# (see docs/DEPLOY-dev.lit-grp.com.md -> "Transports: FTPS vs SFTP").
 #
 # See docs/CPANEL-DEPLOYMENT.md for the full walkthrough.
 # ---------------------------------------------------------------------------

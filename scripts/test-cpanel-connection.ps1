@@ -122,6 +122,17 @@ function Write-ErrorHint {
     } elseif ($Message -match '550') {
         Write-Info 'Hint: 550 = the directory does not exist or is not writable. Check the'
         Write-Info '      spelling of -RemoteDir and that it ends with a slash.'
+    } elseif ($Message -match '227|[Pp]assive') {
+        Write-Info 'Hint: 227 / "Entering Passive Mode" = your LOGIN WORKED; only the passive DATA'
+        Write-Info '      connection failed. The server asks you to open a SEPARATE TCP port for the'
+        Write-Info '      listing/upload, and that port was not reachable. This is NOT a bad password,'
+        Write-Info '      and it happens with and without TLS.'
+        Write-Info '      It is either the flaky built-in .NET client, or the server firewall filtering'
+        Write-Info '      the passive range. Confirm with a real client (curl prompts for the password):'
+        Write-Info ('        curl -v -u {0} --ssl-reqd ftp://{1}:{2}/{3}' -f $Username, $Server, $Port, $RemoteDir)
+        Write-Info '      Works in curl  -> secrets are correct; the GitHub Action (basic-ftp) will work.'
+        Write-Info '      Fails in curl  -> the passive range is blocked; redeploy with SFTP instead:'
+        Write-Info ('        -Protocol sftp -Port 22   (this account reports SSH enabled)')
     } elseif ($Message -match '42[15]|TLS|SSL') {
         Write-Info 'Hint: the server refused the FTPS handshake. Try -Protocol ftp to prove the'
         Write-Info '      credentials, then use sftp (port 22) for the real deployment.'
