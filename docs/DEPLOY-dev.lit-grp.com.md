@@ -32,41 +32,42 @@ public request into that folder's `public/` subfolder, so the site appears at
   account, so `CPANEL_REMOTE_DIR = public_html/dev.lit-grp.com/`)
 - Database: `litgrpco_smart_church_db` · DB user: `litgrpco_litgrpco` ✅
 - Data: you will **import the dump yourself** (Step 8)
-- SSH/SFTP: **enabled** (you see **Security → SSH Access**; `ftp.lit-grp.com:22` is open; and
-  the server accepts **password** logins — an unauthenticated `ssh` probe returns
-  `Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)`)
-- Deploy transport: **SFTP over SSH (port 22)**. The workflow sends one `smart-church-deploy.tar.gz`
-  with `appleboy/scp-action` and extracts it with `appleboy/ssh-action` (see
-  "Transports: SFTP vs FTPS" below). FTPS was **abandoned** — its passive data ports time out
-  from GitHub's runners and it kept aborting halfway.
+- SSH/SFTP: **SFTP works, but there is NO shell.** `ftp.lit-grp.com:22` is open and the server
+  accepts **password** logins, but any attempt to run a remote command is refused with
+  **"Shell access is not enabled on your account!"**. So transfers must go over **SFTP only**
+  (no `tar`/`composer`/`artisan` over SSH) and cPanel **Terminal** is unavailable.
+- Deploy transport: **SFTP over SSH (port 22), via `lftp`** — the built files are mirrored
+  through the SFTP subsystem, which needs no shell (see "Transports: SFTP via lftp" below).
+  FTPS was **abandoned** (its passive data ports time out from GitHub's runners).
 
 **Your local (XAMPP) database name** — you asked: it is **`tcnikoro_smart_church`** (from
 your local `.env`: host `127.0.0.1`, user `root`). That is the name to use when you dump
 or import on localhost.
 
-### Transports: SFTP (chosen) vs FTPS (abandoned)
+### Transports: SFTP via lftp (chosen) vs FTPS (abandoned)
 
-**Chosen: SFTP over SSH, port 22.** The workflow now:
+**Chosen: SFTP over the SSH transport, port 22, uploaded with `lftp`.** The
+`Publish to cPanel (SFTP)` step:
 
-1. builds one `smart-church-deploy.tar.gz` containing exactly the files that belong on the
-   server (`Stage deployment payload (tar)` step);
-2. uploads it with [`appleboy/scp-action@v1`](https://github.com/appleboy/scp-action)
-   (`Publish to cPanel (SFTP)` step); and
-3. extracts it in place with [`appleboy/ssh-action@v1`](https://github.com/appleboy/ssh-action)
-   (`Extract build on server` step), which also runs `php artisan app:post-deploy` once a
-   server `.env` exists.
+1. `rsync`s the checkout into a clean staging directory (junk such as `.git`, `.github`,
+   `node_modules`, `docs`, `tests`, local scratch files and `.env` excluded);
+2. mirrors that directory into `public_html/dev.lit-grp.com/` **through the SFTP subsystem**
+   with `lftp` (parallel, retrying). It never runs a remote command — essential, because the
+   account has **no shell** (*"Shell access is not enabled on your account!"*). Paths are
+   relative to the SFTP home, so they don't depend on the `/home/<user>` prefix.
 
 It needs only the three existing secrets — nothing else.
 
-**Why FTPS was dropped:** the workflow used to ship with `SamKirkland/FTP-Deploy-Action`
-(FTP/FTPS only). Against this server it kept failing with
+**Why FTPS was dropped:** the workflow originally shipped with
+`SamKirkland/FTP-Deploy-Action` (FTP/FTPS only). Against this server it kept failing with
 `Timeout when trying to open data connection to <ip>:<port>` — the FTPS **passive-mode data
 ports** are filtered/flaky from GitHub's runners — which aborted the upload halfway and left a
-half-written tree that showed **"Index of /"**. SFTP rides the single SSH connection, so it is
-reliable, and the cPanel account already accepts SSH **password** logins (no key needed).
+half-written tree that showed **"Index of /"**.
 
-You *did* see **Security → SSH Access**, so the cPanel **Terminal** mentioned in Step 7
-will work — handy for running `php artisan key:generate`.
+**Why not `appleboy/scp-action` or plain `scp`/`ssh`:** those all need a remote shell (to run
+`tar`), and this host refuses remote commands. Only pure **SFTP file transfer** is allowed.
+Consequence: **Step 7's key generation and Step 10's post-deploy cannot use cPanel Terminal** —
+see those steps for the workaround (or ask the host to enable shell).
 
 ### Where the password goes (never paste it in chat)
 
@@ -240,14 +241,16 @@ TELEGRAM_CHAT_ID=
 PHP_MEMORY_LIMIT=512M
 ```
 
-4. Generate the app key — cPanel → **Advanced** → **Terminal**:
+4. Generate the app key. The account has **no shell**, so cPanel **Terminal** will not work.
+   Generate the key on your **local** machine and paste it in:
 
-   ```bash
-   cd ~/public_html/dev.lit-grp.com
-   php artisan key:generate
+   ```powershell
+   cd c:\xampp\htdocs\Smart-Church
+   php artisan key:generate --show      # prints e.g. base64:AbCdEf...=
    ```
 
-   If there is no Terminal, generate the key after the first deploy in Step 9 instead.
+   Copy the printed `base64:...` value into the server `.env` as `APP_KEY=` (no quotes), save.
+   (`--show` prints the key without touching your local `.env`.)
 
 > `.env` is on the deploy archive's exclude list, and the deploy never deletes anything on the
 > server, so your `.env` survives every redeploy.
@@ -263,9 +266,10 @@ PHP_MEMORY_LIMIT=512M
   `tcnikoro_smart_church`, but you are importing **into** `litgrpco_smart_church_db` — that
   is fine; the dump only carries tables, not the database name.
 
-  **Symlinked media/uploads:** if the old site stored user uploads, also copy the
-  `storage/app/public` contents and the `public/storage` symlink (Step 10 creates that
-  symlink after deploy).
+  **Media/uploads:** this app keeps uploads under `public/` (`public/uploads`,
+  `public/display_photo`, `public/gallery_uploads`), so copy those folders' contents across if
+  the old site had them. A `public/storage` symlink is only needed if the app uses Laravel's
+  `storage/app/public` disk; the deploy does not create it (that needs a shell).
 
 
 ## Step 9 — Trigger the deploy
@@ -287,21 +291,25 @@ run uploads everything (a few minutes); later runs only send changed files.
 
 No push handy? **Actions → Deploy to cPanel → Run workflow** starts a deploy on demand.
 
-## Step 10 — Run the post-deploy step on the server (once)
+## Step 10 — Post-deploy tasks (no shell available)
 
-After every deploy the pipeline now tries this for you (the `Extract build on server` step runs
-`php artisan app:post-deploy` whenever the server `.env` is present). The **first** time, the
-`.env` does not exist yet, so run it by hand once — cPanel → **Advanced** → **Terminal**:
+The account has **no shell**, so `php artisan app:post-deploy` can't run from Terminal, and the
+pipeline can't run it either. Do the equivalent by hand **once**:
 
-```bash
-cd ~/public_html/dev.lit-grp.com
+1. **Runtime folders.** In cPanel **File Manager**, inside
+   `/home/litgrpco/public_html/dev.lit-grp.com/`, check these exist (the deploy already creates
+   them from the repo's `.gitignore` placeholders):
+   `storage/framework/cache/data/`, `storage/framework/sessions/`, `storage/framework/views/`
+   and `storage/logs/`.
+2. **Config/caches.** Nothing to do — with no cached config the app reads `.env` fresh on each
+   request.
+3. **Migrations.** Only needed for a *fresh* database (skip if you imported a full dump in
+   Step 8). With no shell, import a `.sql` schema dump via **phpMyAdmin** instead of
+   `artisan migrate`.
 
-php artisan app:post-deploy             # dirs, caches, storage link
-php artisan app:post-deploy --migrate   # ...plus run the migrations (fresh DB only)
-```
-
-Safe to re-run after any deploy. *(No Terminal? Add a daily cron in cPanel → Cron Jobs:
-`php /home/litgrpco/public_html/dev.lit-grp.com/artisan app:post-deploy`.)*
+> Want a real shell? Ask the host to enable **SSH / Shell access** for `litgrpco` (many hosts do
+> it on request). Then `php artisan key:generate`, `app:post-deploy` and `storage:link` all
+> become available again.
 
 ## Step 11 — Verify
 
@@ -322,8 +330,8 @@ git commit -m "Describe the change"
 git push
 ```
 
-That's the whole deploy. If the change included migrations or new config, also run
-`php artisan app:post-deploy --migrate` in cPanel Terminal.
+That's the whole deploy. If the change included migrations, apply them via **phpMyAdmin**
+(import a schema dump) — there is no shell to run `artisan migrate`.
 
 ## Quick troubleshooting
 
@@ -334,7 +342,9 @@ That's the whole deploy. If the change included migrations or new config, also r
 | `530 Login authentication failed` | Wrong FTP password, or the FTP account is jailed to the wrong folder. |
 | `test-cpanel-connection.ps1`: `227 Entering Passive Mode` on step 3 | The **login worked** — Windows' .NET FTP client just can't open the passive/tagged data channel (Pure-FTPd needs TLS session reuse). Confirm with `curl -v -u litgrpco --ssl-reqd ftp://ftp.lit-grp.com/public_html/dev.lit-grp.com/`, then deploy anyway — the SFTP deploy never uses FTP passive mode. |
 | `getaddrinfo ENOTFOUND` / timeout | Wrong `CPANEL_HOST`, or the host blocks SSH. Check `CPANEL_SSH_PORT` (default `22`) and that **SSH Access** is enabled in cPanel. |
-| 500 error / blank page | Set `APP_DEBUG=true` in the server `.env`, reload, read the message, set it back to `false`. |
+| `Shell access is not enabled on your account!` | Expected: this cPanel account is **SFTP-only**. The deploy uses `lftp` (SFTP), never remote commands. Use the Step 7 / Step 10 workarounds, or ask the host to enable shell. |
+| 500 error / blank page | Most often a **missing server `.env`** (no `APP_KEY`). Create `.env` (Step 7) with a valid `APP_KEY`, then set `APP_DEBUG=true` temporarily to read the exact message. |
+| `lftp` errors / partial upload | Re-run the workflow (lftp retries and only sends changed files). Check the run's **`lftp output`** notice for the exact error. |
 | `Please provide a valid cache path` | Run `php artisan app:post-deploy` (creates the `storage/framework/*` folders). |
 
 Full detail, security notes and the SSH/git alternative live in
