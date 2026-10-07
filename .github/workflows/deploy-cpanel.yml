@@ -114,39 +114,32 @@ jobs:
       - name: Stage deployment payload (tar)
         run: |
           set -euo pipefail
-          tar -czf smart-church-deploy.tar.gz \
-            --exclude='./.git' \
-            --exclude='./.github' \
-            --exclude='./.idea' \
-            --exclude='./.vscode' \
-            --exclude='./.fleet' \
-            --exclude='./node_modules' \
-            --exclude='./.gitignore' \
-            --exclude='./.gitattributes' \
-            --exclude='./.editorconfig' \
-            --exclude='./.styleci.yml' \
-            --exclude='./.env' \
-            --exclude='./.env.*' \
-            --exclude='./.ftp-deploy-sync-state.json' \
-            --exclude='./package.json' \
-            --exclude='./webpack.mix.js' \
-            --exclude='./phpunit.xml' \
-            --exclude='./tests' \
-            --exclude='./docs' \
-            --exclude='./scripts' \
-            --exclude='./README.md' \
-            --exclude='./check_*.php' \
-            --exclude='./debug_*.php' \
-            --exclude='./fix_escape.php' \
-            --exclude='./task_progress.json' \
-            --exclude='./test-login.html' \
-            --exclude='./public/test-login.html' \
-            --exclude='./smart-church-deploy.tar.gz' \
-            .
+          # Write the archive OUTSIDE the tree being archived (so tar never reads the
+          # file it is still writing), then copy it in for the upload step.
+          PAYLOAD="$RUNNER_TEMP/smart-church-deploy.tar.gz"
+          rm -f "$PAYLOAD"
+          if ! tar -czf "$PAYLOAD" \
+              --exclude='./.git' --exclude='./.github' --exclude='./.idea' \
+              --exclude='./.vscode' --exclude='./.fleet' --exclude='./node_modules' \
+              --exclude='./.gitignore' --exclude='./.gitattributes' \
+              --exclude='./.editorconfig' --exclude='./.styleci.yml' \
+              --exclude='./.env' --exclude='./.env.*' \
+              --exclude='./.ftp-deploy-sync-state.json' \
+              --exclude='./package.json' --exclude='./webpack.mix.js' \
+              --exclude='./phpunit.xml' --exclude='./tests' --exclude='./docs' \
+              --exclude='./scripts' --exclude='./README.md' \
+              --exclude='./check_*.php' --exclude='./debug_*.php' \
+              --exclude='./fix_escape.php' --exclude='./task_progress.json' \
+              --exclude='./test-login.html' --exclude='./public/test-login.html' \
+              -C "$GITHUB_WORKSPACE" . 2>"$RUNNER_TEMP/tar.err"; then
+            echo "::error title=tar staging failed::$(tr '\n' '|' < "$RUNNER_TEMP/tar.err" | head -c 900)"
+            exit 1
+          fi
+          cp "$PAYLOAD" smart-church-deploy.tar.gz
           echo "Payload size: $(du -h smart-church-deploy.tar.gz | cut -f1)"
           echo "Sanity check - these ROOT entries must be present (they carry the"
           echo "front controller and were exactly what the failed FTPS run never sent):"
-          tar -tzf smart-church-deploy.tar.gz | grep -E '^\./(\.htaccess|artisan|composer\.json|server\.php)$' || true
+          tar -tzf smart-church-deploy.tar.gz | grep -E '\.htaccess$|/artisan$|/composer\.json$|/server\.php$' || echo "::warning title=payload check::expected root files were not found in the archive"
 
       - name: Publish to cPanel (SFTP)
         uses: appleboy/scp-action@v1
