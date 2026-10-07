@@ -176,9 +176,13 @@ jobs:
           echo "==> Extracting on the server"
           if ! sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" "REMOTE_DIR=${REMOTE_DIR} bash -s" >extract.out 2>extract.err <<'EOS'
           set -e
-          APP_DIR="$HOME/${REMOTE_DIR%/}"
+          case "$REMOTE_DIR" in
+            /*) APP_DIR="${REMOTE_DIR%/}" ;;
+            *)  APP_DIR="$HOME/${REMOTE_DIR%/}" ;;
+          esac
           TARBALL="$HOME/smart-church-deploy.tar.gz"
           echo "HOME=$HOME"
+          echo "REMOTE_DIR=$REMOTE_DIR"
           echo "APP_DIR=$APP_DIR"
           echo "--- parent of APP_DIR ---"
           ls -la "$(dirname "$APP_DIR")" | head -60
