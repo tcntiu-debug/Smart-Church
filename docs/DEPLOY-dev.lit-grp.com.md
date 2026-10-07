@@ -12,11 +12,11 @@ for this specific deployment. Read this one; use the other only for the deep det
 | App folder on server | `/home/litgrpco/public_html/dev.lit-grp.com` (already exists) |
 | Document root of subdomain | `/home/litgrpco/public_html/dev.lit-grp.com` (cPanel default — keep it) |
 | Database | `litgrpco_smart_church_db` (user `litgrpco_litgrpco`) |
-| How it ships | GitHub Actions → FTPS → cPanel (no manual upload) |
+| How it ships | GitHub Actions → SFTP (SSH) → cPanel (no manual upload) |
 
-How it works: you `git push` to `main`; GitHub builds the app and uploads the changed
-files over FTPS straight into `/home/litgrpco/public_html/dev.lit-grp.com/` (the folder
-cPanel already created for the subdomain). The repo's root `.htaccess` then forwards every
+How it works: you `git push` to `main`; GitHub builds the app and ships it over SFTP (SSH)
+straight into `/home/litgrpco/public_html/dev.lit-grp.com/` (the folder cPanel already created
+for the subdomain). The repo's root `.htaccess` then forwards every
 public request into that folder's `public/` subfolder, so the site appears at
 `https://dev.lit-grp.com`. You do this setup **once**; after that, deploying is just
 `git push`.
@@ -35,28 +35,35 @@ public request into that folder's `public/` subfolder, so the site appears at
 - SSH/SFTP: **enabled** (you see **Security → SSH Access**; `ftp.lit-grp.com:22` is open; and
   the server accepts **password** logins — an unauthenticated `ssh` probe returns
   `Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)`)
-- Deploy transport: **FTPS (port 21)** with the current Action. SFTP works on this server but
-  needs a *different* GitHub Action (see "Transports: FTPS vs SFTP" below) — the bundled
-  `SamKirkland/FTP-Deploy-Action` only speaks FTP/FTPS
+- Deploy transport: **SFTP over SSH (port 22)**. The workflow sends one `smart-church-deploy.tar.gz`
+  with `appleboy/scp-action` and extracts it with `appleboy/ssh-action` (see
+  "Transports: SFTP vs FTPS" below). FTPS was **abandoned** — its passive data ports time out
+  from GitHub's runners and it kept aborting halfway.
 
 **Your local (XAMPP) database name** — you asked: it is **`tcnikoro_smart_church`** (from
 your local `.env`: host `127.0.0.1`, user `root`). That is the name to use when you dump
 or import on localhost.
 
-### Transports: FTPS vs SFTP
+### Transports: SFTP (chosen) vs FTPS (abandoned)
 
-The workflow ships with **`SamKirkland/FTP-Deploy-Action`**, which is **FTP/FTPS only** — it
-cannot speak SFTP. Its README says so explicitly: *"If your host allows or requires ssh please
-use my web-deploy action."* So:
+**Chosen: SFTP over SSH, port 22.** The workflow now:
 
-- **Chosen transport: FTPS, port 21** → `CPANEL_PROTOCOL=ftps`, `CPANEL_PORT=21`. Needs nothing
-  but the password. ✔ Use this one.
-- **SFTP (port 22)** *does* work on this server (password logins are enabled), but it requires
-  swapping the "Publish to cPanel" step for an SFTP-capable Action — e.g. the same author's
-  [`SamKirkland/web-deploy`](https://github.com/SamKirkland/web-deploy), or
-  [`appleboy/scp-action`](https://github.com/appleboy/scp-action) +
-  [`appleboy/ssh-action`](https://github.com/appleboy/ssh-action) for the post-deploy commands.
-  Only take this route if FTPS is actually blocked from GitHub's runners. Plan B.
+1. builds one `smart-church-deploy.tar.gz` containing exactly the files that belong on the
+   server (`Stage deployment payload (tar)` step);
+2. uploads it with [`appleboy/scp-action@v1`](https://github.com/appleboy/scp-action)
+   (`Publish to cPanel (SFTP)` step); and
+3. extracts it in place with [`appleboy/ssh-action@v1`](https://github.com/appleboy/ssh-action)
+   (`Extract build on server` step), which also runs `php artisan app:post-deploy` once a
+   server `.env` exists.
+
+It needs only the three existing secrets — nothing else.
+
+**Why FTPS was dropped:** the workflow used to ship with `SamKirkland/FTP-Deploy-Action`
+(FTP/FTPS only). Against this server it kept failing with
+`Timeout when trying to open data connection to <ip>:<port>` — the FTPS **passive-mode data
+ports** are filtered/flaky from GitHub's runners — which aborted the upload halfway and left a
+half-written tree that showed **"Index of /"**. SFTP rides the single SSH connection, so it is
+reliable, and the cPanel account already accepts SSH **password** logins (no key needed).
 
 You *did* see **Security → SSH Access**, so the cPanel **Terminal** mentioned in Step 7
 will work — handy for running `php artisan key:generate`.
@@ -170,16 +177,15 @@ GitHub → `tcntiu-debug/Smart-Church` → **Settings** → **Secrets and variab
 
 | Name | Your value |
 | --- | --- |
-| `CPANEL_HOST` | `ftp.lit-grp.com` |
+| `CPANEL_HOST` | `ftp.lit-grp.com` (now also used as the SSH host) |
 | `CPANEL_USER` | `litgrpco` |
-| `CPANEL_PASSWORD` | your cPanel/FTP password (type it here — never in chat) |
+| `CPANEL_PASSWORD` | your cPanel password — now used for the SSH login (type it here, never in chat) |
 
 **Variables** tab (**New repository variable** for each):
 
 | Name | Your value |
 | --- | --- |
-| `CPANEL_PROTOCOL` | `ftps` |
-| `CPANEL_PORT` | `21` |
+| `CPANEL_SSH_PORT` | `22` |
 | `CPANEL_REMOTE_DIR` | `public_html/dev.lit-grp.com/` |
 
 > `CPANEL_REMOTE_DIR` is the #1 thing that breaks first deploys. Get it from the
@@ -243,7 +249,8 @@ PHP_MEMORY_LIMIT=512M
 
    If there is no Terminal, generate the key after the first deploy in Step 9 instead.
 
-> `.env` is listed in the deploy `exclude` list, so it is never overwritten.
+> `.env` is on the deploy archive's exclude list, and the deploy never deletes anything on the
+> server, so your `.env` survives every redeploy.
 
 ## Step 8 — Load the data
 
@@ -282,7 +289,9 @@ No push handy? **Actions → Deploy to cPanel → Run workflow** starts a deploy
 
 ## Step 10 — Run the post-deploy step on the server (once)
 
-The pipeline can't run PHP on your server. cPanel → **Advanced** → **Terminal**:
+After every deploy the pipeline now tries this for you (the `Extract build on server` step runs
+`php artisan app:post-deploy` whenever the server `.env` is present). The **first** time, the
+`.env` does not exist yet, so run it by hand once — cPanel → **Advanced** → **Terminal**:
 
 ```bash
 cd ~/public_html/dev.lit-grp.com
@@ -323,8 +332,8 @@ That's the whole deploy. If the change included migrations or new config, also r
 | `Missing repository secret: CPANEL_HOST` | Add the three values as **Secrets** (not Variables). |
 | Deploy is green but the site is unchanged | Wrong `CPANEL_REMOTE_DIR` — re-run `test-cpanel-connection.ps1` and use the value it prints. |
 | `530 Login authentication failed` | Wrong FTP password, or the FTP account is jailed to the wrong folder. |
-| `test-cpanel-connection.ps1`: `227 Entering Passive Mode` on step 3 | The **login worked** — Windows' .NET FTP client just can't open the passive/tagged data channel (Pure-FTPd needs TLS session reuse). Confirm with `curl -v -u litgrpco --ssl-reqd ftp://ftp.lit-grp.com/public_html/dev.lit-grp.com/`, then deploy anyway — the Action's client handles it. |
-| `getaddrinfo ENOTFOUND` / timeout | Wrong `CPANEL_HOST`, or the host blocks FTP. If FTP is truly blocked, switch to SFTP — that needs a *different* Action (see "Transports: FTPS vs SFTP"); `SamKirkland/FTP-Deploy-Action` can't do SFTP. |
+| `test-cpanel-connection.ps1`: `227 Entering Passive Mode` on step 3 | The **login worked** — Windows' .NET FTP client just can't open the passive/tagged data channel (Pure-FTPd needs TLS session reuse). Confirm with `curl -v -u litgrpco --ssl-reqd ftp://ftp.lit-grp.com/public_html/dev.lit-grp.com/`, then deploy anyway — the SFTP deploy never uses FTP passive mode. |
+| `getaddrinfo ENOTFOUND` / timeout | Wrong `CPANEL_HOST`, or the host blocks SSH. Check `CPANEL_SSH_PORT` (default `22`) and that **SSH Access** is enabled in cPanel. |
 | 500 error / blank page | Set `APP_DEBUG=true` in the server `.env`, reload, read the message, set it back to `false`. |
 | `Please provide a valid cache path` | Run `php artisan app:post-deploy` (creates the `storage/framework/*` folders). |
 

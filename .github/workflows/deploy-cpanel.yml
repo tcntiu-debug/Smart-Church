@@ -1,23 +1,25 @@
 name: Deploy to cPanel
 
 # ---------------------------------------------------------------------------
-# Push to main/master  ->  build the app  ->  publish to cPanel over FTPS
+# Push to main/master  ->  build the app  ->  publish to cPanel over SFTP (SSH)
+#
+# WHY SFTP (port 22) AND NOT FTPS?
+#   This server's FTPS passive-mode data ports are filtered/flaky when reached
+#   from GitHub's runners ("Timeout when trying to open data connection to ..."),
+#   which aborts the upload halfway through and leaves a half-written tree that
+#   shows "Index of /" instead of the app. SFTP rides the single SSH connection,
+#   so it transfers reliably. The cPanel account accepts SSH password logins.
+#   See docs/DEPLOY-dev.lit-grp.com.md -> "Transports: FTPS vs SFTP".
 #
 # Required repository secrets  (Settings > Secrets and variables > Actions):
-#   CPANEL_HOST      FTP/SFTP hostname, e.g. server123.webhost.com or your domain
-#   CPANEL_USER      cPanel username, or a dedicated FTP account
-#   CPANEL_PASSWORD  matching password
+#   CPANEL_HOST      SSH hostname, e.g. ftp.lit-grp.com or your domain
+#   CPANEL_USER      cPanel username (e.g. litgrpco)
+#   CPANEL_PASSWORD  matching password (now used for the SSH login)
 #
 # Optional repository variables (same screen, "Variables" tab):
-#   CPANEL_PROTOCOL   ftps (default) | ftp   <- this action is FTP/FTPS only (no SFTP)
-#   CPANEL_PORT       21 (default)
-#   CPANEL_REMOTE_DIR remote directory to publish into (default: public_html/)
-#                     for a subdomain with docroot /home/USER/smart-church/public
-#                     use smart-church/
-#
-# NOTE: SamKirkland/FTP-Deploy-Action does NOT speak SFTP. If your host only allows
-# SSH/SFTP, replace the "Publish to cPanel" step with an SFTP-capable action
-# (see docs/DEPLOY-dev.lit-grp.com.md -> "Transports: FTPS vs SFTP").
+#   CPANEL_SSH_PORT   22 (default)
+#   CPANEL_REMOTE_DIR publish directory RELATIVE to the account home (~), e.g.
+#                     public_html/dev.lit-grp.com/   (default: public_html/)
 #
 # See docs/CPANEL-DEPLOYMENT.md for the full walkthrough.
 # ---------------------------------------------------------------------------
@@ -106,52 +108,103 @@ jobs:
           done
           exit $missing
 
-      - name: Publish to cPanel
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      # Build ONE archive of exactly the files that belong on the server, then send
+      # it as a single stream over SSH. This replaces the old FTPS sync, which kept
+      # dying on "Timeout when trying to open data connection".
+      - name: Stage deployment payload (tar)
+        run: |
+          set -euo pipefail
+          tar -czf smart-church-deploy.tar.gz \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./.idea' \
+            --exclude='./.vscode' \
+            --exclude='./.fleet' \
+            --exclude='./node_modules' \
+            --exclude='./.gitignore' \
+            --exclude='./.gitattributes' \
+            --exclude='./.editorconfig' \
+            --exclude='./.styleci.yml' \
+            --exclude='./.env' \
+            --exclude='./.env.*' \
+            --exclude='./.ftp-deploy-sync-state.json' \
+            --exclude='./package.json' \
+            --exclude='./webpack.mix.js' \
+            --exclude='./phpunit.xml' \
+            --exclude='./tests' \
+            --exclude='./docs' \
+            --exclude='./scripts' \
+            --exclude='./README.md' \
+            --exclude='./check_*.php' \
+            --exclude='./debug_*.php' \
+            --exclude='./fix_escape.php' \
+            --exclude='./task_progress.json' \
+            --exclude='./test-login.html' \
+            --exclude='./public/test-login.html' \
+            --exclude='./smart-church-deploy.tar.gz' \
+            .
+          echo "Payload size: $(du -h smart-church-deploy.tar.gz | cut -f1)"
+          echo "Sanity check - these ROOT entries must be present (they carry the"
+          echo "front controller and were exactly what the failed FTPS run never sent):"
+          tar -tzf smart-church-deploy.tar.gz | grep -E '^\./(\.htaccess|artisan|composer\.json|server\.php)$' || true
+
+      - name: Publish to cPanel (SFTP)
+        uses: appleboy/scp-action@v1
         with:
-          server: ${{ secrets.CPANEL_HOST }}
+          host: ${{ secrets.CPANEL_HOST }}
           username: ${{ secrets.CPANEL_USER }}
           password: ${{ secrets.CPANEL_PASSWORD }}
-          protocol: ${{ vars.CPANEL_PROTOCOL || 'ftps' }}
-          port: ${{ vars.CPANEL_PORT || 21 }}
-          # The MAIN cPanel account is jailed to your home directory, so "/" would drop
-          # the app NEXT TO public_html instead of inside it. Default to public_html/.
-          # A dedicated FTP account jailed to public_html/ must use "/" instead.
-          server-dir: ${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}
-          local-dir: ./
-          # Shared-hosting TLS certificates are frequently self-signed.
-          security: loose
-          # NEVER true: it deletes anything on the server that is not in the repo,
-          # which would wipe every member photo and uploaded PDF.
-          dangerous-clean-slate: false
-          log-level: standard
-          timeout: 120000
-          exclude: |
-            **/.git/**
-            **/.github/**
-            **/.idea/**
-            **/.vscode/**
-            **/node_modules/**
-            .gitignore
-            .gitattributes
-            .editorconfig
-            .styleci.yml
-            .ftp-deploy-sync-state.json
-            .env
-            .env.*
-            package.json
-            webpack.mix.js
-            phpunit.xml
-            tests/**
-            docs/**
-            scripts/**
-            README.md
-            check_*.php
-            debug_*.php
-            fix_escape.php
-            task_progress.json
-            test-login.html
-            public/test-login.html
+          port: ${{ vars.CPANEL_SSH_PORT || 22 }}
+          source: "smart-church-deploy.tar.gz"
+          # Account home directory; the archive is extracted from here in the next step.
+          target: "/home/${{ secrets.CPANEL_USER }}"
+          # Add --overwrite so re-deploys replace existing files (never --rm: that
+          # would delete the server .env and every uploaded photo/PDF).
+          overwrite: true
+          timeout: 60s
+          command_timeout: 30m
+          debug: false
+
+      - name: Extract build on server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.CPANEL_HOST }}
+          username: ${{ secrets.CPANEL_USER }}
+          password: ${{ secrets.CPANEL_PASSWORD }}
+          port: ${{ vars.CPANEL_SSH_PORT || 22 }}
+          timeout: 60s
+          command_timeout: 15m
+          script: |
+            set -e
+            APP_DIR="/home/${{ secrets.CPANEL_USER }}/${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}"
+            APP_DIR="${APP_DIR%/}"
+            TARBALL="/home/${{ secrets.CPANEL_USER }}/smart-church-deploy.tar.gz"
+
+            echo "==> Application directory: $APP_DIR"
+            test -f "$TARBALL" || { echo "ERROR: payload $TARBALL was not uploaded"; exit 1; }
+            mkdir -p "$APP_DIR"
+
+            echo "==> Extracting payload (overwrites changed files, deletes nothing)..."
+            tar -xzf "$TARBALL" -C "$APP_DIR"
+            rm -f "$TARBALL"
+
+            echo "==> Root of the deployed app:"
+            ls -la "$APP_DIR"
+
+            # Best-effort application bootstrap. It needs the server .env + database,
+            # so it is skipped until those exist (docs Step 7 / Step 8).
+            if [ -f "$APP_DIR/.env" ]; then
+              cd "$APP_DIR"
+              if command -v php >/dev/null 2>&1; then
+                echo "==> php artisan app:post-deploy"
+                php artisan app:post-deploy || echo "WARNING: app:post-deploy returned a non-zero status"
+              else
+                echo "NOTE: 'php' is not on the non-interactive SSH PATH; run app:post-deploy from cPanel Terminal."
+              fi
+            else
+              echo "NOTE: $APP_DIR/.env not found - skipping 'php artisan' (create the server .env first)."
+            fi
+            echo "==> Publish complete."
 
       - name: Deployment summary
         if: always()
@@ -163,7 +216,7 @@ jobs:
             echo "| --- | --- |"
             echo "| Commit | \`${GITHUB_SHA:0:7}\` |"
             echo "| Branch | \`${GITHUB_REF_NAME}\` |"
-            echo "| Transport | \`${{ vars.CPANEL_PROTOCOL || 'ftps' }}:${{ vars.CPANEL_PORT || 21 }}\` |"
+            echo "| Transport | \`sftp:${{ vars.CPANEL_SSH_PORT || 22 }}\` |"
             echo "| Remote directory | \`${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}\` |"
             echo "| Triggered by | @${GITHUB_ACTOR} |"
           } >> "$GITHUB_STEP_SUMMARY"
