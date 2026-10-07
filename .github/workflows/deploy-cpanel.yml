@@ -153,44 +153,54 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq sshpass
 
-          APP_DIR="/home/${SSH_USER}/${REMOTE_DIR%/}"
-          TARBALL="/home/${SSH_USER}/smart-church-deploy.tar.gz"
           # sshpass -e reads the password from $SSHPASS - it never hits the command line.
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=25 -p ${SSH_PORT}"
           SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=25 -P ${SSH_PORT}"
 
           echo "==> Probing SSH login to ${SSH_USER}@${SSH_HOST}:${SSH_PORT}"
           if ! sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" \
-              'echo connected to $(hostname); echo HOME=$HOME; command -v tar; command -v php || true' 2>ssh.err; then
+              'echo HOME=$HOME; echo PWD=$PWD; command -v tar; command -v php || true' >probe.out 2>ssh.err; then
             echo "::error title=SSH login failed::$(tr '\n' '|' < ssh.err | head -c 900)"
             exit 1
           fi
+          echo "::notice title=ssh probe::$(tr '\n' '|' < probe.out | head -c 500)"
 
-          echo "==> Uploading payload to ${TARBALL}"
-          if ! sshpass -e scp $SCP_OPTS smart-church-deploy.tar.gz "${SSH_USER}@${SSH_HOST}:${TARBALL}" 2>upload.err; then
+          echo "==> Uploading payload into the remote home directory"
+          if ! sshpass -e scp $SCP_OPTS smart-church-deploy.tar.gz "${SSH_USER}@${SSH_HOST}:smart-church-deploy.tar.gz" 2>upload.err; then
             echo "::error title=scp upload failed::$(tr '\n' '|' < upload.err | head -c 900)"
             exit 1
           fi
 
-          echo "==> Extracting into ${APP_DIR} and bootstrapping"
-          if ! sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" "
-            set -e
-            test -f '${TARBALL}' || { echo 'payload missing'; exit 1; }
-            mkdir -p '${APP_DIR}'
-            tar -xzf '${TARBALL}' -C '${APP_DIR}'
-            rm -f '${TARBALL}'
-            ls -la '${APP_DIR}'
-            if [ -f '${APP_DIR}/.env' ]; then
-              cd '${APP_DIR}'
-              (command -v php >/dev/null 2>&1 && php artisan app:post-deploy) || echo 'NOTE: skipped or failed app:post-deploy'
-            else
-              echo 'NOTE: .env missing - skipping artisan (create the server .env first)'
-            fi
-            echo 'Publish complete.'
-          " 2>extract.err; then
+          # Resolve everything against the account's real $HOME on the server (its prefix
+          # is not necessarily /home/<user>), so the app lands in the right document root.
+          echo "==> Extracting on the server"
+          if ! sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" "REMOTE_DIR=${REMOTE_DIR} bash -s" >extract.out 2>extract.err <<'EOS'
+          set -e
+          APP_DIR="$HOME/${REMOTE_DIR%/}"
+          TARBALL="$HOME/smart-church-deploy.tar.gz"
+          echo "HOME=$HOME"
+          echo "APP_DIR=$APP_DIR"
+          echo "--- parent of APP_DIR ---"
+          ls -la "$(dirname "$APP_DIR")" | head -60
+          test -f "$TARBALL" || { echo "payload $TARBALL missing"; exit 1; }
+          mkdir -p "$APP_DIR"
+          tar -xzf "$TARBALL" -C "$APP_DIR"
+          rm -f "$TARBALL"
+          echo "--- after extract: $APP_DIR ---"
+          ls -la "$APP_DIR" | head -60
+          if [ -f "$APP_DIR/.env" ]; then
+            cd "$APP_DIR"
+            (command -v php >/dev/null 2>&1 && php artisan app:post-deploy) || echo "NOTE: skipped or failed app:post-deploy"
+          else
+            echo "NOTE: .env missing - skipping artisan (create the server .env first)"
+          fi
+          echo "Publish complete."
+          EOS
+          then
             echo "::error title=remote extract failed::$(tr '\n' '|' < extract.err | head -c 900)"
             exit 1
           fi
+          echo "::notice title=remote layout::$(tr '\n' '|' < extract.out | head -c 3500)"
 
       - name: Deployment summary
         if: always()
