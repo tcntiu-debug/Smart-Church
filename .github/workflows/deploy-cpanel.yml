@@ -141,70 +141,66 @@ jobs:
           echo "front controller and were exactly what the failed FTPS run never sent):"
           tar -tzf smart-church-deploy.tar.gz | grep -E '\.htaccess$|/artisan$|/composer\.json$|/server\.php$' || echo "::warning title=payload check::expected root files were not found in the archive"
 
-      - name: Publish to cPanel (SFTP/SSH)
+      - name: Publish to cPanel (SFTP)
         env:
           SSHPASS: ${{ secrets.CPANEL_PASSWORD }}
           SSH_HOST: ${{ secrets.CPANEL_HOST }}
           SSH_USER: ${{ secrets.CPANEL_USER }}
           SSH_PORT: ${{ vars.CPANEL_SSH_PORT || 22 }}
-          REMOTE_DIR: ${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}
+          REMOTE_DIR: ${{ vars.CPANEL_REMOTE_DIR || 'public_html/dev.lit-grp.com/' }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq sshpass
+          sudo apt-get install -y -qq lftp rsync
 
-          # sshpass -e reads the password from $SSHPASS - it never hits the command line.
-          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=25 -p ${SSH_PORT}"
-          SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=25 -P ${SSH_PORT}"
+          # This cPanel account is SFTP-ONLY ("Shell access is not enabled on your
+          # account"), so we must NOT run remote commands - no tar/composer/artisan over
+          # SSH. Instead we mirror the built files through the SFTP subsystem with lftp,
+          # which is robust and parallel. Paths are relative to the SFTP home, so they do
+          # not depend on the /home/<user> prefix.
+          STAGE="$RUNNER_TEMP/site"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          rsync -a \
+            --exclude='.git' --exclude='.github' --exclude='.idea' \
+            --exclude='.vscode' --exclude='.fleet' --exclude='node_modules' \
+            --exclude='.gitignore' --exclude='.gitattributes' \
+            --exclude='.editorconfig' --exclude='.styleci.yml' \
+            --exclude='.env' --exclude='.env.*' \
+            --exclude='.ftp-deploy-sync-state.json' \
+            --exclude='package.json' --exclude='webpack.mix.js' \
+            --exclude='phpunit.xml' --exclude='tests' --exclude='docs' \
+            --exclude='scripts' --exclude='README.md' \
+            --exclude='check_*.php' --exclude='debug_*.php' \
+            --exclude='fix_escape.php' --exclude='task_progress.json' \
+            --exclude='test-login.html' --exclude='public/test-login.html' \
+            --exclude='smart-church-deploy.tar.gz' \
+            "$GITHUB_WORKSPACE/" "$STAGE/"
+          echo "Staged $(find "$STAGE" -type f | wc -l) files; root listing:"
+          ls -la "$STAGE" | head -40
 
-          echo "==> Probing SSH login to ${SSH_USER}@${SSH_HOST}:${SSH_PORT}"
-          if ! sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" \
-              'echo HOME=$HOME; echo PWD=$PWD; command -v tar; command -v php || true' >probe.out 2>ssh.err; then
-            echo "::error title=SSH login failed::$(tr '\n' '|' < ssh.err | head -c 900)"
-            exit 1
-          fi
-          echo "::notice title=ssh probe::$(tr '\n' '|' < probe.out | head -c 500)"
-
-          echo "==> Uploading payload into the remote home directory"
-          if ! sshpass -e scp $SCP_OPTS smart-church-deploy.tar.gz "${SSH_USER}@${SSH_HOST}:smart-church-deploy.tar.gz" 2>upload.err; then
-            echo "::error title=scp upload failed::$(tr '\n' '|' < upload.err | head -c 900)"
-            exit 1
-          fi
-
-          # Resolve everything against the account's real $HOME on the server (its prefix
-          # is not necessarily /home/<user>), so the app lands in the right document root.
-          echo "==> Extracting on the server"
-          if ! sshpass -e ssh $SSH_OPTS "${SSH_USER}@${SSH_HOST}" "REMOTE_DIR=${REMOTE_DIR} bash -s" >extract.out 2>extract.err <<'EOS'
+          echo "==> Mirroring to sftp://${SSH_HOST}:${SSH_PORT}/${REMOTE_DIR%/}"
+          set +e
+          LFTP_PASSWORD="$SSHPASS" lftp --env-password -u "$SSH_USER" "sftp://${SSH_HOST}:${SSH_PORT}" >lftp.out 2>&1 <<LFTP
+          set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25"
+          set sftp:auto-confirm yes
+          set net:max-retries 3
+          set net:timeout 30
+          set net:reconnect-interval-base 5
+          set mirror:parallel-transfer-count 4
+          mkdir -p "${REMOTE_DIR%/}"
+          mirror -R --verbose=1 --no-perms --no-symlinks "$STAGE/" "${REMOTE_DIR%/}"
+          bye
+          LFTP
+          rc=$?
           set -e
-          case "$REMOTE_DIR" in
-            /*) APP_DIR="${REMOTE_DIR%/}" ;;
-            *)  APP_DIR="$HOME/${REMOTE_DIR%/}" ;;
-          esac
-          TARBALL="$HOME/smart-church-deploy.tar.gz"
-          echo "HOME=$HOME"
-          echo "REMOTE_DIR=$REMOTE_DIR"
-          echo "APP_DIR=$APP_DIR"
-          echo "--- parent of APP_DIR ---"
-          ls -la "$(dirname "$APP_DIR")" | head -60
-          test -f "$TARBALL" || { echo "payload $TARBALL missing"; exit 1; }
-          mkdir -p "$APP_DIR"
-          tar -xzf "$TARBALL" -C "$APP_DIR"
-          rm -f "$TARBALL"
-          echo "--- after extract: $APP_DIR ---"
-          ls -la "$APP_DIR" | head -60
-          if [ -f "$APP_DIR/.env" ]; then
-            cd "$APP_DIR"
-            (command -v php >/dev/null 2>&1 && php artisan app:post-deploy) || echo "NOTE: skipped or failed app:post-deploy"
-          else
-            echo "NOTE: .env missing - skipping artisan (create the server .env first)"
-          fi
-          echo "Publish complete."
-          EOS
-          then
-            echo "::error title=remote extract failed::$(tr '\n' '|' < extract.err | head -c 900)"
+          echo "::notice title=lftp output::$(tail -c 2500 lftp.out | tr '\n' '|')"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=SFTP upload failed (lftp exit $rc)::see the 'lftp output' notice"
             exit 1
           fi
-          echo "::notice title=remote layout::$(tr '\n' '|' < extract.out | head -c 3500)"
+          echo "==> Upload complete. Files are on the server (artisan commands are NOT run:"
+          echo "    the account has no shell - see docs/DEPLOY-dev.lit-grp.com.md)."
 
       - name: Deployment summary
         if: always()
