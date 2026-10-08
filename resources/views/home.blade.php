@@ -257,7 +257,7 @@
     </a>
     <a href="{{ url('/bus-route') }}" class="action-card">
         <span class="action-icon">🚌</span>
-        <span class="action-title">Bus Route</span>
+        <span class="action-title">Bus Route (Deprecated)</span>
     </a>
     <a href="{{ url('/birthdays') }}" class="action-card">
         <span class="action-icon">🎂</span>
