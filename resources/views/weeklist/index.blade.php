@@ -102,10 +102,97 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="6" class="text-center text-muted">No records found for the selected period.</td≯
+                            <tr><td colspan="6" class="text-center text-muted">No records found for the selected period.</td></tr>
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+
+            <!-- View Call List button -->
+            <div class="text-center mt-4">
+                <button type="button" class="btn btn-info btn-lg" data-toggle="modal" data-target="#callerModal">
+                    <i class="fas fa-phone-alt"></i> View Call List
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Weekly Call List Modal -->
+<div class="modal fade" id="callerModal" tabindex="-1" role="dialog" aria-labelledby="callerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title" id="callerModalLabel">
+                    <i class="fas fa-phone-volume"></i> Weekly Call List ({{ $page_title }})
+                </h5>
+                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped">
+                        <thead class="thead-light">
+                            <tr>
+                                <th>#</th>
+                                <th>Name</th>
+                                <th>Phone</th>
+                                <th>Gender</th>
+                                <th>Age</th>
+                                <th>Guest Type</th>
+                                <th>Caller (select to change)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($rows as $index => $row)
+                                @php
+                                    $currentCallerId = $assignments[$row->first_timer_id] ?? null;
+                                    $phoneLink = \Illuminate\Support\Str::startsWith($row->phone_number, '0')
+                                        ? '234' . substr($row->phone_number, 1)
+                                        : $row->phone_number;
+                                @endphp
+                                <tr data-ftid="{{ $row->first_timer_id }}">
+                                    <td>{{ $index + 1 }}</td>
+                                    <td>{{ $row->first_name }} {{ $row->last_name }}</td>
+                                    <td><a href="tel:{{ $phoneLink }}">{{ $row->phone_number }}</a></td>
+                                    <td>{{ $row->gender }}</td>
+                                    <td>{{ ($row->age !== null && $row->age !== '') ? $row->age : 'Not specified' }}</td>
+                                    <td>{{ $row->attendant_type }}</td>
+                                    <td>
+                                        <select class="form-control caller-select" data-ftid="{{ $row->first_timer_id }}">
+                                            <option value="">-- Auto (Round-robin) --</option>
+                                            @foreach($callers as $caller)
+                                                <option value="{{ $caller->tiu_member_id }}" {{ (string) $currentCallerId === (string) $caller->tiu_member_id ? 'selected' : '' }}>
+                                                    {{ $caller->full_name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <span class="save-status" id="status-{{ $row->first_timer_id }}"></span>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="7" class="text-center text-muted">No records to display.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                @if($callers->isEmpty())
+                    <div class="alert alert-warning mb-0">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        No callers were found in the "{{ $callerSubgroup }}" subgroup. Add members to that subgroup to populate this list.
+                    </div>
+                @else
+                    <hr>
+                    <small class="text-muted">
+                        <i class="fas fa-info-circle"></i>
+                        Select a caller from the dropdown. Changes are saved automatically. Choose "-- Auto (Round-robin) --" to reset.
+                    </small>
+                @endif
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="printCallList();">Print List</button>
             </div>
         </div>
     </div>
@@ -121,3 +208,104 @@
     }
 </style>
 @endsection
+
+@push('scripts')
+<script>
+    var groupedPrintData = @json($groupedForPrint);
+    var printTitle = @json($page_title);
+
+    $(document).ready(function () {
+        // Persist the caller change as soon as the dropdown changes.
+        $(document).on('change', '.caller-select', function () {
+            var selectEl = $(this);
+            var ftId = selectEl.data('ftid');
+            var callerId = selectEl.val();
+            var statusSpan = $('#status-' + ftId);
+
+            statusSpan.html('<i class="fas fa-spinner fa-spin"></i> Saving...');
+
+            $.ajax({
+                url: '{{ route('weeklist.assign-caller') }}',
+                type: 'POST',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    first_timer_id: ftId,
+                    caller_member_id: callerId
+                },
+                dataType: 'json',
+                success: function (response) {
+                    if (response.success) {
+                        statusSpan.html('<i class="fas fa-check-circle text-success"></i> Saved');
+                        setTimeout(function () { statusSpan.html(''); }, 2000);
+                    } else {
+                        statusSpan.html('<i class="fas fa-exclamation-circle text-danger"></i> ' + (response.message || 'Error'));
+                    }
+                },
+                error: function (xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.message) ? xhr.responseJSON.message : 'Save failed';
+                    statusSpan.html('<i class="fas fa-exclamation-circle text-danger"></i> ' + msg);
+                }
+            });
+        });
+    });
+
+    function buildCallerBlock(caller, persons) {
+        var html = '<div class="caller-group"><strong>' + escapeHtml(caller) + ':</strong><br>';
+        for (var i = 0; i < persons.length; i++) {
+            var p = persons[i];
+            var line = escapeHtml(p.name) + ' (' + escapeHtml(p.phone) + ') - ' + escapeHtml(p.gender) + ' - ' + escapeHtml(p.guest_type) + ' - ' + escapeHtml(p.age);
+            html += '&nbsp;&nbsp;&nbsp;' + line + '<br>';
+        }
+        return html + '</div><br>';
+    }
+
+    function printCallList() {
+        if (!groupedPrintData || Object.keys(groupedPrintData).length === 0) {
+            alert('No data to print.');
+            return;
+        }
+
+        var contentHtml = '<div class="header"><h2>Weekly Call List</h2><p>' + printTitle + '</p></div>';
+        var sortedCallers = Object.keys(groupedPrintData).sort();
+
+        for (var i = 0; i < sortedCallers.length; i++) {
+            var caller = sortedCallers[i];
+            if (caller === 'Unassigned') continue;
+            contentHtml += buildCallerBlock(caller, groupedPrintData[caller]);
+        }
+        if (groupedPrintData['Unassigned'] && groupedPrintData['Unassigned'].length > 0) {
+            contentHtml += buildCallerBlock('Unassigned', groupedPrintData['Unassigned']);
+        }
+
+        var fullHtml = '<!DOCTYPE html><html><head><title>Weekly Call List - Grouped by Caller</title>'
+            + '<style>'
+            + 'body{font-family:Arial,sans-serif;margin:20px;line-height:1.5;}'
+            + '.header{text-align:center;margin-bottom:30px;}'
+            + '.header h2{margin:0;}'
+            + '.caller-group{margin-bottom:15px;}'
+            + '.caller-group strong{font-size:1.1em;display:inline-block;margin-bottom:5px;}'
+            + '.footer{margin-top:30px;font-size:12px;text-align:center;color:#777;}'
+            + '@media print{body{margin:0;}}'
+            + '</style></head><body>'
+            + contentHtml
+            + '<div class="footer">Printed on ' + new Date().toLocaleString() + '</div>'
+            + '</body></html>';
+
+        var printWindow = window.open('', '_blank');
+        printWindow.document.write(fullHtml);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+    }
+
+    function escapeHtml(str) {
+        if (str === null || str === undefined || str === '') return '';
+        return String(str).replace(/[&<>]/g, function (m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+</script>
+@endpush
