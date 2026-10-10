@@ -256,9 +256,13 @@ jobs:
           # Paths that only exist on the server must survive even a mistaken `git rm`.
           PROTECTED='^(\.env($|\.)|bootstrap/cache/|storage/|public/uploads/|public/display_photo/|public/gallery_uploads/|public/storage$|\.well-known/|vendor/|node_modules/)'
 
+          # Paths the publish step never uploads (its rsync --exclude list), so there
+          # is nothing to prune there and no missing-file noise either.
+          NEVER_UPLOADED='^(tests/|docs/|scripts/|\.git|\.idea/|\.vscode/|\.fleet/|\.gitignore$|\.gitattributes$|\.editorconfig$|\.styleci\.yml$|package\.json$|webpack\.mix\.js$|phpunit\.xml$|README\.md$|check_.*\.php$|debug_.*\.php$|fix_escape\.php$|task_progress\.json$|test-login\.html$)'
+
           # --no-renames so a move shows up as delete + add, never as a silent rename.
           git diff --no-renames --diff-filter=D --name-only "$BASELINE" "$GITHUB_SHA" \
-            | grep -v -E "$PROTECTED" > "$RUNNER_TEMP/prune.txt" || true
+            | grep -v -E "$PROTECTED" | grep -v -E "$NEVER_UPLOADED" > "$RUNNER_TEMP/prune.txt" || true
 
           if [ ! -s "$RUNNER_TEMP/prune.txt" ]; then
             echo "Nothing to prune - the server already matches the repository."

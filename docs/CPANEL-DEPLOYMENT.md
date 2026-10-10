@@ -26,8 +26,9 @@ user upload (`public/uploads`, `public/display_photo`, `public/gallery_uploads`)
 file removed from the repository would linger on the server forever. The *Prune files
 deleted from the repository* step closes that gap: it diffs the commit of the last
 successful deploy against the commit being pushed and deletes exactly the paths that
-`git rm` took out of the tree. Paths that only ever exist on the server are protected by
-a hard-coded list — `.env`, `storage/**`, `bootstrap/cache/**`, `public/uploads/**`,
+`git rm` took out of the tree (paths the publish step never uploads, such as `tests/` and
+`docs/`, are skipped). Paths that only ever exist on the server are protected by a
+hard-coded list — `.env`, `storage/**`, `bootstrap/cache/**`, `public/uploads/**`,
 `public/display_photo/**`, `public/gallery_uploads/**`, `public/storage`,
 `.well-known/**`, `vendor/**`, `node_modules/**` — so live member photos, PDFs and the
 production environment file can never be removed by a commit.
