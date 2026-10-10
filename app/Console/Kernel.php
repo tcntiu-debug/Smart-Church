@@ -25,17 +25,17 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/birthday-reminders.log'));
 
-        // Retired-module clean-up: applies the Transport / FOF drop-migrations so
-        // the tables of the removed modules disappear from the database without
-        // anyone logging into phpMyAdmin (the SFTP-only account cannot run artisan
-        // from the deploy pipeline). The command is idempotent, so it is safe to
-        // keep scheduled: after the first successful run every later tick reports
-        // "Nothing to migrate". It is also part of `php artisan app:post-deploy`.
-        $schedule->command('app:retire-legacy')
+        // Schema sync: the deploy pipeline is SFTP-only and cannot run artisan on
+        // the server, so this applies the migrations the server needs (it creates
+        // the notification tables and drops the tables of the retired Transport /
+        // FOF modules). It is idempotent, so it is safe to keep scheduled: once
+        // everything is in step every later tick reports "Nothing to migrate".
+        // The same command is part of `php artisan app:post-deploy`.
+        $schedule->command('app:sync-schema')
             ->dailyAt('03:20')
             ->timezone(config('birthday.timezone', 'Africa/Lagos'))
             ->withoutOverlapping()
-            ->appendOutputTo(storage_path('logs/legacy-retirement.log'));
+            ->appendOutputTo(storage_path('logs/schema-sync.log'));
 
         // $schedule->command('inspire')->hourly();
     }

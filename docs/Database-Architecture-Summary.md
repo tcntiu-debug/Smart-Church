@@ -116,8 +116,8 @@ Removed models: `TransportRoute`, `TransportStop`, `BusAttendance`.
 
 > Local and server schemas are kept in step by the drop-migrations
 > (`2026_05_25_000002`–`000004`), which the deploy applies with
-> `php artisan app:retire-legacy` — the SFTP pipeline cannot run artisan itself.
-> See `docs/CPANEL-DEPLOYMENT.md` → *Retired modules*.
+> `php artisan app:sync-schema` — the SFTP pipeline cannot run artisan itself.
+> See `docs/CPANEL-DEPLOYMENT.md` → *Schema sync*.
 
 ---
 
@@ -138,8 +138,8 @@ Removed models: `FofCohortSetting`, `FofRegister`, `FofMarkAttendance`.
 
 > Local and server schemas are kept in step by the drop-migrations
 > (`2026_05_25_000002`–`000004`), which the deploy applies with
-> `php artisan app:retire-legacy` — the SFTP pipeline cannot run artisan itself.
-> See `docs/CPANEL-DEPLOYMENT.md` → *Retired modules*.
+> `php artisan app:sync-schema` — the SFTP pipeline cannot run artisan itself.
+> See `docs/CPANEL-DEPLOYMENT.md` → *Schema sync*.
 
 ---
 

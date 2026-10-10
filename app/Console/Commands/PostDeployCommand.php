@@ -56,12 +56,13 @@ class PostDeployCommand extends Command
 
         $results[] = ['Public storage linked', $this->linkStorage()];
 
-        // Retired modules (Transport / bus route, standalone FOF programme): the
-        // drop-migrations ship with the code, and this is what actually applies
-        // them - the SFTP deploy pipeline cannot run artisan on the server. The
-        // command is idempotent, so a re-run is a no-op.
-        $results[] = ['Retired modules cleaned up', $this->runSteps([
-            ['Dropping the retired Transport / FOF tables', 'app:retire-legacy'],
+        // Schema sync: the tables the deployed code needs (notification bell,
+        // birthday reminder log) plus the drop of the retired Transport / FOF
+        // tables. The SFTP deploy pipeline cannot run artisan on the server, so
+        // this is what actually applies those migrations. Idempotent - a re-run
+        // is a no-op.
+        $results[] = ['Schema in step with the code', $this->runSteps([
+            ['Creating the tables the code needs and retiring the legacy ones', 'app:sync-schema'],
         ])];
 
         // route:cache is deliberately non-fatal. routes/web.php defines Closure

@@ -207,7 +207,7 @@ cPanel → **Advanced** → **Terminal**:
 ```bash
 cd ~/public_html
 
-php artisan app:post-deploy             # directories, caches, storage link, legacy clean-up
+php artisan app:post-deploy             # directories, caches, storage link, app:sync-schema
 php artisan app:post-deploy --migrate   # ...plus pending database migrations
 ```
 
@@ -222,8 +222,9 @@ php artisan app:post-deploy --migrate   # ...plus pending database migrations
 5. attempts `route:cache` and **warns instead of failing** if your routes cannot be
    serialised (see *Known issue* below);
 6. with `--migrate`, runs pending migrations using `--force`.
-7. always runs `app:retire-legacy`, which drops the tables of the retired Transport
-   (bus route) and standalone FOF modules — idempotent, see *Retired modules* below.
+7. always runs `app:sync-schema`, which creates the tables the code needs (notification
+   bell, birthday reminder log) and drops the tables of the retired Transport (bus route)
+   and standalone FOF modules — idempotent, see *Schema sync* below.
 
 ### If cPanel Terminal is not available
 
@@ -365,38 +366,36 @@ php artisan migrate --force \
 route name that previously blocked caching was removed on 2026-05-25 when the
 transport feature was retired.)
 
-## Retired modules (Transport / bus route, standalone FOF)
+## Schema sync (`app:sync-schema`)
 
-Both modules were removed from the codebase on 2026-05-25 (models, controllers, routes,
-views, navigation entries). Removing them from the **server** is a two-part job, and both
-parts are automatic — no phpMyAdmin and no manual SFTP deletes:
+The pipeline cannot run PHP on the server, so the two migrations that must reach the
+database are applied by `php artisan app:sync-schema` instead — it runs from the daily
+`schedule:run` cron (03:20 `Africa/Lagos`) and inside every `app:post-deploy`:
 
-| Part | What removes it | When |
-|------|-----------------|------|
-| Files (`app/Http/Controllers/TransportController.php`, `resources/views/transport/*`, …) | the *Prune files deleted from the repository* step in `.github/workflows/deploy-cpanel.yml` | on the deploy that carries the deletion |
-| Tables (`transport_routes`, `transport_stops`, `bus_attendance`, `fof_cohort_setting`, `fof_register_table`, `fof_mark_attendance_table`) and `tiu_member` transport foreign keys | `php artisan app:retire-legacy` | the daily `schedule:run` cron (03:20 Africa/Lagos) and every `app:post-deploy` run |
+| What | Why it is needed | Result |
+|------|------------------|--------|
+| `birthday_reminder_logs`, `app_notifications` | created by the migrations that shipped with the birthday reminders and the notification bell | created when missing; a table that already exists is left untouched and its migration is recorded as applied, so a later `migrate` cannot abort with "table already exists" |
+| `transport_routes`, `transport_stops`, `bus_attendance`, `fof_cohort_setting`, `fof_register_table`, `fof_mark_attendance_table` plus the `tiu_member` transport foreign keys | the Transport (bus route) and standalone FOF modules were retired on 2026-05-25 | dropped (`dropIfExists` / guarded drops, so a re-run is a no-op) |
 
-How the table clean-up works: the three `2026_05_25_00000{2,3,4}_drop_*` migrations ship
-with the code, but the pipeline cannot run PHP on the server, so `app:retire-legacy`
-applies exactly those three files with `migrate --path` — a plain `migrate` could abort on
-an unrelated legacy migration (see *Troubleshooting*). Every drop is `dropIfExists`/guarded,
-so the command is safe to re-run and reports `Nothing to migrate` afterwards.
+The **files** of those retired modules are removed by the *Prune files deleted from the
+repository* step of the deploy (`deploy-cpanel.yml`), which deletes exactly the paths a
+commit deleted. Neither part needs phpMyAdmin or a manual SFTP delete.
 
-Verify it, or run it immediately without waiting for the schedule:
+Verify it, or apply it immediately without waiting for the schedule:
 
 ```bash
 cd ~/public_html
 
-php artisan app:retire-legacy --dry-run   # what would be applied
-php artisan app:retire-legacy             # apply + print the state of every legacy table
-php artisan schedule:list                 # app:retire-legacy should be listed next to birthdays:remind
+php artisan app:sync-schema --dry-run   # what would change
+php artisan app:sync-schema             # apply + print both state tables
+php artisan schedule:list               # app:sync-schema should be listed next to birthdays:remind
 ```
 
-The command's own output ends in a table that reads `gone` for every retired table, which
-is the proof the retirement reached the database. (The `app:retire-legacy` schedule needs
-the per-minute `schedule:run` cron described above; without it the daily
-`app:post-deploy` cron still applies it — and `php artisan app:retire-legacy` in cPanel
-Terminal does it right now.)
+The output ends with two tables: *Table the code needs* must read `present` for every row
+and *Retired table* must read `gone` for every row — that is the proof the deployment
+reached the database. (It applies a curated list of migrations rather than running
+`migrate`: this database was seeded before the `migrations` table was kept in step, so an
+older migration can abort a full run — see *Troubleshooting*.)
 
 ---
 

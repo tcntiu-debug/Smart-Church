@@ -8,21 +8,32 @@ use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
- * Retirement of the Transport (bus route) and standalone FOF programme modules.
+ * `app:sync-schema` - the two things the deploy must do to the database that the
+ * SFTP-only pipeline cannot do itself (it has no shell to run artisan):
  *
- * The drop-migrations ship with the code, but the SFTP-only deploy pipeline
- * cannot run `php artisan migrate` on the server, so `app:retire-legacy` applies
- * them from the scheduler and from `app:post-deploy` instead. These tests pin
- * down both halves of that promise: the command succeeds (and is idempotent) and
- * the retired tables, files and routes really are gone.
+ *   1. create the tables the shipped code needs (the notification bell and the
+ *      birthday reminder log);
+ *   2. retire the Transport (bus route) and standalone FOF program - dropping
+ *      their tables, the tiu_member transport foreign keys and the files/routes
+ *      that belonged to them.
  *
  * Deliberately no RefreshDatabase: the suite runs against the application's real
- * connection and the command is a no-op once the migrations are recorded.
+ * connection and the command is a no-op once everything is in step.
  */
-class RetireLegacyModulesTest extends TestCase
+class SyncSchemaTest extends TestCase
 {
     /**
-     * Tables the retirement must have removed from the database.
+     * Tables the code needs after the sync.
+     *
+     * @var array
+     */
+    protected $requiredTables = [
+        'birthday_reminder_logs',
+        'app_notifications',
+    ];
+
+    /**
+     * Tables the retirement must have removed.
      *
      * @var array
      */
@@ -36,12 +47,14 @@ class RetireLegacyModulesTest extends TestCase
     ];
 
     /**
-     * The migrations that must end up recorded in the `migrations` table, so a
-     * later `migrate` run cannot try to apply them again.
+     * Every migration the command is responsible for, so a later `migrate` run
+     * cannot try to apply them again.
      *
      * @var array
      */
-    protected $retirementMigrations = [
+    protected $syncedMigrations = [
+        '2026_10_09_000001_create_birthday_reminder_logs_table',
+        '2026_10_09_000002_create_app_notifications_table',
         '2026_05_25_000002_drop_transport_foreign_keys_from_tiu_member_table',
         '2026_05_25_000003_drop_transport_tables',
         '2026_05_25_000004_drop_fof_tables',
@@ -53,31 +66,46 @@ class RetireLegacyModulesTest extends TestCase
      */
     public function test_command_runs_and_is_idempotent()
     {
-        $this->artisan('app:retire-legacy')->assertExitCode(0);
-        $this->artisan('app:retire-legacy')->assertExitCode(0);
+        $this->artisan('app:sync-schema')->assertExitCode(0);
+        $this->artisan('app:sync-schema')->assertExitCode(0);
     }
 
     /**
-     * The dry run reports without touching the database.
+     * The dry run reports without creating or dropping anything.
      */
     public function test_dry_run_changes_nothing()
     {
-        $this->artisan('app:retire-legacy', ['--dry-run' => true])->assertExitCode(0);
+        $this->artisan('app:sync-schema', ['--dry-run' => true])->assertExitCode(0);
 
         foreach ($this->legacyTables as $table) {
             $this->assertFalse(
                 Schema::hasTable($table),
-                "The dry run created or restored the retired table {$table}."
+                "The dry run recreated the retired table {$table}."
             );
         }
     }
 
     /**
-     * After the command has run, none of the retired tables exist any more.
+     * Tables the shipped code needs exist after the sync.
+     */
+    public function test_required_tables_exist()
+    {
+        $this->artisan('app:sync-schema')->assertExitCode(0);
+
+        foreach ($this->requiredTables as $table) {
+            $this->assertTrue(
+                Schema::hasTable($table),
+                "The table the code needs ({$table}) is missing."
+            );
+        }
+    }
+
+    /**
+     * None of the retired tables exist any more.
      */
     public function test_legacy_tables_are_gone()
     {
-        $this->artisan('app:retire-legacy')->assertExitCode(0);
+        $this->artisan('app:sync-schema')->assertExitCode(0);
 
         foreach ($this->legacyTables as $table) {
             $this->assertFalse(
@@ -88,14 +116,16 @@ class RetireLegacyModulesTest extends TestCase
     }
 
     /**
-     * The retirement migrations are recorded, so the deploy cannot strand the
-     * database with a pending drop.
+     * Every migration the command owns is recorded, so the schema cannot drift
+     * from the `migrations` table.
      */
-    public function test_retirement_migrations_are_recorded()
+    public function test_synced_migrations_are_recorded()
     {
+        $this->artisan('app:sync-schema')->assertExitCode(0);
+
         $ran = DB::table('migrations')->pluck('migration');
 
-        foreach ($this->retirementMigrations as $migration) {
+        foreach ($this->syncedMigrations as $migration) {
             $this->assertTrue(
                 $ran->contains($migration),
                 "Migration {$migration} is not recorded in the migrations table."
