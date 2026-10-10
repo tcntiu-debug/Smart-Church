@@ -5,7 +5,7 @@
 
 ## Overview
 
-The Smart-Church database consists of **30 tables** organized into **7 functional modules**. The architecture follows a **campus-centric model** where most records are scoped to a specific campus (church location). The central entity is `tiu_member`, which serves as both the member profile and authentication system.
+The Smart-Church database consists of **24 tables** organized into **6 functional modules**. (The former Transport module - `transport_routes`, `transport_stops`, `bus_attendance` - was retired on 2026-05-25, and the Admin FOF program - `fof_cohort_setting`, `fof_register_table`, `fof_mark_attendance_table` - was retired on 2026-05-25.) The architecture follows a **campus-centric model** where most records are scoped to a specific campus (church location). The central entity is `tiu_member`, which serves as both the member profile and authentication system.
 
 ---
 
@@ -43,7 +43,7 @@ Campus
 | # | Table | Primary Key | Purpose |
 |---|-------|-------------|---------|
 | 7 | `tiu_member` | `tiu_member_id` | Core member profiles & authentication |
-| 8 | `tiu_member_login` | `login_id` | Member login activity tracking |
+| 8 | `tiu_member_login` | `login_id` | Member login activity tracking (its `theme_settings` column is legacy/unused — the dark/light display mode is a per-device `tiu_theme` cookie, see `docs/DISPLAY-MODE.md`) |
 | 9 | `birthday` | `bid` | Member birthday records |
 | 10 | `church_member_contact` | `church_member_id` | Extended contact information |
 | 11 | `policy` | `pid` | Church policy acknowledgment/signatures |
@@ -55,10 +55,7 @@ TiuMember
  ├── belongsTo → Campus
  ├── belongsTo → Community
  ├── belongsTo → ChurchType
- ├── belongsTo → TransportStop (bus_stop_id)
  ├── hasOne  → Birthday
- ├── hasMany → BusAttendance (as rider)
- ├── hasMany → BusAttendance (as marker via marked_by)
  ├── hasMany → TiuMemberLogin
  ├── hasMany → Policy
  ├── hasMany → MarketplaceBusiness (as owner)
@@ -104,52 +101,45 @@ FirstTimer (first_timers)
 
 ---
 
-## Module 4: Transport System
+## Module 4: Transport System - RETIRED
 
-### Tables
+The transport (bus route) feature was fully removed on 2026-05-25. The three
+tables below were dropped, and their models, controllers, routes and views deleted.
 
-| # | Table | Primary Key | Purpose |
-|---|-------|-------------|---------|
-| 19 | `transport_routes` | `route_id` | Bus routes with driver info |
-| 20 | `transport_stops` | `stop_id` | Individual bus stops on routes |
-| 21 | `bus_attendance` | `attendance_id` | Member bus check-in records |
+| Table | Primary Key | Status |
+|-------|-------------|--------|
+| `transport_routes` | `route_id` | dropped |
+| `transport_stops` | `stop_id` | dropped |
+| `bus_attendance` | `attendance_id` | dropped |
 
-### Relationship Chain
+Removed models: `TransportRoute`, `TransportStop`, `BusAttendance`.
 
-```
-Campus
- └── hasMany → TransportRoute
-      ├── hasMany → TransportStop
-      └── hasMany → BusAttendance
-
-BusAttendance
- ├── belongsTo → TiuMember (rider)
- ├── belongsTo → TiuMember (marked_by)
- ├── belongsTo → TransportRoute
- └── belongsTo → TransportStop
-```
+> Local and server schemas are kept in step by the drop-migrations
+> (`2026_05_25_000002`–`000004`), which the deploy applies with
+> `php artisan app:retire-legacy` — the SFTP pipeline cannot run artisan itself.
+> See `docs/CPANEL-DEPLOYMENT.md` → *Retired modules*.
 
 ---
 
-## Module 5: Foundation of Faith (FOF) Program
+## Module 5: Foundation of Faith (FOF) Program - RETIRED
 
-### Tables
+The standalone Admin FOF program was fully removed on 2026-05-25. The three
+tables below were dropped, and their models, controllers, routes, views and
+navigation entries deleted. FOF remains a valid *department* on `tiu_member`;
+only the programme's own tables were removed.
 
-| # | Table | Primary Key | Purpose |
-|---|-------|-------------|---------|
-| 22 | `fof_cohort_setting` | `cohort_id` | Cohort definitions (A, B, C groups) |
-| 23 | `fof_register_table` | `reg_id` | Student registrations |
-| 24 | `fof_mark_attendance_table` | `id` | Weekly attendance records |
+| Table | Primary Key | Status |
+|-------|-------------|--------|
+| `fof_cohort_setting` | `cohort_id` | dropped |
+| `fof_register_table` | `reg_id` | dropped |
+| `fof_mark_attendance_table` | `id` | dropped |
 
-### Relationship Chain
+Removed models: `FofCohortSetting`, `FofRegister`, `FofMarkAttendance`.
 
-```
-Campus
- ├── hasMany → FofCohortSetting
- ├── hasMany → FofRegister
- │    └── hasMany → FofMarkAttendance
- └── hasMany → FofMarkAttendance
-```
+> Local and server schemas are kept in step by the drop-migrations
+> (`2026_05_25_000002`–`000004`), which the deploy applies with
+> `php artisan app:retire-legacy` — the SFTP pipeline cannot run artisan itself.
+> See `docs/CPANEL-DEPLOYMENT.md` → *Retired modules*.
 
 ---
 
@@ -190,22 +180,19 @@ MarketplaceCategory
 ## Entity Relationship Diagram (Text)
 
 ```
-                          ┌─────────────────────────────────────────────────────────────────────────────┐
-                          │                                    CAMPUS                                   │
-                          └──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──────────┘
-            ┌────────────────┘  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
-            ▼                   ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼  ▼
-      ChurchType         Communities Departments SubGroups TiuMembers TransportRoutes FofCohortSettings
-         │                    │          │                      │           │                │
-         ▼                    ▼          ▼                      ▼           ▼                ▼
-   FirstTimer            Department  BusAttendance         BusAttendance TransportStops  FofRegister
-         │                              │                      │                           │
-         ▼                              ▼                      ▼                           ▼
-   FirstTimerHangout                  FofRegister            TiuMemberLogin            FofMarkAttendance
-   MemberTrackingFollowup             MarketplaceBusiness    Policy                     
-   ChurchAttendance                   SharedResource         AirtimeHistory             
-                                      ResourceShare          Birthday                   
-                                                             ChurchMemberContact        
+                          +-----------------------------------------------------------+
+                          |                          CAMPUS                           |
+                          +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+------+
+                             |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+                             v  v  v  v  v  v  v  v  v  v  v  v  v  v  v  v  v  v
+      ChurchType    Communities Departments SubGroups TiuMembers
+         |               |           |          |          |
+         v               v           v          v          v
+   FirstTimer      Department  MarketplaceBusiness TiuMemberLogin
+   FirstTimerHangout          SharedResource               Policy
+   MemberTrackingFollowup     ResourceShare                Birthday
+   ChurchAttendance                                        AirtimeHistory
+                                                           ChurchMemberContact
 ```
 
 ---
@@ -214,42 +201,36 @@ MarketplaceCategory
 
 ### Existing Models (Updated with Full Relationships)
 ```
-1.  Campus.php          - 12 relationships + fillable
+1.  Campus.php          -  7 relationships + fillable
 2.  ChurchType.php      -  4 relationships + fillable
 3.  Community.php       -  4 relationships + fillable
 4.  Department.php      -  3 relationships + fillable
 5.  SubGroup.php        -  2 relationships + fillable
 6.  Occupation.php      -  1 relationship  + fillable
-7.  TiuMember.php       - 18 relationships + fillable + JSON accessors/mutators
+7.  TiuMember.php       - 15 relationships + fillable + JSON accessors/mutators
 8.  Birthday.php        -  1 relationship  + fillable
 9.  FirstTimer.php      -  4 relationships + fillable + scopes
 10. FirstTimersUpdate   -  1 relationship  + fillable
 11. MemberTrackingFollowup - 2 relationships + fillable + casts
 ```
 
-### New Models Created (16 total)
+### New Models Created (15 total)
 ```
-12. TransportRoute.php      -  3 relationships + fillable
-13. TransportStop.php       -  3 relationships + fillable
-14. BusAttendance.php       -  4 relationships + fillable
-15. Announcement.php        -  1 relationship  + fillable
-16. ChurchAttendance.php    -  1 relationship  + fillable
-17. FofCohortSetting.php    -  1 relationship  + fillable
-18. FofRegister.php         -  2 relationships + fillable
-19. FofMarkAttendance.php   -  2 relationships + fillable
-20. MarketplaceCategory.php  -  1 relationship  + fillable
-21. MarketplaceBusiness.php  -  2 relationships + fillable
-22. SharedResource.php      -  2 relationships + fillable
-23. ResourceShare.php       -  2 relationships + fillable
-24. PhotoGallery.php        -  0 relationships + fillable (standalone)
-25. TiuMemberLogin.php      -  1 relationship  + fillable
-26. ChurchMemberContact.php -  0 relationships + fillable (standalone)
-27. Policy.php              -  1 relationship  + fillable
-28. FirstTimerHangout.php   -  1 relationship  + fillable
-29. FirstTimerTrash.php     -  0 relationships + fillable (standalone)
-30. FirstTimeViewLimit.php  -  1 relationship  + fillable
-31. Task.php                -  0 relationships + fillable (standalone)
-32. AirtimeHistory.php      -  1 relationship  + fillable
+12. Announcement.php        -  1 relationship  + fillable
+13. ChurchAttendance.php    -  1 relationship  + fillable
+14. MarketplaceCategory.php  -  1 relationship  + fillable
+15. MarketplaceBusiness.php  -  2 relationships + fillable
+16. SharedResource.php      -  2 relationships + fillable
+17. ResourceShare.php       -  2 relationships + fillable
+18. PhotoGallery.php        -  0 relationships + fillable (standalone)
+19. TiuMemberLogin.php      -  1 relationship  + fillable
+20. ChurchMemberContact.php -  0 relationships + fillable (standalone)
+21. Policy.php              -  1 relationship  + fillable
+22. FirstTimerHangout.php   -  1 relationship  + fillable
+23. FirstTimerTrash.php     -  0 relationships + fillable (standalone)
+24. FirstTimeViewLimit.php  -  1 relationship  + fillable
+25. Task.php                -  0 relationships + fillable (standalone)
+26. AirtimeHistory.php      -  1 relationship  + fillable
 ```
 
 ### Key Design Decisions

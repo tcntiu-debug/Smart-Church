@@ -56,6 +56,14 @@ class PostDeployCommand extends Command
 
         $results[] = ['Public storage linked', $this->linkStorage()];
 
+        // Retired modules (Transport / bus route, standalone FOF programme): the
+        // drop-migrations ship with the code, and this is what actually applies
+        // them - the SFTP deploy pipeline cannot run artisan on the server. The
+        // command is idempotent, so a re-run is a no-op.
+        $results[] = ['Retired modules cleaned up', $this->runSteps([
+            ['Dropping the retired Transport / FOF tables', 'app:retire-legacy'],
+        ])];
+
         // route:cache is deliberately non-fatal. routes/web.php defines Closure
         // routes (/auto-unassign and /my-inbox) which cannot be serialised, so
         // this step is reported as a warning rather than an error.

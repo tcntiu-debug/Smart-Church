@@ -22,6 +22,15 @@ name: Deploy to cPanel
 #                     public_html/dev.lit-grp.com/   (default: public_html/)
 #
 # See docs/CPANEL-DEPLOYMENT.md for the full walkthrough.
+#
+# DELETIONS ARE PROPAGATED TOO
+#   A reverse mirror only adds and overwrites, so a file removed from the
+#   repository would linger on the server forever. The "Prune files deleted
+#   from the repository" step closes that gap: it diffs the last successful
+#   deploy against this commit and removes exactly the paths `git rm` took
+#   out of the tree - never anything that only lives on the server (.env,
+#   storage/app/public member photos, public/uploads, public/display_photo,
+#   public/gallery_uploads, public/storage, bootstrap/cache, .well-known).
 # ---------------------------------------------------------------------------
 
 on:
@@ -42,6 +51,9 @@ concurrency:
 
 permissions:
   contents: read
+  # Read the run history to find the last SUCCESSFUL deploy (the pruning
+  # baseline). Without it we fall back to the push's `before` SHA.
+  actions: read
 
 env:
   # Matches the Local dev environment (PHP 8.0.30) and composer.json ("php": "^7.3|^8.0").
@@ -56,6 +68,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Full history: the pruning step diffs this commit against the last
+          # successfully deployed one to know exactly what was deleted.
+          fetch-depth: 0
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -201,6 +217,99 @@ jobs:
           fi
           echo "==> Upload complete. Files are on the server (artisan commands are NOT run:"
           echo "    the account has no shell - see docs/DEPLOY-dev.lit-grp.com.md)."
+
+      # A reverse mirror only ADDS and OVERWRITES - it never removes, so a file
+      # deleted from the repository would survive on the server forever. This step
+      # removes exactly the paths `git diff` reports as deleted since the last
+      # successful deployment of this workflow. It is deliberately precise: a
+      # blanket `mirror --delete` would also wipe everything that only ever exists
+      # on the server (.env, storage/app/public member photos, public/uploads,
+      # public/display_photo, public/gallery_uploads, the public/storage symlink,
+      # bootstrap/cache, .well-known ...).
+      - name: Prune files deleted from the repository
+        env:
+          SSHPASS: ${{ secrets.CPANEL_PASSWORD }}
+          SSH_HOST: ${{ secrets.CPANEL_HOST }}
+          SSH_USER: ${{ secrets.CPANEL_USER }}
+          SSH_PORT: ${{ vars.CPANEL_SSH_PORT || 22 }}
+          REMOTE_DIR: ${{ vars.CPANEL_REMOTE_DIR || 'public_html/dev.lit-grp.com/' }}
+          BEFORE_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Baseline = the commit of the last SUCCESSFUL run of this workflow, so a
+          # deploy that failed on an earlier push never lets its deletions slip.
+          # Falls back to the push's `before` SHA and finally to the root commit.
+          BASELINE="$(gh api -X GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-cpanel.yml/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha' 2>/dev/null | tr -d '[:space:]' || true)"
+
+          if ! git cat-file -e "${BASELINE:-none}^{commit}" 2>/dev/null; then
+            BASELINE="${BEFORE_SHA:-}"
+          fi
+          if ! git cat-file -e "${BASELINE:-none}^{commit}" 2>/dev/null; then
+            BASELINE="$(git rev-list --max-parents=0 HEAD | tail -1)"
+          fi
+          echo "Pruning removals between ${BASELINE:0:7} and ${GITHUB_SHA:0:7}"
+
+          # Paths that only exist on the server must survive even a mistaken `git rm`.
+          PROTECTED='^(\.env($|\.)|bootstrap/cache/|storage/|public/uploads/|public/display_photo/|public/gallery_uploads/|public/storage$|\.well-known/|vendor/|node_modules/)'
+
+          # --no-renames so a move shows up as delete + add, never as a silent rename.
+          git diff --no-renames --diff-filter=D --name-only "$BASELINE" "$GITHUB_SHA" \
+            | grep -v -E "$PROTECTED" > "$RUNNER_TEMP/prune.txt" || true
+
+          if [ ! -s "$RUNNER_TEMP/prune.txt" ]; then
+            echo "Nothing to prune - the server already matches the repository."
+            exit 0
+          fi
+
+          echo "Remote paths to remove:"
+          sed 's/^/   - /' "$RUNNER_TEMP/prune.txt"
+
+          # Remove the files, then the directories they emptied (deepest first).
+          # `rmdir` cannot touch a directory that still holds live files, which is
+          # the safety net for anything uploaded outside the repository.
+          awk -F/ '{d=""; for(i=1;i<NF;i++){d=d (i>1?"/":"") $i; print d}}' \
+            "$RUNNER_TEMP/prune.txt" | sort -ru > "$RUNNER_TEMP/prune-dirs.txt"
+
+          {
+            echo 'set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25"'
+            echo 'set sftp:auto-confirm yes'
+            echo 'set net:max-retries 3'
+            echo 'set net:timeout 30'
+            echo 'set net:reconnect-interval-base 5'
+            echo "cd \"${REMOTE_DIR%/}\""
+            while IFS= read -r file; do echo "rm -f \"$file\""; done < "$RUNNER_TEMP/prune.txt"
+            while IFS= read -r dir; do echo "rmdir -f \"$dir\""; done < "$RUNNER_TEMP/prune-dirs.txt"
+            echo 'bye'
+          } > "$RUNNER_TEMP/prune.lftp"
+
+          # Same invocation the publish step uses (site argument + commands on
+          # stdin). Wait between attempts so a flaky connection cannot leave half
+          # the deletions applied: lftp retries the failed command.
+          PRUNE_CMDS="$(cat "$RUNNER_TEMP/prune.lftp")"
+
+          set +e
+          LFTP_PASSWORD="$SSHPASS" lftp --env-password -u "$SSH_USER" "sftp://${SSH_HOST}:${SSH_PORT}" >lftp-prune.out 2>&1 <<LFTP
+          $PRUNE_CMDS
+          LFTP
+          rc=$?
+          set -e
+
+          echo "::notice title=lftp prune output::$(tail -c 2000 lftp-prune.out | tr '\n' '|')"
+
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=SFTP prune failed (lftp exit $rc)::the code deploy itself succeeded, but stale files were left on the server - see the 'lftp prune output' notice"
+            exit 1
+          fi
+
+          if grep -qiE 'access failed|no such file' lftp-prune.out; then
+            echo "::warning title=prune warnings::some paths could not be removed - see the 'lftp prune output' notice"
+          fi
+
+          echo "Pruned $(wc -l < "$RUNNER_TEMP/prune.txt") path(s) from ${REMOTE_DIR%/}"
 
       - name: Deployment summary
         if: always()

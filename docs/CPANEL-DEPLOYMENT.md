@@ -21,8 +21,16 @@ publishes it to your cPanel account. No manual uploading, ever.
 What is deliberately **not** uploaded: `.env`, `vendor/` sources are replaced by the
 built copy, `tests/`, `docs/`, `node_modules/`, git metadata, debug scripts and every
 user upload (`public/uploads`, `public/display_photo`, `public/gallery_uploads`).
-`dangerous-clean-slate` is `false`, so files that exist on the server but not in the
-repo are never deleted — that protects live member photos and PDFs.
+
+**Deletions are propagated as well.** The upload itself only adds and overwrites, so a
+file removed from the repository would linger on the server forever. The *Prune files
+deleted from the repository* step closes that gap: it diffs the commit of the last
+successful deploy against the commit being pushed and deletes exactly the paths that
+`git rm` took out of the tree. Paths that only ever exist on the server are protected by
+a hard-coded list — `.env`, `storage/**`, `bootstrap/cache/**`, `public/uploads/**`,
+`public/display_photo/**`, `public/gallery_uploads/**`, `public/storage`,
+`.well-known/**`, `vendor/**`, `node_modules/**` — so live member photos, PDFs and the
+production environment file can never be removed by a commit.
 
 ---
 
@@ -199,7 +207,7 @@ cPanel → **Advanced** → **Terminal**:
 ```bash
 cd ~/public_html
 
-php artisan app:post-deploy             # directories, caches, storage link
+php artisan app:post-deploy             # directories, caches, storage link, legacy clean-up
 php artisan app:post-deploy --migrate   # ...plus pending database migrations
 ```
 
@@ -214,6 +222,8 @@ php artisan app:post-deploy --migrate   # ...plus pending database migrations
 5. attempts `route:cache` and **warns instead of failing** if your routes cannot be
    serialised (see *Known issue* below);
 6. with `--migrate`, runs pending migrations using `--force`.
+7. always runs `app:retire-legacy`, which drops the tables of the retired Transport
+   (bus route) and standalone FOF modules — idempotent, see *Retired modules* below.
 
 ### If cPanel Terminal is not available
 
@@ -226,20 +236,169 @@ php /home/<cpanel-user>/public_html/artisan app:post-deploy
 Adjust the PHP binary if your host pins a version, e.g.
 `/usr/local/bin/ea-php80 /home/<user>/public_html/artisan app:post-deploy`.
 
-### Known issue: `route:cache` fails
+### Scheduled jobs: Welcome Center birthday reminders
+
+The app ships a **daily** job that e-mails + pushes the upcoming birthdays of the
+**Welcome Center** (`dept_id 28`) admins at the **3 days**, **2 days** and **1 day** to go
+milestones. It runs through Laravel's scheduler, so add **one** cron entry
+(cPanel → **Cron Jobs**, every minute):
 
 ```
-Unable to prepare route [bus-route/register] for serialization.
-Another route has already been assigned name [transport.save-registration].
+* * * * * /usr/local/bin/ea-php80 /home/<cpanel-user>/public_html/artisan schedule:run >> /dev/null 2>&1
 ```
 
-`routes/web.php` assigns the name `transport.save-registration` twice (lines 247 and
-254). Both point at the same controller method, so the site works, but route caching is
-impossible and the generated URL for that name is whichever route registered last.
-Fixing it means renaming one of the two routes — do that separately and test the
-transport forms, since Blade views reference that name.
+That single entry drives every entry in `app/Console/Kernel.php::schedule()` — currently
+just `birthdays:remind`, which fires at `07:00` `Africa/Lagos`. Use the same PHP binary as
+the post-deploy cron above. This is **separate** from the daily `app:post-deploy` cron:
+keep both.
 
-The post-deploy command treats this as a warning, so deployments are unaffected.
+> **Do not leave this entry on *Once Per Day* (`0 0 * * *`).** The cron line is only the
+> heartbeat that wakes the scheduler — Laravel compares its own expression (`0 7 * * *`
+> in `Africa/Lagos`) on every tick and fires `birthdays:remind` only when they match. A
+> daily tick at `00:00` server time (which is `01:00` in Lagos) never coincides with the
+> `07:00` due time, so the reminder would silently never send.
+
+> **Alternative — if your host refuses a per-minute cron:** point cron straight at the
+> command instead of the scheduler. `07:00` `Africa/Lagos` is `06:00` UTC, so on a UTC
+> server:
+>
+> ```
+> 0 6 * * * /usr/local/bin/ea-php80 /home/<cpanel-user>/public_html/artisan birthdays:remind >> /dev/null 2>&1
+> ```
+>
+> This works, but it is a dead end: it drives *only* this one command (nothing else you
+> ever add to `Kernel::schedule()` will run), it breaks silently if the server clock is not
+> UTC, and it must be re-timed whenever `BIRTHDAY_SEND_AT` changes. Use the per-minute
+> `schedule:run` entry above unless you truly cannot.
+
+**Verifying the cron is actually alive.** The tick is silent by design: its own output goes to
+`/dev/null`, and the event is what writes `storage/logs/birthday-reminders.log` - a tick where
+nothing is due writes nothing. An empty (or missing) log therefore means *"no run yet"*, not
+*"broken"*:
+
+```bash
+cd ~/public_html
+
+php artisan schedule:list      # expect 0 7 * * * with Next Due 06:00:00 +00:00 (07:00 Lagos)
+php artisan schedule:run       # "No scheduled commands are ready to run." = the tick works
+```
+
+To prove the whole chain end to end without waiting for 07:00, nudge the send time to the next
+minute or two in Lagos time:
+
+```bash
+cd ~/public_html
+
+# .env: BIRTHDAY_SEND_AT="21:47"   (a couple of minutes ahead of Lagos "now")
+php artisan config:clear && php artisan config:cache   # required - post-deploy caches the config
+sleep 120
+tail -n 40 storage/logs/birthday-reminders.log          # the run is appended here
+```
+
+Then restore `BIRTHDAY_SEND_AT="07:00"` and run `php artisan app:post-deploy` again. `--force`
+re-sends a milestone that `birthday_reminder_logs` already recorded, so use it only while
+testing.
+
+> **One lock to know about:** `withoutOverlapping()` holds a cache mutex for up to 24 hours. If
+> a run dies half way through, later ticks are skipped until it expires - `cache:clear` (which
+> `app:post-deploy` already runs) releases it immediately.
+
+Test it before leaving it to the scheduler:
+
+```bash
+cd ~/public_html
+
+php artisan birthdays:remind --dry-run                  # show what the next run would do
+php artisan birthdays:remind --days=3 --campus=1 --channel=mail --force
+php artisan birthdays:remind --days=3,2,1,0             # include the birthday itself
+```
+
+Each digest goes out on three channels: `--channel=mail` (e-mail to every Welcome Center
+admin with an address), `--channel=database` (the in-app **🔔 bell** + `/notifications`
+page) and `--channel=telegram` (push to the bot chat already configured for airtime
+alerts). Every attempt is written to `birthday_reminder_logs`, so the same milestone is
+never sent twice — use `--force` to override that while testing.
+
+#### Settings (optional)
+
+Everything below has a working default and only needs adding to the server `.env` to
+change it:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BIRTHDAY_DAYS` | `3,2,1` | Milestones (days before the birthday) that trigger a reminder |
+| `BIRTHDAY_SEND_AT` | `07:00` | Local time of the daily run |
+| `BIRTHDAY_TIMEZONE` | `Africa/Lagos` | Timezone used to work out "today" |
+| `BIRTHDAY_DEPARTMENT_IDS` | `28` | Departments whose **Admins** receive the e-mail (28 = Welcome Center) |
+| `BIRTHDAY_CHANNELS` | `mail,database,telegram` | Channels used by the scheduled run |
+| `BIRTHDAY_EXTRA_EMAILS` | *(empty)* | Extra recipients, comma separated |
+| `BIRTHDAY_TELEGRAM_CHAT_IDS` | falls back to `TELEGRAM_CHAT_ID` | Telegram chats to push to |
+| `BIRTHDAY_WISH_COUNTRY_CODE` | `234` | Country code prepended to phone numbers in the wish links |
+
+Recipients are resolved from the database on every run, so a **newly appointed Welcome
+Center admin is e-mailed automatically** — there is nothing to configure.
+
+#### Database tables
+
+The feature needs two tables and **creates them itself** the first time
+`birthdays:remind` runs — it applies only its own two migration files. To create them by
+hand (or if you prefer to see the output), run:
+
+```bash
+php artisan migrate --force \
+  --path=database/migrations/2026_10_09_000001_create_birthday_reminder_logs_table.php \
+  --path=database/migrations/2026_10_09_000002_create_app_notifications_table.php
+```
+
+> A plain `php artisan migrate` (and therefore `app:post-deploy --migrate`) can abort
+> with `Base table or view already exists` on this database, because it was seeded
+> before the `migrations` table was kept in step. Use the `--path` form above for this
+> feature and let the command self-provision.
+
+`birthday_reminder_logs` is the send history / de-duplication record (one row per campus
++ milestone + birthday date); `app_notifications` feeds the navbar bell and the
+`/notifications` page.
+
+### Route cache
+
+`php artisan route:cache` runs cleanly. (The duplicate `transport.save-registration`
+route name that previously blocked caching was removed on 2026-05-25 when the
+transport feature was retired.)
+
+## Retired modules (Transport / bus route, standalone FOF)
+
+Both modules were removed from the codebase on 2026-05-25 (models, controllers, routes,
+views, navigation entries). Removing them from the **server** is a two-part job, and both
+parts are automatic — no phpMyAdmin and no manual SFTP deletes:
+
+| Part | What removes it | When |
+|------|-----------------|------|
+| Files (`app/Http/Controllers/TransportController.php`, `resources/views/transport/*`, …) | the *Prune files deleted from the repository* step in `.github/workflows/deploy-cpanel.yml` | on the deploy that carries the deletion |
+| Tables (`transport_routes`, `transport_stops`, `bus_attendance`, `fof_cohort_setting`, `fof_register_table`, `fof_mark_attendance_table`) and `tiu_member` transport foreign keys | `php artisan app:retire-legacy` | the daily `schedule:run` cron (03:20 Africa/Lagos) and every `app:post-deploy` run |
+
+How the table clean-up works: the three `2026_05_25_00000{2,3,4}_drop_*` migrations ship
+with the code, but the pipeline cannot run PHP on the server, so `app:retire-legacy`
+applies exactly those three files with `migrate --path` — a plain `migrate` could abort on
+an unrelated legacy migration (see *Troubleshooting*). Every drop is `dropIfExists`/guarded,
+so the command is safe to re-run and reports `Nothing to migrate` afterwards.
+
+Verify it, or run it immediately without waiting for the schedule:
+
+```bash
+cd ~/public_html
+
+php artisan app:retire-legacy --dry-run   # what would be applied
+php artisan app:retire-legacy             # apply + print the state of every legacy table
+php artisan schedule:list                 # app:retire-legacy should be listed next to birthdays:remind
+```
+
+The command's own output ends in a table that reads `gone` for every retired table, which
+is the proof the retirement reached the database. (The `app:retire-legacy` schedule needs
+the per-minute `schedule:run` cron described above; without it the daily
+`app:post-deploy` cron still applies it — and `php artisan app:retire-legacy` in cPanel
+Terminal does it right now.)
+
+---
 
 ## 7. Verify the deployment
 
@@ -275,6 +434,10 @@ colliding. Only changed files are transferred.
 | `getaddrinfo ENOTFOUND` / timeout | Wrong `CPANEL_HOST`, or the host blocks FTP. Try `sftp` (port 22) via the variables. |
 | TLS/certificate errors | Keep `security: loose` (already set) or switch to `sftp`. |
 | Deploy succeeded but the site shows an old page | Run `php artisan app:post-deploy` — `config:cache`/`view:cache` are stale. |
+| `Base table or view already exists` while migrating | The legacy database was seeded before the `migrations` table was kept in step, so an old migration aborts the run. Migrate the file you actually need with `--path` (see *Scheduled jobs*) — `birthdays:remind` also self-provisions its own tables. |
+| No birthday reminder e-mail arrives | The status was already recorded in `birthday_reminder_logs` (columns `campus_id`, `days_before`, `reminder_date`). Re-test with `php artisan birthdays:remind --days=3 --force --channel=mail`, and check the recipients: only `member_role` `Admin`/`Super User` members whose `department_name` JSON contains the configured department id receive it. |
+| Bell shows no numbers / `/notifications` is empty | Nothing has been written to `app_notifications` yet, or the logged-in member is not a Welcome Center admin. Run `php artisan birthdays:remind --days=3 --channel=database --force`. |
+| Birthday reminders still not running | The `schedule:run` cron entry is missing, uses the wrong PHP binary, or is set to *Once Per Day* (`0 0 * * *`) instead of *Once Per Minute* (`* * * * *`) — a daily tick never coincides with the `07:00` due time, so nothing ever fires. See *Scheduled jobs*. Verify with `php artisan birthdays:remind --dry-run` over SSH/Terminal. |
 | `Please provide a valid cache path` | Missing `storage/framework/*` directories. `php artisan app:post-deploy` creates them. |
 | 500 error, blank page | Set `APP_DEBUG=true` temporarily in the server `.env`, load the page, read the message, then set it back to `false`. |
 | Assets missing (CSS/JS) | The `public/assets` and `public/vendors` folders were not uploaded. Check the *Publish to cPanel* step log for skipped files. |
@@ -285,8 +448,12 @@ colliding. Only changed files are transferred.
 - `.env`, `storage/`, `vendor/` and `app/` are unreachable over HTTP thanks to the root
   `.htaccess`, which funnels every request into `public/` and denies `.env`/`composer.*`
   even if the rewrite is bypassed.
-- `dangerous-clean-slate: false` — someone deleting a file from the repo will **not**
-  delete it from the server. Remove stale files manually when needed.
+- Deletions are propagated: the *Prune files deleted from the repository* step removes
+  exactly the paths a commit deleted, and its protected-prefix list keeps everything
+  that only exists on the server (`.env`, `storage/**`, `bootstrap/cache/**`,
+  `public/uploads/**`, `public/display_photo/**`, `public/gallery_uploads/**`,
+  `public/storage`, `.well-known/**`) out of reach. A dry run of the same diff is
+  `git diff --no-renames --diff-filter=D --name-only <last-deployed-sha> HEAD`.
 - Rotate the cPanel password if it is ever pasted anywhere other than the GitHub secrets
   form. The Telegram bot token currently in your local `.env` should be rotated too, as
   it has been shared in plain text.
