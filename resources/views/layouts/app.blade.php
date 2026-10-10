@@ -11,6 +11,7 @@
     <link href="{{ asset('assets/css/bootstrap.min.css') }}" rel="stylesheet">
     <link href="{{ asset('assets/css/style.css') }}" rel="stylesheet">
     <link href="{{ asset('assets/css/style2.css') }}" rel="stylesheet">
+    <link href="{{ asset('assets/css/theme-toggle.css') }}" rel="stylesheet">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon.ico') }}">
 </head>
 <style>
@@ -53,9 +54,60 @@
     .btn-link:hover {
         color: #0056b3 !important;
     }
+
+    /* Dark twins for the `!important` rules above. A page-local twin cannot beat
+       them unless it is `!important` too, so the dark palette for `.btn-link`
+       lives here (see docs/DISPLAY-MODE.md) - otherwise every `.btn-link` (e.g.
+       the guide names on the Drag & Drop page) stays #0062cc blue on the dark
+       surfaces. Same light-rule-then-twin pattern as `.ms-navbar .ms-notif-bell`
+       below. */
+    .ms-dark-theme .btn-link,
+    .ms-dark-theme .accordion .card-header .btn-link {
+        color: #ff8306 !important;
+    }
+
+    .ms-dark-theme .btn-link:hover,
+    .ms-dark-theme .accordion .card-header .btn-link:hover {
+        color: #ffffff !important;
+        background-color: #2a2e5b !important;
+    }
+
+    .ms-dark-theme .accordion .card-header .btn-link:not(.collapsed),
+    .ms-dark-theme .accordion .card-header .btn-link:not(.collapsed):hover {
+        color: #ffffff !important;
+        background-color: #323a67 !important;
+    }
+
+    /* Notification bell: colour lives here (not inline) so the dark palette can
+       override it - #0062cc on the dark navbar is unreadable. */
+    .ms-navbar .ms-notif-bell {
+        position: relative;
+        color: #0062cc;
+        text-decoration: none;
+    }
+
+    .ms-navbar .ms-notif-bell:hover,
+    .ms-navbar .ms-notif-bell:focus {
+        color: #0056b3;
+        text-decoration: none;
+    }
+
+    .ms-dark-theme .ms-navbar .ms-notif-bell,
+    .ms-dark-theme .ms-navbar .ms-notif-bell:hover,
+    .ms-dark-theme .ms-navbar .ms-notif-bell:focus {
+        color: #ffffff;
+    }
 </style>
 
-<body class="ms-body ms-aside-left-open">
+@php
+    // Display mode (dark / light). Rendered with the HTML so a dark page never
+    // flashes white while loading; the switch itself lives in partials/theme-toggle.
+    $themeClass = request()->cookie('tiu_theme') === 'dark' ? ' ms-dark-theme' : '';
+@endphp
+
+<body class="ms-body ms-aside-left-open{{ $themeClass }}">
+
+    @include('partials.theme-init')
 
     @include('partials.nav')
 
@@ -68,6 +120,20 @@
                 <span class="ms-toggler-bar bg-primary"></span>
             </div>
             Welcome {{ session('first_name', 'Guest') }} {{ session('last_name', '') }}
+
+            <a href="{{ route('notifications.index') }}"
+               class="ms-notif-bell ml-auto"
+               title="Notifications">
+                <i class="fas fa-bell" style="font-size:18px;"></i>
+                @if (($unreadNotifications ?? 0) > 0)
+                    <span class="badge badge-danger badge-pill"
+                          style="position:absolute;top:-8px;right:-12px;font-size:10px;">
+                        {{ $unreadNotifications > 9 ? '9+' : $unreadNotifications }}
+                    </span>
+                @endif
+            </a>
+
+            @include('partials.theme-toggle', ['variant' => 'navbar'])
         </nav>
 
         <div class="ms-content-wrapper">
@@ -89,6 +155,7 @@
     <script src="{{ asset('assets/js/bootstrap.min.js') }}"></script>
     <script src="{{ asset('assets/js/perfect-scrollbar.js') }}"></script>
     <script src="{{ asset('assets/js/framework.js') }}"></script>
+    <script src="{{ asset('assets/js/theme.js') }}"></script>
     @stack('scripts')
 
     <!-- Airtime Topup Modal -->

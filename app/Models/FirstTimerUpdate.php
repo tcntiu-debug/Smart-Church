@@ -22,7 +22,6 @@ class FirstTimersUpdate extends Model
         'birthday',
         'created_date',
         'community',
-        'bus_route',
     ];
     
     protected $casts = [

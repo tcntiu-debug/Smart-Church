@@ -18,6 +18,8 @@ class TiuMemberLogin extends Model
         'tiu_member_id',
         'date_logged_in',
         'source_address',
+        // Legacy column: only kept so the row matches the table. The dark/light
+        // display mode is now a per-device cookie (see public/assets/js/theme.js).
         'theme_settings',
     ];
 

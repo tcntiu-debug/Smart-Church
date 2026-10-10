@@ -1,0 +1,91 @@
+/**
+ * Smart-Church display mode toggle.
+ *
+ * The dark palette itself lives in style.css (`body.ms-dark-theme ...`); this file
+ * only styles the switch and swaps its sun / moon icon and label.
+ */
+
+.ms-theme-toggle {
+    cursor: pointer;
+}
+
+/* Show the mode the user will switch TO, hide the other one. */
+.ms-theme-toggle .theme-icon-dark,
+.ms-theme-toggle .theme-label-dark {
+    display: none;
+}
+
+.ms-dark-theme .ms-theme-toggle .theme-icon-light,
+.ms-dark-theme .ms-theme-toggle .theme-label-light {
+    display: none;
+}
+
+.ms-dark-theme .ms-theme-toggle .theme-icon-dark {
+    display: inline-block;
+}
+
+.ms-dark-theme .ms-theme-toggle .theme-label-dark {
+    display: inline;
+}
+
+/* Navbar variant, sits next to the notification bell. */
+.ms-navbar .ms-theme-toggle {
+    margin-left: 18px;
+    color: #0062cc;
+    font-size: 18px;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.ms-navbar .ms-theme-toggle:hover,
+.ms-navbar .ms-theme-toggle:focus {
+    color: #0056b3;
+    text-decoration: none;
+}
+
+.ms-dark-theme .ms-navbar .ms-theme-toggle,
+.ms-dark-theme .ms-navbar .ms-theme-toggle:hover,
+.ms-dark-theme .ms-navbar .ms-theme-toggle:focus {
+    color: #ffffff;
+}
+
+/* Floating variant, used on the logged-out screens (login / auth). */
+.ms-theme-toggle-floating {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 1050;
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 16px;
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 30px;
+    background-color: #ffffff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+    color: #34334a;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.ms-theme-toggle-floating i {
+    margin-right: 8px;
+}
+
+.ms-theme-toggle-floating:hover,
+.ms-theme-toggle-floating:focus {
+    color: #0062cc;
+    text-decoration: none;
+}
+
+.ms-dark-theme .ms-theme-toggle-floating,
+.ms-dark-theme .ms-theme-toggle-floating:hover,
+.ms-dark-theme .ms-theme-toggle-floating:focus {
+    border-color: rgba(255, 255, 255, .18);
+    background-color: #252851;
+    color: #ffffff;
+}
+
+/* Inline button variant, used by the Settings page card. */
+.ms-theme-toggle-button i {
+    margin-right: 8px;
+}

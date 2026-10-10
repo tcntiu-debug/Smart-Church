@@ -21,6 +21,62 @@ class MemberController extends Controller
     }
 
     // ============================================================
+    // MEMBER LISTING HELPERS
+    // ============================================================
+
+    /**
+     * Base query for the member listing (same scope as legacy member-view.php).
+     */
+    private function memberBaseQuery($campusId)
+    {
+        return TiuMember::where('status', '!=', '3')->where('campus_id', $campusId);
+    }
+
+    /**
+     * Apply the status dropdown filter ('All' means no extra filter).
+     */
+    private function applyStatusFilter($query, $statusFilter)
+    {
+        if ($statusFilter === null || $statusFilter === '' || $statusFilter === 'All') {
+            return $query;
+        }
+
+        return $query->where('status', $statusFilter);
+    }
+
+    /**
+     * Department id => name lookup (tiu_member.department_name holds a JSON array of ids).
+     */
+    private function departmentMap()
+    {
+        return Department::pluck('dept_name', 'dept_id')->toArray();
+    }
+
+    /**
+     * Normalise a phone number for wa.me links (same logic as legacy member-view.php).
+     */
+    private function formatWhatsAppPhone($phoneNumber)
+    {
+        $digits = preg_replace('/[^0-9]/', '', (string) $phoneNumber);
+
+        if ($digits === '') {
+            return '';
+        }
+
+        return substr($digits, 0, 1) === '0' ? '234' . substr($digits, 1) : $digits;
+    }
+
+    /**
+     * Activation reminder link shown next to members who never verified their account.
+     */
+    private function whatsAppReminderLink($waPhone)
+    {
+        $message = 'Compliments of the season. This is the covenant nation Ikorodu smart church app admin. We notice after you registered yesterday, you are yet to activate your account. Please reach out to us if you have any difficulties. Thanks';
+
+        return 'https://wa.me/' . $waPhone . '?text=' . urlencode($message);
+    }
+
+    // ============================================================
     // PUBLIC REGISTRATION (no auth required - matches legacy member-register-others.php)
     // ============================================================
 
@@ -263,6 +319,188 @@ class MemberController extends Controller
     }
 
     /**
+     * AJAX data source for the member table (DataTables server-side processing).
+     *
+     * Searching, sorting and paging all run in SQL, so the search box covers every
+     * member - not just the rows currently displayed - and the length menu
+     * (10 / 50 / 100 / All) only transfers the rows that are actually needed.
+     */
+    public function data(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!in_array($user->member_role ?? '', ['Super User', 'Admin'])) {
+            return response()->json([
+                'draw' => (int) $request->input('draw', 0),
+                'recordsTotal' => 0,
+                'recordsFiltered' => 0,
+                'data' => [],
+                'error' => 'Access Denied',
+            ], 403);
+        }
+
+        $campusId = $user->campus_id ?? 0;
+        $statusFilter = $request->input('status_filter', 'All');
+
+        $recordsTotal = $this->applyStatusFilter($this->memberBaseQuery($campusId), $statusFilter)->count();
+
+        // ---------------- global search ----------------
+        $query = $this->applyStatusFilter($this->memberBaseQuery($campusId), $statusFilter);
+        $search = trim((string) $request->input('search.value', ''));
+
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+
+            // Department names live in the `department` table while tiu_member only
+            // stores ids, so a name match is translated into an id match as well.
+            $matchedDeptIds = [];
+            foreach ($this->departmentMap() as $deptId => $deptName) {
+                if (stripos((string) $deptName, $search) !== false) {
+                    $matchedDeptIds[] = (string) $deptId;
+                }
+            }
+
+            $query->where(function ($q) use ($like, $matchedDeptIds) {
+                $q->where('first_name', 'like', $like)
+                    ->orWhere('last_name', 'like', $like)
+                    ->orWhere('phone_number', 'like', $like)
+                    ->orWhere('email', 'like', $like)
+                    ->orWhere('gender', 'like', $like)
+                    ->orWhere('marital_status', 'like', $like)
+                    ->orWhere('occupation', 'like', $like)
+                    ->orWhere('member_role', 'like', $like)
+                    ->orWhereRaw("CONCAT(first_name, ' ', last_name) like ?", [$like]);
+
+                foreach ($matchedDeptIds as $matchedDeptId) {
+                    $q->orWhere('department_name', 'like', '%"' . $matchedDeptId . '"%');
+                }
+            });
+        }
+
+        $recordsFiltered = $query->count();
+
+        // ---------------- ordering ----------------
+        // DataTables column names mapped onto the real (sortable) SQL columns.
+        // Values are static SQL expressions (never user input) paired with a whitelisted direction.
+        $sortable = [
+            'no' => 'tiu_member_id',
+            'name' => "CONCAT(first_name, ' ', last_name)",
+            'phone' => 'phone_number',
+            'email' => 'email',
+            'gender' => 'gender',
+            'marital_status' => 'marital_status',
+            'occupation' => 'occupation',
+            'role' => 'member_role',
+            'status' => 'status',
+            'register_date' => 'date_registered',
+        ];
+
+        $ordered = false;
+        foreach ((array) $request->input('order', []) as $order) {
+            $columnIndex = (int) ($order['column'] ?? -1);
+            $columnName = $request->input('columns.' . $columnIndex . '.data');
+
+            if ($columnName === null || !isset($sortable[$columnName])) {
+                continue;
+            }
+
+            $direction = strtolower($order['dir'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+            $query->orderByRaw($sortable[$columnName] . ' ' . $direction);
+            $ordered = true;
+        }
+
+        if (!$ordered) {
+            $query->orderBy('tiu_member_id', 'desc');
+        }
+
+        // ---------------- paging (length -1 / 0 = "All" in the length menu) ----------------
+        $start = max(0, (int) $request->input('start', 0));
+        $length = (int) $request->input('length', 10);
+
+        if ($length <= 0) {
+            $length = max($recordsFiltered, 1);
+        }
+
+        $members = $query->skip($start)->take($length)->get();
+
+        return response()->json([
+            'draw' => (int) $request->input('draw', 0),
+            'recordsTotal' => $recordsTotal,
+            'recordsFiltered' => $recordsFiltered,
+            'data' => $this->memberRows($members, $start, $user),
+        ]);
+    }
+
+    /**
+     * Build the DataTables rows for one page of members (markup mirrors the legacy table).
+     * Values are escaped here because DataTables inserts cell data as HTML.
+     */
+    private function memberRows($members, $start, $user)
+    {
+        $deptMap = $this->departmentMap();
+        $canDelete = ((int) ($user->tiu_member_id ?? 0) === 1);
+        $rows = [];
+
+        foreach ($members as $offset => $member) {
+            $memberId = $member->tiu_member_id;
+            $fullName = trim(($member->first_name ?? '') . ' ' . ($member->last_name ?? ''));
+
+            // Phone + WhatsApp activation reminder for members who never verified
+            $phoneHtml = htmlspecialchars((string) $member->phone_number, ENT_QUOTES, 'UTF-8');
+            $waPhone = $this->formatWhatsAppPhone($member->phone_number);
+            if ((string) ($member->email_verified ?? 0) === '0' && $waPhone !== '') {
+                $phoneHtml .= ' <a href="' . htmlspecialchars($this->whatsAppReminderLink($waPhone), ENT_QUOTES, 'UTF-8') . '"'
+                    . ' target="_blank" title="Send Activation Reminder" style="margin-left:5px;">'
+                    . '<i class="fab fa-whatsapp wa-icon"></i></a>';
+            }
+
+            $registerDate = '—';
+            if (!empty($member->date_registered)) {
+                try {
+                    $registerDate = \Carbon\Carbon::parse($member->date_registered)->format('M d, Y');
+                } catch (\Exception $e) {
+                    $registerDate = '—';
+                }
+            }
+
+            // department_name is already an array thanks to the TiuMember accessor
+            $departmentIds = is_array($member->department_name)
+                ? $member->department_name
+                : (json_decode($member->department_name ?? '[]', true) ?: []);
+
+            $departmentNames = [];
+            foreach ((array) $departmentIds as $departmentId) {
+                if (isset($deptMap[$departmentId])) {
+                    $departmentNames[] = $deptMap[$departmentId];
+                }
+            }
+
+            $rows[] = [
+                'no' => $start + $offset + 1,
+                'name' => htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8'),
+                'phone' => $phoneHtml,
+                'email' => htmlspecialchars((string) ($member->email ?? ''), ENT_QUOTES, 'UTF-8'),
+                'gender' => htmlspecialchars((string) ($member->gender ?? ''), ENT_QUOTES, 'UTF-8'),
+                'marital_status' => htmlspecialchars((string) ($member->marital_status ?? ''), ENT_QUOTES, 'UTF-8'),
+                'occupation' => htmlspecialchars((string) ($member->occupation ?? ''), ENT_QUOTES, 'UTF-8'),
+                'department' => htmlspecialchars(implode(', ', $departmentNames), ENT_QUOTES, 'UTF-8'),
+                'role' => htmlspecialchars((string) ($member->member_role ?? 'Member'), ENT_QUOTES, 'UTF-8'),
+                'status' => ((string) $member->status === '1')
+                    ? '<span class="badge badge-success">Active</span>'
+                    : '<span class="badge badge-danger">Inactive</span>',
+                'register_date' => $registerDate,
+                'update' => '<a class="media fs-14 p-2" href="' . htmlspecialchars(url('/profile?full_name=' . urlencode($fullName) . '&tiu_member_id=' . $memberId), ENT_QUOTES, 'UTF-8') . '"><span><i class="fas fa-paper-plane text-success"></i> Update</span></a>',
+                'lead' => '<a class="media fs-14 p-2" href="' . htmlspecialchars(url('/lead?full_name=' . urlencode($fullName) . '&tiu_member_id=' . $memberId . '&lead_phone=' . urlencode($member->phone_number ?? '')), ENT_QUOTES, 'UTF-8') . '"><span><i class="fa fa-eye" aria-hidden="true"></i> View</span></a>',
+                'delete' => $canDelete
+                    ? '<a class="media fs-14 p-2" href="' . url('/member/delete/' . $memberId) . '" onclick="return confirm(\'Are you sure you want to permanently delete this member?\');"><span><i class="fas fa-trash-alt text-danger"></i> Delete</span></a>'
+                    : '',
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * List all members
      */
     public function index(Request $request)
@@ -275,25 +513,18 @@ class MemberController extends Controller
             return redirect('/aoverview')->with('error', 'Access Denied');
         }
 
-        // Build query with optional status filter (matches legacy member-view.php)
-        $query = TiuMember::where('status', '!=', '3')
-            ->where('campus_id', $campusId)
-            ->orderBy('tiu_member_id', 'desc');
-
+        // Status filter (matches legacy member-view.php). The rows themselves are
+        // fetched over AJAX by DataTables - see data() below.
         $statusFilter = $request->get('status_filter', 'All');
-        if ($statusFilter !== 'All') {
-            $query->where('status', $statusFilter);
-        }
 
-        $members = $query->paginate(50);
-
-        // Get departments for name lookup (for view)
-        $departments = Department::pluck('dept_name', 'dept_id')->toArray();
+        // Count shown in the panel header badge; data() keeps it in sync while the
+        // user searches, filters or changes the page length.
+        $totalMembers = $this->applyStatusFilter($this->memberBaseQuery($campusId), $statusFilter)->count();
 
         // Pass signed-in user's ID for delete permission check (like legacy: only user ID 1 can delete)
         $currentUserId = $user->tiu_member_id;
 
-        return view('member.index', compact('members', 'departments', 'statusFilter', 'currentUserId'));
+        return view('member.index', compact('statusFilter', 'currentUserId', 'totalMembers'));
     }
 
     /**
@@ -309,7 +540,11 @@ class MemberController extends Controller
         }
 
         $member = TiuMember::findOrFail($id);
-        return view('member.show', compact('member'));
+
+        // Needed by the view to turn department_name (JSON ids) into readable names
+        $departments = $this->departmentMap();
+
+        return view('member.show', compact('member', 'departments'));
     }
 
     /**

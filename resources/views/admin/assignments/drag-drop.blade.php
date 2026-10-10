@@ -119,6 +119,74 @@
         margin-bottom: 10px;
     }
     #suggestion-box h4 { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+
+    /* ---- Dark mode ------------------------------------------------------
+       style.css scopes every dark rule to `ms-dark-theme`, forces every
+       heading/paragraph/span to #fff and repaints `.ms-dark-theme .card`
+       #252851 - but it does not know about the light surfaces painted below
+       (.filters-box / .content-box / .first-timer-card / .guide-card body). If
+       those keep their white background the page text stays #fff on top of
+       them, i.e. invisible. Each light rule therefore gets a dark twin here.
+       Palette: surface #252851, deeper #1f2247, hover #2a2e5b, border #242750,
+       accent #ff8306 (see docs/DISPLAY-MODE.md). */
+    .ms-dark-theme .filters-box,
+    .ms-dark-theme .content-box,
+    .ms-dark-theme .first-timer-card,
+    .ms-dark-theme .guide-card .card-body {
+        background: #252851;
+        border-color: #242750;
+        color: #e7e8f5;
+    }
+    .ms-dark-theme .guide-card {
+        border-color: #242750;
+    }
+    .ms-dark-theme .guide-card .card-header {
+        background: #1f2247;
+        border-color: #242750;
+    }
+    /* The guide name is a `.btn-link`, which layouts/app.blade.php paints
+       #0062cc with `!important`, so this twin needs `!important` too or the name
+       stays blue on the dark header. */
+    .ms-dark-theme .guide-card .card-header .btn-link {
+        color: #ff8306 !important;
+    }
+    .ms-dark-theme .guide-details {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme .guide-details span {
+        color: #e7e8f5;
+    }
+    .ms-dark-theme .first-timer-card p {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme .first-timer-card p span {
+        color: #e7e8f5;
+    }
+    /* Bootstrap utility, `!important`, so the twin needs it too. */
+    .ms-dark-theme .text-muted {
+        color: #b9bcd8 !important;
+    }
+    .ms-dark-theme .droppable-unassign {
+        border-color: #242750;
+    }
+    .ms-dark-theme .ui-droppable-hover {
+        background: #2a2e5b !important;
+        border-color: #ff8306 !important;
+    }
+    .ms-dark-theme #suggestion-box {
+        background: #3a2f10;
+        border-color: #5a4a1a;
+    }
+    .ms-dark-theme #status-message.success {
+        background: #1f3b2a;
+        color: #b7f0c5;
+        border-color: #2c5b40;
+    }
+    .ms-dark-theme #status-message.error {
+        background: #3d2226;
+        color: #ffc9cf;
+        border-color: #5b2c33;
+    }
 </style>
 
 <div class="container-fluid">
@@ -190,7 +258,7 @@
                     </div>
 
                     <div class="content-box">
-                        <h2>{{ $selectedDeptId == 15 ? 'FOF Support' : 'Guides' }} ({{ count($guidesArray) }})</h2>
+                        <h2>Guides ({{ count($guidesArray) }})</h2>
                         <div id="guides-accordion">
                             @forelse($guidesArray as $guideId => $guideData)
                                 <div class="guide-card">
@@ -212,15 +280,10 @@
                                                     <div class="assigned-timers-list">
                                                         @foreach($guideData['first_timers'] as $timer)
                                                             <div class="first-timer-card draggable-assigned"
-                                                                 data-timer-id="{{ $selectedDeptId == 15 ? 'fof_' . $timer->id : $timer->first_timer_id }}"
+                                                                 data-timer-id="{{ $timer->first_timer_id }}"
                                                                  data-timer-name="{{ $timer->first_name }} {{ $timer->last_name }}"
                                                                  data-timer-status="{{ $timer->status ?? 'Assigned' }}">
                                                                 <strong><i class="fas fa-arrows-alt-v mr-2"></i>{{ $timer->first_name }} {{ $timer->last_name }}</strong>
-                                                                @if($selectedDeptId == 15)
-                                                                    <p><i class="fas fa-venus-mars fa-sm text-muted mr-1"></i> <span>Gender:</span> {{ $timer->gender ?? 'N/A' }}</p>
-                                                                    <p><i class="fas fa-phone-alt fa-sm text-muted mr-1"></i> <span>Phone:</span> {{ $timer->phone_number ?? 'N/A' }}</p>
-                                                                    <p><i class="fas fa-layer-group fa-sm text-muted mr-1"></i> <span>Cohort:</span> {{ $timer->cohort_id ?? 'N/A' }}</p>
-                                                                @endif
                                                             </div>
                                                         @endforeach
                                                     </div>
@@ -236,7 +299,6 @@
 
                 <!-- RIGHT COLUMN: UNASSIGNED FIRST TIMERS -->
                 <div class="column column-right">
-                    @if($selectedDeptId != 15)
                     <div class="filters-box">
                         <h4><i class="fas fa-filter"></i> Filter First Timers</h4>
                         <form action="{{ route('admin.assignments.drag-drop') }}" method="GET" class="form-row">
@@ -274,7 +336,6 @@
                             <div class="col-6"><a href="{{ route('admin.assignments.drag-drop') }}" class="btn btn-secondary btn-sm btn-block">Reset</a></div>
                         </form>
                     </div>
-                    @endif
 
                     <div class="content-box">
                         <div class="d-flex justify-content-between align-items-center">
@@ -302,15 +363,11 @@
                         <div id="unassigned-container" class="droppable-unassign">
                             @forelse($unassignedMembers as $ft)
                                 <div class="first-timer-card draggable-unassigned"
-                                     data-timer-id="{{ $selectedDeptId == 15 ? 'fof_' . $ft->id : $ft->first_timer_id }}"
+                                     data-timer-id="{{ $ft->first_timer_id }}"
                                      data-timer-name="{{ $ft->first_name }} {{ $ft->last_name }}"
                                      data-timer-status="{{ $ft->status ?? 'Unassigned' }}">
                                     <strong><i class="fas fa-hand-rock mr-2"></i>{{ $ft->first_name }} {{ $ft->last_name }}</strong>
-                                    @if($selectedDeptId == 15)
-                                        <p><i class="fas fa-venus-mars fa-sm text-muted mr-1"></i> <span>Gender:</span> {{ $ft->gender ?? 'N/A' }}</p>
-                                        <p><i class="fas fa-phone-alt fa-sm text-muted mr-1"></i> <span>Phone:</span> {{ $ft->phone_number ?? 'N/A' }}</p>
-                                        <p><i class="fas fa-layer-group fa-sm text-muted mr-1"></i> <span>Cohort:</span> {{ $ft->cohort_id ?? 'N/A' }}</p>
-                                    @elseif($selectedDeptId == 23)
+                                    @if($selectedDeptId == 23)
                                         <p><i class="fas fa-phone-alt fa-sm text-muted mr-1"></i> <span>Phone:</span> {{ $ft->phone_number ?? 'N/A' }}</p>
                                         <p><i class="fas fa-user-tag fa-sm text-muted mr-1"></i> <span>Guest Type:</span> {{ $ft->attendant_type ?? 'N/A' }}</p>
                                         <p><i class="fas fa-map-marker-alt fa-sm text-muted mr-1"></i> <span>Address:</span> {{ $ft->address ?? 'N/A' }}</p>
@@ -340,11 +397,6 @@
 <script>
 $(document).ready(function() {
     var selectedDeptId = parseInt($('#selected-dept-id').val());
-    var isFofDept = (selectedDeptId === 15);
-
-    // Determine correct AJAX assignment endpoints
-    var assignUrl    = isFofDept ? '{{ route("admin.assignments.ajax-fof-assign") }}' : '{{ route("admin.assignments.ajax-assign") }}';
-    var unassignUrl  = isFofDept ? '{{ route("admin.assignments.ajax-fof-unassign") }}' : '{{ route("admin.assignments.ajax-unassign") }}';
 
     // --- DRAGGABLE SETUP ---
     function makeDraggable() {
@@ -366,13 +418,11 @@ $(document).ready(function() {
     }
 
     function getAssignUrl() {
-        var deptId = parseInt($('#selected-dept-id').val());
-        return (deptId === 15) ? '{{ route("admin.assignments.ajax-fof-assign") }}' : '{{ route("admin.assignments.ajax-assign") }}';
+        return '{{ route("admin.assignments.ajax-assign") }}';
     }
 
     function getUnassignUrl() {
-        var deptId = parseInt($('#selected-dept-id').val());
-        return (deptId === 15) ? '{{ route("admin.assignments.ajax-fof-unassign") }}' : '{{ route("admin.assignments.ajax-unassign") }}';
+        return '{{ route("admin.assignments.ajax-unassign") }}';
     }
 
     // --- DROPPABLE: Guide boxes (ASSIGN) ---

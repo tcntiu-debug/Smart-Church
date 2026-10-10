@@ -7456,3 +7456,35 @@ body:not(.ms-settings-open) .ms-settings-toggle:hover{
     left: 75%;
   }
 }
+
+/* ---- Phone typography -------------------------------------------------
+   This app is used mostly on phones, yet nothing below the desktop heading
+   scale declared near the top of this file (h1 60px / h2 48px / h3 30px /
+   h4 24px / h5 21px) ever reduced it, so bare <h1>..<h6> - and the bold card
+   titles built on them - stayed desktop-sized on a ~360px screen. These are
+   the phone-sized twins. Declared last on purpose: same specificity, later
+   source order wins. Per-page <style> blocks shipped inside the views are
+   injected after this file and still win where a page wants its own sizes.
+   The class-scale (.display-1..4, .welcome-title, ...) is left alone: those
+   are hero sizes picked per page. */
+@media (max-width: 767.98px){
+  h1{
+    font-size: 28px;
+  }
+  h2{
+    font-size: 24px;
+  }
+  h3{
+    font-size: 20px;
+  }
+  h4{
+    font-size: 18px;
+  }
+  h5{
+    font-size: 16px;
+  }
+  h6{
+    font-size: 14px;
+  }
+}
+

@@ -130,6 +130,58 @@
         font-size: 11px;
         margin-bottom: 2px;
     }
+
+    /* ---- Dark mode twins (see docs/DISPLAY-MODE.md) ----------------------
+       `.business-card` rides on `.ms-dark-theme .card`, but this page paints
+       its own text colours (#1a1a2e / #555 / light pills) while style.css
+       forces headings/paragraphs/spans to #fff, so every light rule below
+       needs a dark counterpart to stay readable.
+       Palette: surface #252851, deeper #323a67, border #242750, muted #b9bcd8. */
+    .ms-dark-theme h5.business-name {
+        color: #e7e8f5;
+    }
+    .ms-dark-theme .business-owner,
+    .ms-dark-theme .category-title i,
+    .ms-dark-theme .contact-info-item i {
+        color: #ff8306;
+    }
+    .ms-dark-theme p.business-description {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme span.business-category,
+    .ms-dark-theme span.department-badge {
+        background: #323a67;
+        color: #b9bcd8;
+    }
+    .ms-dark-theme .disclaimer-box {
+        background-color: #3a2f10;
+        border-left-color: #ffc107;
+        color: #f0d79b;
+    }
+    .ms-dark-theme .disclaimer-box i {
+        color: #ffc107 !important;
+    }
+    .ms-dark-theme .contact-info-section {
+        background: #323a67;
+    }
+    .ms-dark-theme .departments-section {
+        border-top-color: #242750;
+    }
+    .ms-dark-theme .filter-section {
+        background: #252851;
+        box-shadow: none;
+    }
+    .ms-dark-theme h5.category-title {
+        color: #e7e8f5;
+        border-bottom-color: #242750;
+    }
+    .ms-dark-theme .label-text {
+        color: #b9bcd8;
+    }
+    /* Bootstrap utilities carry `!important`, so their twins need it too. */
+    .ms-dark-theme .text-muted {
+        color: #b9bcd8 !important;
+    }
 </style>
 
 <div class="container-fluid">

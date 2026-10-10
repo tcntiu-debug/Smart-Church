@@ -62,16 +62,6 @@ class Campus extends Model
     }
 
     /**
-     * A campus has many transport routes.
-     * Reverse: TransportRoute belongs to Campus.
-     * Foreign Key: transport_routes.campus_id references campus.cid
-     */
-    public function transportRoutes()
-    {
-        return $this->hasMany(TransportRoute::class, 'campus_id', 'cid');
-    }
-
-    /**
      * A campus has many members (TIU members).
      * Reverse: TiuMember belongs to Campus.
      * Foreign Key: tiu_member.campus_id references campus.cid
@@ -117,44 +107,6 @@ class Campus extends Model
     public function churchAttendances()
     {
         return $this->hasMany(ChurchAttendance::class, 'campus_id', 'cid');
-    }
-
-    /**
-     * A campus has many FOF cohort settings.
-     * Reverse: FofCohortSetting belongs to Campus.
-     * Foreign Key: fof_cohort_setting.campus_id references campus.cid
-     */
-    public function fofCohortSettings()
-    {
-        return $this->hasMany(FofCohortSetting::class, 'campus_id', 'cid');
-    }
-
-    /**
-     * A campus has many FOF student registrations.
-     * Reverse: FofRegister belongs to Campus.
-     * Foreign Key: fof_register_table.campus_id references campus.cid
-     */
-    public function fofRegisters()
-    {
-        return $this->hasMany(FofRegister::class, 'campus_id', 'cid');
-    }
-
-    /**
-     * A campus has many FOF attendance records.
-     * Reverse: FofMarkAttendance belongs to Campus.
-     * Foreign Key: fof_mark_attendance_table.campus_id references campus.cid
-     */
-    public function fofMarkAttendances()
-    {
-        return $this->hasMany(FofMarkAttendance::class, 'campus_id', 'cid');
-    }
-
-    /**
-     * A campus has many transport stops (indirectly through routes).
-     */
-    public function transportStops()
-    {
-        return $this->hasManyThrough(TransportStop::class, TransportRoute::class, 'campus_id', 'route_id', 'cid', 'route_id');
     }
 
     /**

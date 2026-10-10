@@ -214,6 +214,77 @@
             grid-template-columns: repeat(3, 1fr);
         }
     }
+
+    /* ---- Dark mode -------------------------------------------------------
+       style.css forces every link, span and heading inside the dark theme to
+       #fff (`body.ms-dark-theme, .ms-dark-theme a`, `.ms-dark-theme span:...`).
+       The tiles and Quick Links below are white surfaces, so without the dark
+       counterparts underneath they render white text on a white card - i.e.
+       invisible. Palette matches style.css: #252851 surface, #2a2e5b hover,
+       #242750 border, #ff8306 accent (see docs/DISPLAY-MODE.md). */
+    .ms-dark-theme .section-title {
+        color: #fff;
+    }
+    .ms-dark-theme .action-card,
+    .ms-dark-theme .action-card:hover {
+        background: #252851;
+        color: #fff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+    .ms-dark-theme .action-card:hover {
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    }
+    .ms-dark-theme .action-card .action-title {
+        color: #e7e8f5;
+    }
+    .ms-dark-theme .menu-overview {
+        background: #252851;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+    .ms-dark-theme .menu-row,
+    .ms-dark-theme .menu-row:hover {
+        color: #fff;
+        border-bottom-color: #242750;
+    }
+    .ms-dark-theme .menu-row:hover {
+        background: #2a2e5b;
+    }
+    .ms-dark-theme .menu-row .menu-row-text {
+        color: #fff;
+    }
+    .ms-dark-theme .menu-row .menu-row-arrow {
+        color: #ff8306;
+    }
+    .ms-dark-theme .modal-content-modern {
+        background-color: #252851;
+    }
+    .ms-dark-theme .modal-subtitle {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme .modal-textarea {
+        background-color: #1f2247;
+        border-color: #3a3f70;
+        color: #fff;
+    }
+    .ms-dark-theme .modal-textarea::placeholder {
+        color: #9aa0c4;
+    }
+    .ms-dark-theme .btn-cancel {
+        background: #323a67;
+        color: #fff;
+    }
+    .ms-dark-theme .btn-cancel:hover {
+        background: #3c4380;
+    }
+    .ms-dark-theme .help-option {
+        border-bottom-color: #242750;
+    }
+    .ms-dark-theme .help-option:hover {
+        background: #2a2e5b;
+    }
+    .ms-dark-theme .help-option .help-option-text {
+        color: #fff;
+    }
 </style>
 
 <div class="dashboard-welcome">
@@ -255,17 +326,9 @@
         <span class="action-icon">🍼</span>
         <span class="action-title">Child Ceremony</span>
     </a>
-    <a href="{{ url('/bus-route') }}" class="action-card">
-        <span class="action-icon">🚌</span>
-        <span class="action-title">Bus Route (Deprecated)</span>
-    </a>
     <a href="{{ url('/birthdays') }}" class="action-card">
         <span class="action-icon">🎂</span>
         <span class="action-title">Birthdays</span>
-    </a>
-    <a href="{{ url('/mregister') }}" class="action-card">
-        <span class="action-icon">📋</span>
-        <span class="action-title">Member Register</span>
     </a>
 </div>
 

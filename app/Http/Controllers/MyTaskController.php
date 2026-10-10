@@ -5,32 +5,14 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 
 class MyTaskController extends Controller
 {
     public function index(Request $request)
     {
-        // Check if we're viewing a specific guide's tasks
-    $guide_id = $request->get('guide_id');
-    $viewing_guide_name = $request->get('guide_name');
-    
-    // Debug: Log the values to see what's coming through
-    \Log::info('Guide ID: ' . $guide_id);
-    \Log::info('Guide Name: ' . $viewing_guide_name);
-    
-    if ($guide_id) {
-        // Admin viewing another guide's tasks
-        $tiu_member_id = $guide_id;
-        $is_viewing_other = true;
-    } else {
-        // User viewing their own tasks
-        $user = Auth::user();
-        $tiu_member_id = $user->tiu_member_id ?? $user->id;
-        $viewing_guide_name = $user->first_name . ' ' . $user->last_name;
-        $is_viewing_other = false;
-    }
+        // Whose follow-up list is opened (own by default, another guide for admins)
+        [$tiu_member_id, $viewing_guide_name, $is_viewing_other, $guide_id] = $this->resolveTaskOwner($request);
 
         // --- 1. Get TRACKING & INTEGRATION assigned first timers (department_id=23 or null) ---
         $firstTimers = DB::table('member_tracking_followup as mtf')
@@ -41,14 +23,6 @@ class MyTaskController extends Controller
                   ->orWhereNull('mtf.department_id');
             })
             ->select('ft.*', 'mtf.tracking_id')
-            ->get();
-
-        // --- 2. Get FOF SUPPORT assigned records (department_id=15) ---
-        $fofFirstTimers = DB::table('member_tracking_followup as mtf')
-            ->join('fof_register_table as fof', 'mtf.fof_register_id', '=', 'fof.id')
-            ->where('mtf.tiu_member_id', $tiu_member_id)
-            ->where('mtf.department_id', 15)
-            ->select('fof.*', 'mtf.tracking_id')
             ->get();
 
         // Get updates data (FOF status) - only for tracking first timers
@@ -91,9 +65,53 @@ class MyTaskController extends Controller
         }
 
         return view('my-task.index', compact(
-            'firstTimers', 'fofFirstTimers', 'updatesData', 'trackingData',
+            'firstTimers', 'updatesData', 'trackingData',
             'is_viewing_other', 'viewing_guide_name', 'guide_id'
         ));
+    }
+
+    /**
+     * Resolve whose follow-up list a request is about.
+     *
+     * Task Overview (`/aoverview`) links into a guide with `guide_id` +
+     * `guide_name`, which only Admins / Super Users may use; everybody else is
+     * always scoped to their own `tiu_member_id`.
+     *
+     * @return array{0: mixed, 1: ?string, 2: bool, 3: mixed} [tiu_member_id, viewing_guide_name, is_viewing_other, guide_id]
+     */
+    private function resolveTaskOwner(Request $request): array
+    {
+        $user = Auth::user();
+        $own_id = $user->tiu_member_id ?? $user->id;
+        $own_name = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) ?: null;
+
+        $guide_id = $request->get('guide_id');
+        $can_view_others = in_array($user->member_role ?? '', ['Super User', 'Admin'], true);
+
+        if (!$guide_id || !$can_view_others || (string) $guide_id === (string) $own_id) {
+            return [$own_id, $own_name, false, null];
+        }
+
+        // Prefer the name the overview link sent, fall back to the member row
+        $guide_name = $request->get('guide_name') ?: $this->tiuMemberName($guide_id);
+
+        return [$guide_id, $guide_name, true, $guide_id];
+    }
+
+    /**
+     * Display name of a TIU member, used when a link carries no `guide_name`.
+     */
+    private function tiuMemberName($tiu_member_id): ?string
+    {
+        $member = DB::table('tiu_member')
+            ->where('tiu_member_id', $tiu_member_id)
+            ->first(['first_name', 'last_name']);
+
+        if (!$member) {
+            return null;
+        }
+
+        return trim(($member->first_name ?? '') . ' ' . ($member->last_name ?? '')) ?: null;
     }
 
     public function update(Request $request)
@@ -125,7 +143,6 @@ class MyTaskController extends Controller
                         'holy_ghost_baptism' => "",
                         'birthday' => "",
                         'community' => "",
-                        'bus_route' => "",
                         'created_date' => now(),
                     ]);
                 }
@@ -148,69 +165,29 @@ class MyTaskController extends Controller
 
     public function showTasks(Request $request, $id)
     {
-        // Check if we're viewing a specific guide's tasks
-        $guide_id = $request->get('guide_id');
-        $viewing_guide_name = $request->get('guide_name');
-        
-        if ($guide_id) {
-            // Admin viewing another guide's tasks
-            $tiu_member_id = $guide_id;
-            $is_viewing_other = true;
-        } else {
-            // User viewing their own tasks
-            $user = Auth::user();
-            $tiu_member_id = $user->tiu_member_id ?? $user->id;
-            $viewing_guide_name = $user->first_name . ' ' . $user->last_name;
-            $is_viewing_other = false;
-        }
+        // Whose follow-up list is opened (own by default, another guide for admins)
+        [$tiu_member_id, $viewing_guide_name, $is_viewing_other, $guide_id] = $this->resolveTaskOwner($request);
 
-        // First, check if this ID is a FOF register ID (department_id=15)
-        $fofTracking = DB::table('member_tracking_followup')
-            ->where('tiu_member_id', $tiu_member_id)
-            ->where('fof_register_id', $id)
-            ->where('department_id', 15)
+        // Regular first timer tracking
+        $firstTimer = DB::table('first_timer')
+            ->where('first_timer_id', $id)
             ->first();
 
-        if ($fofTracking) {
-            // This is a FOF record - get data from fof_register_table
-            $fofRecord = DB::table('fof_register_table')
-                ->where('id', $id)
-                ->first();
+        if (!$firstTimer) {
+            // Keep the guide context so an admin lands back in the same list
+            $fallback = array_filter([
+                'guide_id' => $is_viewing_other ? $guide_id : null,
+                'guide_name' => $is_viewing_other ? $viewing_guide_name : null,
+            ]);
 
-            if (!$fofRecord) {
-                return redirect()->route('my-tasks.index')->with('error', 'FOF record not found');
-            }
-
-            // Map FOF record to firstTimer-like object for the view
-            $firstTimer = (object)[
-                'first_name' => $fofRecord->first_name,
-                'last_name' => $fofRecord->last_name,
-                'phone_number' => $fofRecord->phone_number,
-                'gender' => $fofRecord->gender,
-                'attendant_type' => 'FOF Student',
-                'address' => $fofRecord->smart_request ?? '',
-                'occupation' => '',
-                'created_at' => $fofRecord->registration_date,
-                'first_timer_id' => $id,
-            ];
-
-            $tracking = $fofTracking;
-        } else {
-            // Regular first timer tracking
-            $firstTimer = DB::table('first_timer')
-                ->where('first_timer_id', $id)
-                ->first();
-
-            if (!$firstTimer) {
-                return redirect()->route('my-tasks.index')->with('error', 'First timer not found');
-            }
-
-            // Get tracking data
-            $tracking = DB::table('member_tracking_followup')
-                ->where('tiu_member_id', $tiu_member_id)
-                ->where('first_timer_id', $id)
-                ->first();
+            return redirect()->route('my-tasks.index', $fallback)->with('error', 'First timer not found');
         }
+
+        // Get tracking data
+        $tracking = DB::table('member_tracking_followup')
+            ->where('tiu_member_id', $tiu_member_id)
+            ->where('first_timer_id', $id)
+            ->first();
 
         $tasks = [];
         if ($tracking && $tracking->followup_response_new) {
@@ -238,8 +215,11 @@ class MyTaskController extends Controller
         $outcome = $request->outcome;
         $comment = $request->comment ?? '';
         
-        // Determine which guide is performing this action
-        $guide_id = $request->get('performing_guide_id', Auth::user()->tiu_member_id ?? Auth::user()->id);
+        // Determine which guide is performing this action. When an admin manages
+        // another guide's tasks the page posts `performing_guide_id`, so read it
+        // from the input bag (Request::get() only resolves route attributes and
+        // would silently ignore the submitted value).
+        $guide_id = $request->input('performing_guide_id') ?: (Auth::user()->tiu_member_id ?? Auth::user()->id);
         $member_role = Auth::user()->member_role ?? '';
 
         // Check if it's a skip action

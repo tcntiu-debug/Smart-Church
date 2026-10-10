@@ -450,7 +450,7 @@ class AdminAssignmentController extends Controller
 
         // Available departments for dropdown
         $deptOptions = DB::table('department')
-            ->whereIn('dept_id', [15, 23])
+            ->whereIn('dept_id', [23])
             ->orderBy('dept_name')
             ->get(['dept_id', 'dept_name']);
 
@@ -520,15 +520,6 @@ class AdminAssignmentController extends Controller
                     ->select('ft.*', 'mtf.tiu_member_id')
                     ->get()
                     ->groupBy('tiu_member_id');
-            } else {
-                // FOUNDATION OF FAITH SUPPORT: Show assigned fof_register records via member_tracking_followup
-                $assignedMembers = DB::table('fof_register_table as fof')
-                    ->join('member_tracking_followup as mtf', 'fof.id', '=', 'mtf.fof_register_id')
-                    ->whereIn('mtf.tiu_member_id', $guideIds)
-                    ->where('mtf.department_id', 15)
-                    ->select('fof.*', 'mtf.tiu_member_id')
-                    ->get()
-                    ->groupBy('tiu_member_id');
             }
 
             foreach ($guides as $g) {
@@ -565,29 +556,6 @@ class AdminAssignmentController extends Controller
             }
 
             $unassignedMembers = $unassignedQuery->orderBy('first_name')->orderBy('last_name')->get();
-        } else {
-            // FOUNDATION OF FAITH SUPPORT: Show ALL fof_register records (all cohorts)
-            // Exclude those already assigned via member_tracking_followup (department_id=15)
-            $unassignedQuery = DB::table('fof_register_table')
-                ->where('campus_id', $userCampusId)
-                ->whereNotIn('id', function ($q) {
-                    $q->select('fof_register_id')
-                      ->from('member_tracking_followup')
-                      ->where('department_id', 15)
-                      ->where('tiu_member_id', '>', 0);
-                });
-
-            if (!empty($ftStartDate) && !empty($ftEndDate)) {
-                $unassignedQuery->whereBetween(DB::raw('DATE(registration_date)'), [$ftStartDate, $ftEndDate]);
-            }
-            if (!empty($ftGender)) {
-                $unassignedQuery->where('gender', $ftGender);
-            }
-            if (!empty($ftGuestType)) {
-                $unassignedQuery->where('how_heard', $ftGuestType);
-            }
-
-            $unassignedMembers = $unassignedQuery->orderBy('first_name')->orderBy('last_name')->get();
         }
 
         return view('admin.assignments.drag-drop', compact(
@@ -607,92 +575,6 @@ class AdminAssignmentController extends Controller
             'ftChurchType',
             'ftGuestType'
         ));
-    }
-
-    /**
-     * AJAX: FOF Drag-drop assignment (assign fof_register records to FOF guides)
-     * Stores assignment in member_tracking_followup with department_id=15
-     */
-    public function ajaxFofAssign(Request $request)
-    {
-        $request->validate([
-            'Guild_name'       => 'required|integer',
-            'first_timer_id'   => 'required|string',
-            'full_name'        => 'required|string',
-        ]);
-
-        try {
-            $guideId      = $request->Guild_name;
-            $fofRecordId  = $request->first_timer_id;
-            $ftFullName   = $request->full_name;
-
-            // Parse fof_ prefix and id
-            $fofId = str_replace('fof_', '', $fofRecordId);
-
-            // Check if already assigned in member_tracking_followup (dept 15)
-            $existing = DB::table('member_tracking_followup')
-                ->where('fof_register_id', $fofId)
-                ->where('department_id', 15)
-                ->exists();
-
-            if (!$existing) {
-                // NEW ASSIGNMENT
-                DB::table('member_tracking_followup')->insert([
-                    'tiu_member_id'      => $guideId,
-                    'fof_register_id'    => $fofId,
-                    'followup_rank'      => 1,
-                    'department_id'      => 15,
-                    'timeStamp_registered' => now(),
-                ]);
-            } else {
-                // RE-ASSIGNMENT
-                DB::table('member_tracking_followup')
-                    ->where('fof_register_id', $fofId)
-                    ->where('department_id', 15)
-                    ->update(['tiu_member_id' => $guideId, 'timeStamp_registered' => now()]);
-            }
-
-            return response()->json([
-                'status'  => 'success',
-                'message' => "$ftFullName has been successfully assigned.",
-            ]);
-        } catch (\Exception $e) {
-            Log::error('ajaxFofAssign error: ' . $e->getMessage());
-            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * AJAX: FOF Drag-drop unassignment
-     * Removes assignment from member_tracking_followup
-     */
-    public function ajaxFofUnassign(Request $request)
-    {
-        $request->validate(['first_timer_id' => 'required|string']);
-
-        try {
-            $fofRecordId = $request->first_timer_id;
-            $fofId = str_replace('fof_', '', $fofRecordId);
-
-            // Set tiu_member_id to 0 instead of deleting (to preserve tracking data)
-            DB::table('member_tracking_followup')
-                ->where('fof_register_id', $fofId)
-                ->where('department_id', 15)
-                ->update(['tiu_member_id' => 0]);
-
-            $timerData = DB::table('fof_register_table')
-                ->where('id', $fofId)
-                ->first();
-
-            return response()->json([
-                'status'     => 'success',
-                'message'    => 'FOF registrant has been unassigned.',
-                'timer_data' => $timerData,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('ajaxFofUnassign error: ' . $e->getMessage());
-            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
-        }
     }
 
     public function suggest()

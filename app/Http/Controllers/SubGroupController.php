@@ -232,32 +232,14 @@ class SubGroupController extends Controller
                 ->get();
 
         } elseif ($deptId === 15) {
-            // Foundation of Faith – combine tiu_member (dept 15) + latest FoF cohort registrants
-            $latestCohortId = DB::table('fof_register_table')
-                ->where('campus_id', $campusId)
-                ->max('cohort_id');
-
-            $unassignedTiu = DB::table('tiu_member')
+            // Foundation of Faith – tiu_member records tagged with department 15
+            $unassignedMembers = DB::table('tiu_member')
                 ->where('department_name', 'LIKE', '%"15"%')
                 ->where($notAssignedClosure)
                 ->where('status', '!=', '2')
                 ->where('campus_id', $campusId)
                 ->select('tiu_member_id', 'first_name', 'last_name')
-                ->get()
-                ->toArray();
-
-            $unassignedFof = DB::table('fof_register_table as fr')
-                ->where('fr.cohort_id', $latestCohortId)
-                ->where('fr.campus_id', $campusId)
-                ->where(function ($q) {
-                    $q->whereNull('fr.tiu_member_id')
-                      ->orWhereRaw('fr.tiu_member_id NOT IN (SELECT tm2.tiu_member_id FROM tiu_member tm2 WHERE tm2.department_name LIKE \'%"15"%\')');
-                })
-                ->select('fr.id as fof_id', 'fr.tiu_member_id', 'fr.first_name', 'fr.last_name')
-                ->get()
-                ->toArray();
-
-            $unassignedMembers = collect(array_merge($unassignedTiu, $unassignedFof));
+                ->get();
         } else {
             return '<p class="text-danger">Configuration error for this department.</p>';
         }
@@ -286,12 +268,7 @@ class SubGroupController extends Controller
         $i = 1;
         foreach ($unassignedMembers as $member) {
             $nameHtml = $this->renderMemberName($member->first_name, $member->last_name);
-            // For FoF members from fof_register_table with no tiu_member_id yet,
-            // use a negative placeholder: -(fof_register_table.id) to signal UPDATE should auto-create them
             $displayMemberId = $member->tiu_member_id;
-            if (empty($displayMemberId) && isset($member->fof_id)) {
-                $displayMemberId = -$member->fof_id; // negative signals "create tiu_member from fof first"
-            }
             $html .= '<li class="ms-list-item bordered media" data-member-id="' . $displayMemberId . '">
                 <div class="media-body">
                     <h5>' . $i . '. ' . $nameHtml . '</h5>
@@ -361,7 +338,6 @@ class SubGroupController extends Controller
     /**
      * AJAX: Update subgroup assignment via drag-and-drop.
      * ONLY writes to the 'subgroup' column. Stores JSON array of "deptID::SubgroupName" keys.
-     * Handles FoF members from fof_register_table who may not yet have a tiu_member record.
      */
     public function updateAssignment(Request $request)
     {
@@ -371,51 +347,6 @@ class SubGroupController extends Controller
 
         if (empty($memberId)) {
             return response('Invalid Member ID.', 400);
-        }
-
-        // Handle Foundation of Faith members from fof_register_table who have no tiu_member record yet
-        // These are identified by negative member IDs: -(fof_register_table.id)
-        if ($memberId < 0 && $departmentId == 15) {
-            $fofId = abs($memberId);
-            $fofRecord = DB::table('fof_register_table')
-                ->where('id', $fofId)
-                ->first();
-
-            if (!$fofRecord) {
-                return response('FoF record not found.', 404);
-            }
-
-            // Check if the FoF record already has a tiu_member_id
-            if (!empty($fofRecord->tiu_member_id)) {
-                $memberId = (int) $fofRecord->tiu_member_id;
-            } else {
-                // Create a new tiu_member record from the FoF data
-                $campusId = Auth::user()->campus_id ?? 1;
-
-                $newMemberId = DB::table('tiu_member')->insertGetId([
-                    'first_name' => $fofRecord->first_name,
-                    'last_name' => $fofRecord->last_name,
-                    'email' => $fofRecord->email ?? '',
-                    'phone_number' => $fofRecord->phone_number ?? '',
-                    'gender' => $fofRecord->gender ?? '',
-                    'marital_status' => $fofRecord->marital_status ?? '',
-                    'campus_id' => $campusId,
-                    'status' => '1',
-                    'church_type_id' => 3, // Default Adult
-                    'registration_date' => now(),
-                    'department_name' => json_encode(['15']),
-                    'subgroup' => '[]',
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                // Update the FoF record with the new tiu_member_id
-                DB::table('fof_register_table')
-                    ->where('id', $fofId)
-                    ->update(['tiu_member_id' => $newMemberId]);
-
-                $memberId = $newMemberId;
-            }
         }
 
         // Read current subgroup value

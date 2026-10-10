@@ -12,6 +12,17 @@
     .summary-card:hover { transform: translateY(-3px); }
     .summary-card .count { font-size: 32px; font-weight: 700; }
     .summary-card .label { font-size: 13px; color: #666; margin-top: 4px; }
+    /* Semantic summary-card surfaces. These used to be inline styles, which no
+       dark rule can reach; they are classes now so the dark theme can repaint
+       them (see docs/DISPLAY-MODE.md). */
+    .summary-card-neutral { background-color: #ffffff; }
+    .summary-card-success { background-color: #d4edda; }
+    .summary-card-warning { background-color: #fff3cd; }
+    .summary-card-danger { background-color: #f8d7da; }
+    /* Panel-header tints (same reasoning as the summary cards above). */
+    .panel-heading-info { background-color: #e8f4f8; }
+    .panel-heading-success { background-color: #d4edda; }
+    .panel-heading-warning { background-color: #fff3cd; }
     .filter-section {
         background: white;
         padding: 20px;
@@ -45,6 +56,47 @@
             white-space: nowrap; text-align: left;
             font-weight: bold; color: #333;
         }
+    }
+
+    /* ---- Dark mode twins (see docs/DISPLAY-MODE.md) ----------------------
+       The page paints its own white filter box and summary cards, and tints the
+       panel headers through `.panel-heading-*`/`.summary-card-*` classes, while
+       style.css forces headings/paragraphs/spans to #fff - so every light rule
+       needs a dark counterpart.
+       Palette: surface #252851, deeper #323a67, border #242750, muted #b9bcd8. */
+    .ms-dark-theme .filter-section {
+        background: #252851;
+        box-shadow: none;
+    }
+    .ms-dark-theme .summary-card {
+        box-shadow: none;
+    }
+    .ms-dark-theme .summary-card-neutral { background-color: #252851; }
+    .ms-dark-theme .summary-card-success { background-color: #1f3b2a; }
+    .ms-dark-theme .summary-card-warning { background-color: #3a2f10; }
+    .ms-dark-theme .summary-card-danger { background-color: #3d2226; }
+    .ms-dark-theme .summary-card .label {
+        color: #cbd0e8;
+    }
+    .ms-dark-theme .panel-heading-info { background-color: #1f2247; }
+    .ms-dark-theme .panel-heading-success { background-color: #1f3b2a; }
+    .ms-dark-theme .panel-heading-warning { background-color: #3a2f10; }
+    .ms-dark-theme .ms-panel-header {
+        border-bottom-color: #242750;
+    }
+    .ms-dark-theme .member-row:hover {
+        background-color: #323a67;
+    }
+    .ms-dark-theme span.present-badge { background: #1f3b2a; color: #b7f0c5; }
+    .ms-dark-theme span.absent-badge { background: #3d2226; color: #ffc9cf; }
+    /* Bootstrap utilities carry `!important`, so their twins need it too. */
+    .ms-dark-theme .text-muted {
+        color: #b9bcd8 !important;
+    }
+    @media (max-width: 767px) {
+        .ms-dark-theme #member-table tr { border-color: #242750; }
+        .ms-dark-theme #member-table td { border-bottom-color: #242750; }
+        .ms-dark-theme #member-table td::before { color: #e7e8f5; }
     }
 </style>
 
@@ -118,19 +170,19 @@
                 <!-- Summary Cards -->
                 <div class="row mb-4">
                     <div class="col-md-4 mb-3">
-                        <div class="summary-card bg-white border">
+                        <div class="summary-card summary-card-neutral border">
                             <div class="count text-primary">{{ $totalMembers }}</div>
                             <div class="label">Total Members in <strong>{{ $groupName }}</strong></div>
                         </div>
                     </div>
                     <div class="col-md-4 mb-3">
-                        <div class="summary-card" style="background: #d4edda;">
+                        <div class="summary-card summary-card-success">
                             <div class="count text-success">{{ $totalPresent }}</div>
                             <div class="label">Present on {{ date('j M Y', strtotime($selectedDate)) }}</div>
                         </div>
                     </div>
                     <div class="col-md-4 mb-3">
-                        <div class="summary-card" style="background: #f8d7da;">
+                        <div class="summary-card summary-card-danger">
                             <div class="count text-danger">{{ $totalAbsent }}</div>
                             <div class="label">Absent on {{ date('j M Y', strtotime($selectedDate)) }}</div>
                         </div>
@@ -276,7 +328,7 @@
                 <!-- CHILDREN ATTENDANCE ANALYSIS                                     -->
                 <!-- ================================================================ -->
                 <div class="ms-panel mt-4">
-                    <div class="ms-panel-header" style="background: #e8f4f8;">
+                    <div class="ms-panel-header panel-heading-info">
                         <h5><i class="fas fa-child mr-2" style="color: #17a2b8;"></i> Children Attendance Analysis</h5>
                         <p class="text-muted mb-0 small">Children who were checked in or missing on <strong>{{ date('j M Y', strtotime($selectedDate)) }}</strong>.</p>
                     </div>
@@ -284,19 +336,19 @@
                         <!-- Children Summary Cards -->
                         <div class="row mb-4">
                             <div class="col-md-4 mb-3">
-                                <div class="summary-card bg-white border">
+                                <div class="summary-card summary-card-neutral border">
                                     <div class="count text-info">{{ $totalChildren }}</div>
                                     <div class="label">Total Children Registered</div>
                                 </div>
                             </div>
                             <div class="col-md-4 mb-3">
-                                <div class="summary-card" style="background: #d4edda;">
+                                <div class="summary-card summary-card-success">
                                     <div class="count text-success">{{ $totalChildrenPresent }}</div>
                                     <div class="label">Checked In on {{ date('j M Y', strtotime($selectedDate)) }}</div>
                                 </div>
                             </div>
                             <div class="col-md-4 mb-3">
-                                <div class="summary-card" style="background: #fff3cd;">
+                                <div class="summary-card summary-card-warning">
                                     <div class="count text-warning">{{ $totalChildrenAbsent }}</div>
                                     <div class="label">Not Checked In on {{ date('j M Y', strtotime($selectedDate)) }}</div>
                                 </div>
@@ -318,7 +370,7 @@
                         <!-- Absent Children Table -->
                         <div id="child-absent-section">
                             <div class="ms-panel">
-                                <div class="ms-panel-header" style="background: #fff3cd;">
+                                <div class="ms-panel-header panel-heading-warning">
                                     <h6><i class="fas fa-child text-warning mr-2"></i>Children Not Checked In — <strong>{{ date('j M Y', strtotime($selectedDate)) }}</strong></h6>
                                 </div>
                                 <div class="ms-panel-body">
@@ -367,7 +419,7 @@
                         <!-- Present Children Table -->
                         <div id="child-present-section" style="display: none;">
                             <div class="ms-panel">
-                                <div class="ms-panel-header" style="background: #d4edda;">
+                                <div class="ms-panel-header panel-heading-success">
                                     <h6><i class="fas fa-child text-success mr-2"></i>Children Checked In — <strong>{{ date('j M Y', strtotime($selectedDate)) }}</strong></h6>
                                 </div>
                                 <div class="ms-panel-body">

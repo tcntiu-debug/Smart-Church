@@ -61,14 +61,14 @@
 
 <div class="ms-panel">
     <div class="ms-panel-header d-flex justify-content-between align-items-center flex-wrap">
-        <h6>MEMBER'S RECORDS</h6>
+        <h6>MEMBER'S RECORDS <span class="badge badge-primary" id="member-total-badge">{{ $totalMembers }} record{{ $totalMembers == 1 ? '' : 's' }}</span></h6>
         <a href="{{ route('member.register') }}" class="btn btn-primary btn-sm">
             <i class="fas fa-plus"></i> Register New Member
         </a>
     </div>
     <div class="ms-panel-body">
         {{-- Status Filter (matches legacy member-view.php) --}}
-        <form method="GET" action="{{ route('member.index') }}" class="mb-4">
+        <form method="GET" action="{{ route('member.index') }}" class="mb-4" id="member-filter-form">
             <div class="form-row align-items-end">
                 <div class="col-md-4 col-sm-12 mb-2">
                     <label for="status_filter">Filter by Status</label>
@@ -80,7 +80,7 @@
                 </div>
                 <div class="col-md-4 col-sm-12">
                     <button type="submit" class="btn btn-primary">Filter</button>
-                    <a href="{{ route('member.register') }}" class="btn btn-secondary">Reset</a>
+                    <a href="{{ route('member.index') }}" class="btn btn-secondary" id="reset-status-filter">Reset</a>
                 </div>
             </div>
         </form>
@@ -96,6 +96,7 @@
                         <th>Gender</th>
                         <th>Marital&nbsp;Status</th>
                         <th>Occupation</th>
+                        <th>Department</th>
                         <th>Role</th>
                         <th>Status</th>
                         <th>Register&nbsp;Date</th>
@@ -104,64 +105,7 @@
                         <th>Delete</th>
                     </tr>
                 </thead>
-                <tbody>
-                    @forelse($members as $i => $member)
-                    @php
-                        $fullName = $member->first_name . ' ' . $member->last_name;
-                        $isActivated = $member->email_verified ?? 0;
-                        // Format phone for WhatsApp (matches legacy logic)
-                        $rawPhone = preg_replace('/[^0-9]/', '', $member->phone_number ?? '');
-                        if (substr($rawPhone, 0, 1) === '0') {
-                            $waPhone = '234' . substr($rawPhone, 1);
-                        } else {
-                            $waPhone = $rawPhone;
-                        }
-                        $waMessage = "Compliments of the season. This is the covenant nation Ikorodu smart church app admin. We notice after you registered yesterday, you are yet to activate your account. Please reach out to us if you have any difficulties. Thanks";
-                        $waLink = "https://wa.me/" . $waPhone . "?text=" . urlencode($waMessage);
-                        $statusText = $member->status == '1' ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>';
-                    @endphp
-                    <tr>
-                        <td data-label="No.">{{ $loop->iteration }}</td>
-                        <td data-label="Name">{{ htmlspecialchars($fullName) }}</td>
-                        <td data-label="Phone">
-                            {{ htmlspecialchars($member->phone_number) }}
-                            @if($isActivated == '0' && !empty($waPhone))
-                                <a href="{{ $waLink }}" target="_blank" title="Send Activation Reminder" style="margin-left:5px;">
-                                    <i class="fab fa-whatsapp wa-icon"></i>
-                                </a>
-                            @endif
-                        </td>
-                        <td data-label="Email">{{ htmlspecialchars($member->email ?? '—') }}</td>
-                        <td data-label="Gender">{{ htmlspecialchars($member->gender ?? '—') }}</td>
-                        <td data-label="Marital Status">{{ htmlspecialchars($member->marital_status ?? '—') }}</td>
-                        <td data-label="Occupation">{{ htmlspecialchars($member->occupation ?? '—') }}</td>
-                        <td data-label="Role">{{ htmlspecialchars($member->member_role ?? 'Member') }}</td>
-                        <td data-label="Status">{!! $statusText !!}</td>
-                        <td data-label="Register Date">{{ $member->date_registered ? \Carbon\Carbon::parse($member->date_registered)->format('M d, Y') : '—' }}</td>
-                        <td data-label="Update">
-                            <a class="media fs-14 p-2" href="{{ url('/profile?full_name=' . urlencode($fullName) . '&tiu_member_id=' . $member->tiu_member_id) }}">
-                                <span><i class='fas fa-paper-plane text-success'></i> Update</span>
-                            </a>
-                        </td>
-                        <td data-label="View Lead">
-                            <a class="media fs-14 p-2" href="{{ url('/lead?full_name=' . urlencode($fullName) . '&tiu_member_id=' . $member->tiu_member_id . '&lead_phone=' . urlencode($member->phone_number ?? '')) }}">
-                                <span><i class="fa fa-eye" aria-hidden="true"></i> View</span>
-                            </a>
-                        </td>
-                        <td data-label="Delete">
-                            @if($currentUserId == 1)
-                                <a class="media fs-14 p-2" href="{{ url('/member/delete/' . $member->tiu_member_id) }}" onclick="return confirm('Are you sure you want to permanently delete this member?');">
-                                    <span><i class="fas fa-trash-alt text-danger"></i> Delete</span>
-                                </a>
-                            @endif
-                        </td>
-                    </tr>
-                    @empty
-                    <tr>
-                        <td colspan="13" class="text-center py-4 text-muted">No members found.</td>
-                    </tr>
-                    @endforelse
-                </tbody>
+                <tbody></tbody>
             </table>
         </div>
     </div>
@@ -172,10 +116,78 @@
 <script src="{{ asset('assets/js/datatables.min.js') }}"></script>
 <script>
     $(document).ready(function() {
-        $('#order-listing').DataTable({
-            "aLengthMenu": [[5, 10, 15, -1], [5, 10, 15, "All"]],
+        // Labels used by the responsive (mobile) CSS: td::before { content: attr(data-label); }
+        var columnLabels = ['No.', 'Name', 'Phone', 'Email', 'Gender', 'Marital Status', 'Occupation',
+            'Department', 'Role', 'Status', 'Register Date', 'Update', 'View Lead', 'Delete'];
+
+        // Server-side mode: rows, searching, sorting and paging are all handled by
+        // MemberController@data, so search covers every member (not only the page on screen).
+        var columns = [
+            { data: 'no',             orderable: true  },
+            { data: 'name',           orderable: true  },
+            { data: 'phone',          orderable: true  },
+            { data: 'email',          orderable: true  },
+            { data: 'gender',         orderable: true  },
+            { data: 'marital_status', orderable: true  },
+            { data: 'occupation',     orderable: true  },
+            { data: 'department',     orderable: false },
+            { data: 'role',           orderable: true  },
+            { data: 'status',         orderable: true  },
+            { data: 'register_date',  orderable: true  },
+            { data: 'update',         orderable: false, searchable: false },
+            { data: 'lead',           orderable: false, searchable: false },
+            { data: 'delete',         orderable: false, searchable: false }
+        ];
+
+        columns.forEach(function(column, index) {
+            column.createdCell = function(td) {
+                td.setAttribute('data-label', columnLabels[index]);
+            };
+        });
+
+        var table = $('#order-listing').DataTable({
+            processing: true,
+            serverSide: true,
+            autoWidth: false,
+            ajax: {
+                url: "{{ route('member.data') }}",
+                data: function(params) {
+                    params.status_filter = $('#status_filter').val();
+                }
+            },
+            columns: columns,
+            order: [[0, 'desc']],
+            "aLengthMenu": [[10, 50, 100, -1], [10, 50, 100, "All"]],
             "iDisplayLength": 10,
-            "language": { search: "" }
+            "language": {
+                search: "",
+                processing: "Loading members...",
+                emptyTable: "No members found."
+            },
+            drawCallback: function(settings) {
+                var json = settings.json || {};
+                var filtered = parseInt(json.recordsFiltered, 10);
+                var total = parseInt(json.recordsTotal, 10);
+
+                if (isNaN(filtered) || isNaN(total)) {
+                    return;
+                }
+
+                var count = (filtered === total) ? total : filtered + ' of ' + total;
+                $('#member-total-badge').text(count + (total === 1 ? ' record' : ' records'));
+            }
+        });
+
+        // Filter by status without reloading the page (server re-queries with the filter).
+        $('#member-filter-form').on('submit', function(e) {
+            e.preventDefault();
+            table.ajax.reload();
+        });
+
+        $('#reset-status-filter').on('click', function(e) {
+            e.preventDefault();
+            $('#status_filter').val('All');
+            table.ajax.reload();
         });
     });
 </script>

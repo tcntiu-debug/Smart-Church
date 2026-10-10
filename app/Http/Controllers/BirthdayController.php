@@ -34,7 +34,8 @@ class BirthdayController extends Controller
             ->orderByRaw("MONTH(b.birthday), DAY(b.birthday)")
             ->get();
 
-        // Get upcoming birthdays in next 7 days
+        // Get today's birthdays and upcoming birthdays (next 7 days)
+        $todaysBirthdays = [];
         $upcomingBirthdays = [];
         $today = Carbon::today();
         
@@ -43,19 +44,30 @@ class BirthdayController extends Controller
                 $birthdayDate = Carbon::parse($bday->birthday);
                 $birthdayThisYear = Carbon::create($today->year, $birthdayDate->month, $birthdayDate->day);
                 
-                if ($birthdayThisYear->isPast()) {
+                // Compare days only: a birthday falling today must stay day 0
+                if ($birthdayThisYear->lt($today)) {
                     $birthdayThisYear->addYear();
                 }
                 
-                $daysLeft = $today->diffInDays($birthdayThisYear, false);
+                $daysLeft = (int) $today->diffInDays($birthdayThisYear, false);
                 
-                if ($daysLeft >= 0 && $daysLeft <= 7) {
-                    $bday->days_left = $daysLeft;
-                    $bday->birthday_date = $birthdayDate->format('d M');
+                $bday->days_left = $daysLeft;
+                $bday->birthday_date = $birthdayDate->format('d M');
+
+                if ($daysLeft === 0) {
+                    // Birthday is today
+                    $todaysBirthdays[] = $bday;
+                } elseif ($daysLeft > 0 && $daysLeft <= 7) {
+                    // Birthday within the next 7 days
                     $upcomingBirthdays[] = $bday;
                 }
             }
         }
+
+        // Sort today's birthdays by name
+        usort($todaysBirthdays, function($a, $b) {
+            return strcasecmp($a->Name ?? '', $b->Name ?? '');
+        });
 
         // Sort by days left
         usort($upcomingBirthdays, function($a, $b) {
@@ -70,7 +82,7 @@ class BirthdayController extends Controller
         $currentMonth = now()->month;
         $currentMonthName = now()->format('F');
 
-        return view('birthdays.index', compact('birthdays', 'upcomingBirthdays', 'months', 'currentMonth', 'currentMonthName'));
+        return view('birthdays.index', compact('birthdays', 'todaysBirthdays', 'upcomingBirthdays', 'months', 'currentMonth', 'currentMonthName'));
     }
 
     /**

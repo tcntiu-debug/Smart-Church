@@ -84,5 +84,19 @@
     .g-card { background: #fff; border-radius: 12px; margin-bottom: 25px; border: 1px solid #eee; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: 0.3s; }
     .g-card:hover { transform: translateY(-5px); box-shadow: 0 8px 15px rgba(0,0,0,0.1); }
     .btn-download:hover { background-color: #EA580C !important; color: white !important; }
+
+    /* ---- Dark mode twin (see docs/DISPLAY-MODE.md) -----------------------
+       `.g-card` is this page's own white tile while style.css colours its
+       captions (h6) #fff, so the tile needs a dark surface of its own.
+       Palette: surface #252851, border #242750, muted #b9bcd8. */
+    .ms-dark-theme .g-card {
+        background: #252851;
+        border-color: #242750;
+        box-shadow: none;
+    }
+    /* Bootstrap utilities carry `!important`, so their twins need it too. */
+    .ms-dark-theme .text-muted {
+        color: #b9bcd8 !important;
+    }
 </style>
 @endpush

@@ -54,6 +54,40 @@
     #community-list-ul li.active { background-color: #f0f5ff; }
     .count-badge { background-color: #6c5ffc; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.9em; }
     .department-icon { color: #28a745; margin-right: 8px; }
+
+    /* ---- Dark mode twins (see docs/DISPLAY-MODE.md) ----------------------
+       The community list, its active row and the map toggle are painted light
+       by this page while style.css recolours text inside `.ms-panel` #fff.
+       Palette: surface #252851, deeper #323a67, border #242750, accent #ff8306. */
+    .ms-dark-theme #community-panel {
+        border-color: #242750;
+    }
+    .ms-dark-theme #community-list-ul li {
+        border-bottom-color: #242750;
+    }
+    .ms-dark-theme #community-list-ul li.active {
+        background-color: #323a67;
+    }
+    .ms-dark-theme #community-list-ul li:hover .community-info,
+    .ms-dark-theme #community-list-ul li.active .community-info {
+        color: #ff8306;
+    }
+    .ms-dark-theme #community-toggle {
+        background: #252851;
+        border-color: #242750;
+    }
+    .ms-dark-theme #community-toggle span {
+        background-color: #e7e8f5;
+    }
+    /* `.ms-dark-theme .bg-primary` turns white, which would hide the header
+       text (`.text-white` is `!important`), so keep the table head solid. */
+    .ms-dark-theme thead.bg-primary {
+        background-color: #ff8306;
+    }
+    /* Bootstrap utilities carry `!important`, so their twins need it too. */
+    .ms-dark-theme .text-muted {
+        color: #b9bcd8 !important;
+    }
 </style>
 @php $amp = '&'; $lt = '<'; $gt = '>'; $quot = '"'; $apos = '&#039;'; @endphp
 <script>

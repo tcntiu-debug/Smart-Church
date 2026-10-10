@@ -98,36 +98,6 @@ class TiuMember extends Authenticatable
     }
     
     /**
-     * A member belongs to one bus stop (their preferred pick-up point).
-     * Reverse: TransportStop has many members.
-     * Foreign Key: tiu_member.bus_stop_id references transport_stops.stop_id
-     */
-    public function busStop()
-    {
-        return $this->belongsTo(TransportStop::class, 'bus_stop_id', 'stop_id');
-    }
-    
-    /**
-     * A member has many bus attendance records (as the rider).
-     * Reverse: BusAttendance belongs to TiuMember.
-     * Foreign Key: bus_attendance.tiu_member_id references tiu_member.tiu_member_id
-     */
-    public function busAttendances()
-    {
-        return $this->hasMany(BusAttendance::class, 'tiu_member_id', 'tiu_member_id');
-    }
-    
-    /**
-     * A member has many bus attendance records they marked (as the attendance taker).
-     * Reverse: BusAttendance (marked_by) belongs to TiuMember.
-     * Foreign Key: bus_attendance.marked_by references tiu_member.tiu_member_id
-     */
-    public function markedAttendances()
-    {
-        return $this->hasMany(BusAttendance::class, 'marked_by', 'tiu_member_id');
-    }
-    
-    /**
      * A member has many marketplace businesses they own.
      * Reverse: MarketplaceBusiness belongs to TiuMember.
      * Foreign Key: marketplace_businesses.tiu_member_id references tiu_member.tiu_member_id

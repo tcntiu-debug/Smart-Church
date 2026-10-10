@@ -57,35 +57,4 @@ class MapController extends Controller
         ]);
     }
 
-    /**
-     * Get bus routes with stops for map
-     */
-    public function getBusRoutes(Request $request)
-    {
-        $routes = DB::table('transport_routes')
-            ->where('status', 'active')
-            ->orderBy('route_name', 'asc')
-            ->get();
-
-        $result = [];
-        foreach ($routes as $route) {
-            $stops = DB::table('transport_stops')
-                ->where('route_id', $route->route_id)
-                ->whereNotNull('latitude')
-                ->whereNotNull('longitude')
-                ->orderBy('stop_order', 'asc')
-                ->select('stop_id', 'stop_name', 'take_off_time', 'latitude', 'longitude')
-                ->get();
-
-            $result[] = [
-                'route' => $route,
-                'stops' => $stops
-            ];
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => $result
-        ]);
-    }
 }

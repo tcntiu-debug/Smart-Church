@@ -18,16 +18,23 @@
             <div class="alert alert-success" role="alert">{{ $update_message }}</div>
         </div>
     @endif
-    @if(!empty($cohort_message))
-        <div class="col-md-12">
-            <div class="alert alert-success" role="alert">{{ $cohort_message }}</div>
-        </div>
-    @endif
     @if(!empty($church_type_message))
         <div class="col-md-12">
             <div class="alert alert-success" role="alert">{{ $church_type_message }}</div>
         </div>
     @endif
+
+    <!-- Display Mode (dark / light) -->
+    <div class="col-xl-6 col-md-12">
+        <div class="ms-panel">
+            <div class="ms-panel-header"><h6>Display Mode</h6></div>
+            <div class="ms-panel-body">
+                <p>Switch the interface between light and dark. The choice is remembered on
+                    this device, and your operating system preference is used until you pick one.</p>
+                @include('partials.theme-toggle', ['variant' => 'button'])
+            </div>
+        </div>
+    </div>
 
     <!-- First Timer View Limit -->
     <div class="col-xl-6 col-md-12">
@@ -126,101 +133,12 @@
         </div>
     </div>
 
-    <!-- Cohort Management -->
-    <div class="col-md-12">
-        <div class="ms-panel">
-            <div class="ms-panel-header"><h6>Cohort Management</h6></div>
-            <div class="ms-panel-body">
-                <ul class="nav nav-tabs" role="tablist">
-                    <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#add-cohort">Add Cohort</a></li>
-                    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#edit-cohort">Edit Cohort</a></li>
-                </ul>
-                <div class="tab-content">
-                    <div class="tab-pane active" id="add-cohort">
-                        <form method="POST" action="{{ url('/setting') }}" class="mt-3">
-                            @csrf
-                            <input type="hidden" name="action" value="add_cohort">
-                            <div class="form-row">
-                                <div class="col-md-6 mb-3">
-                                    <label for="cohort-name">Cohort Name</label>
-                                    <input type="text" class="form-control" id="cohort-name" name="cohort_name" placeholder="e.g., 2024-Q1" required>
-                                </div>
-                                <div class="col-md-4 mb-3">
-                                    <label for="cohort-status">Status</label>
-                                    <select class="form-control" id="cohort-status" name="cohort_status" required>
-                                        <option value="Active">Active</option>
-                                        <option value="Inactive">Inactive</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-2 d-flex align-items-end mb-3">
-                                    <button type="submit" class="btn btn-primary w-100">Add</button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="tab-pane" id="edit-cohort">
-                        <form method="POST" action="{{ url('/setting') }}" class="mt-3">
-                            @csrf
-                            <input type="hidden" name="action" value="edit_cohort">
-                            <input type="hidden" id="edit-cohort-id" name="cohort_id">
-                            <div class="form-row">
-                                <div class="col-md-4 mb-3">
-                                    <label for="select-cohort-to-edit">Select Cohort to Edit</label>
-                                    <select class="form-control" id="select-cohort-to-edit">
-                                        <option value="">-- Select --</option>
-                                        @foreach($all_cohorts as $cohort)
-                                            <option value="{{ $cohort->cohort_id }}"
-                                                    data-name="{{ $cohort->cohort_name }}"
-                                                    data-status="{{ $cohort->cohort_status }}">
-                                                {{ $cohort->cohort_name }}
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                </div>
-                                <div class="col-md-4 mb-3">
-                                    <label for="edit-cohort-name">New Cohort Name</label>
-                                    <input type="text" class="form-control" id="edit-cohort-name" name="edit_cohort_name" required disabled>
-                                </div>
-                                <div class="col-md-2 mb-3">
-                                    <label for="edit-cohort-status">New Status</label>
-                                    <select class="form-control" id="edit-cohort-status" name="edit_cohort_status" required disabled>
-                                        <option value="Active">Active</option>
-                                        <option value="Inactive">Inactive</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-2 d-flex align-items-end mb-3">
-                                    <button type="submit" id="edit-cohort-submit" class="btn btn-primary w-100" disabled>Update</button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 </div>
 @endsection
 
 @push('scripts')
 <script>
     $(document).ready(function() {
-        // --- Cohort Edit Form Script ---
-        $('#select-cohort-to-edit').on('change', function() {
-            const selectedOption = $(this).find('option:selected');
-            const cohortId = selectedOption.val();
-            if (cohortId) {
-                $('#edit-cohort-id').val(cohortId);
-                $('#edit-cohort-name').val(selectedOption.data('name')).prop('disabled', false);
-                $('#edit-cohort-status').val(selectedOption.data('status')).prop('disabled', false);
-                $('#edit-cohort-submit').prop('disabled', false);
-            } else {
-                $('#edit-cohort-id').val('');
-                $('#edit-cohort-name').val('').prop('disabled', true);
-                $('#edit-cohort-status').val('Active').prop('disabled', true);
-                $('#edit-cohort-submit').prop('disabled', true);
-            }
-        });
-
         // --- Church Type Edit Form Script ---
         $('#select-type-to-edit').on('change', function() {
             const selectedOption = $(this).find('option:selected');

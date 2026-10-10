@@ -23,6 +23,45 @@
             <div class="alert alert-success">{{ session('success') }}</div>
         @endif
 
+        <!-- Today's Birthdays -->
+        @if(isset($todaysBirthdays) && count($todaysBirthdays) > 0)
+            <div class="alert alert-success">
+                <h6><i class="fas fa-birthday-cake"></i> Today's Birthdays ({{ count($todaysBirthdays) }})</h6>
+            </div>
+            <div class="table-responsive mb-4">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Birthday</th>
+                            <th>Phone Number</th>
+                            <th>Days Left</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($todaysBirthdays as $b)
+                        <tr>
+                            <td>{{ $b->first_name ?? '' }} {{ $b->last_name ?? '' }}</td>
+                            <td>{{ $b->birthday_date ?? '' }}</td>
+                            <td>{{ $b->phone_number ?? 'N/A' }}</td>
+                            <td>
+                                <span class="badge badge-success">Today</span>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-success birthday-wish" 
+                                        data-name="{{ $b->first_name ?? '' }}" 
+                                        data-phone="{{ $b->phone_number ?? '' }}">
+                                    <i class="fab fa-whatsapp"></i> Send Wish
+                                </button>
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+
         <!-- Upcoming Birthdays (Next 7 Days) -->
         @if(isset($upcomingBirthdays) && count($upcomingBirthdays) > 0)
             <div class="alert alert-warning">
@@ -47,7 +86,7 @@
                             <td>{{ $b->phone_number ?? 'N/A' }}</td>
                             <td>
                                 <span class="badge {{ $b->days_left <= 1 ? 'badge-danger' : 'badge-warning' }}">
-                                    {{ $b->days_left }} days
+                                    {{ $b->days_left }} {{ $b->days_left == 1 ? 'day' : 'days' }}
                                 </span>
                             </td>
                             <td>

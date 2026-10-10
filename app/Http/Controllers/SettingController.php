@@ -14,7 +14,7 @@ class SettingController extends Controller
     }
 
     /**
-     * Display General Settings page (view limit, church types, cohorts)
+     * Display General Settings page (view limit, church types)
      */
     public function index(Request $request)
     {
@@ -25,7 +25,6 @@ class SettingController extends Controller
         }
 
         $update_message = '';
-        $cohort_message = '';
         $church_type_message = '';
 
         // --- Update View Limit ---
@@ -41,36 +40,11 @@ class SettingController extends Controller
             $update_message = 'View limit updated successfully.';
         }
 
-        // --- Cohort & Church Type Management ---
+        // --- Church Type Management ---
         if ($request->isMethod('POST') && $request->has('action')) {
             $action = $request->input('action');
 
-            if ($action === 'add_cohort') {
-                $request->validate([
-                    'cohort_name' => 'required|string|max:255',
-                    'cohort_status' => 'required|in:Active,Inactive',
-                ]);
-                DB::table('fof_cohort_setting')->insert([
-                    'cohort_name' => $request->cohort_name,
-                    'cohort_status' => $request->cohort_status,
-                ]);
-                $cohort_message = 'Cohort added successfully.';
-
-            } elseif ($action === 'edit_cohort') {
-                $request->validate([
-                    'cohort_id' => 'required|integer',
-                    'edit_cohort_name' => 'required|string|max:255',
-                    'edit_cohort_status' => 'required|in:Active,Inactive',
-                ]);
-                DB::table('fof_cohort_setting')
-                    ->where('cohort_id', $request->integer('cohort_id'))
-                    ->update([
-                        'cohort_name' => $request->edit_cohort_name,
-                        'cohort_status' => $request->edit_cohort_status,
-                    ]);
-                $cohort_message = 'Cohort updated successfully.';
-
-            } elseif ($action === 'add_church_type') {
+            if ($action === 'add_church_type') {
                 $request->validate(['church_type_name' => 'required|string|max:255']);
                 DB::table('church_type')->insert(['church_type_name' => $request->church_type_name]);
                 $church_type_message = 'Church Type added successfully.';
@@ -93,7 +67,6 @@ class SettingController extends Controller
 
         // Fetch data for display
         $current_limit = DB::table('first_time_view_limit')->value('data_limit') ?? 60;
-        $all_cohorts = DB::table('fof_cohort_setting')->orderBy('cohort_name')->get();
         $all_church_types = DB::table('church_type')->orderBy('church_type_name')->get();
 
         // Fetch leads from department table
@@ -106,8 +79,8 @@ class SettingController extends Controller
         ");
 
         return view('settings.index', compact(
-            'current_limit', 'all_cohorts', 'all_church_types', 'all_leads',
-            'update_message', 'cohort_message', 'church_type_message'
+            'current_limit', 'all_church_types', 'all_leads',
+            'update_message', 'church_type_message'
         ));
     }
 }

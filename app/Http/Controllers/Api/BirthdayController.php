@@ -32,7 +32,7 @@ class BirthdayController extends Controller
     }
 
     /**
-     * Get upcoming birthdays (next 7 days)
+     * Get today's and upcoming birthdays (next 7 days)
      */
     public function upcoming(Request $request)
     {
@@ -55,15 +55,18 @@ class BirthdayController extends Controller
                 $birthdayDate = Carbon::parse($bday->birthday);
                 $birthdayThisYear = Carbon::create($today->year, $birthdayDate->month, $birthdayDate->day);
                 
-                if ($birthdayThisYear->isPast()) {
+                // Compare days only: a birthday falling today must stay day 0
+                if ($birthdayThisYear->lt($today)) {
                     $birthdayThisYear->addYear();
                 }
                 
-                $daysLeft = $today->diffInDays($birthdayThisYear, false);
+                $daysLeft = (int) $today->diffInDays($birthdayThisYear, false);
                 
+                $bday->days_left = $daysLeft;
+                $bday->formatted_date = $birthdayDate->format('d M');
+                $bday->is_today = ($daysLeft === 0);
+
                 if ($daysLeft >= 0 && $daysLeft <= 7) {
-                    $bday->days_left = $daysLeft;
-                    $bday->formatted_date = $birthdayDate->format('d M');
                     $upcoming[] = $bday;
                 }
             }

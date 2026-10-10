@@ -220,6 +220,18 @@
         color: #555;
         font-size: 0.9em;
     }
+
+    /* ---- Dark mode twin (see docs/DISPLAY-MODE.md) -----------------------
+       The divider pill is painted white while style.css forces the <b> label
+       to #fff, so the pill must follow the card surface to stay readable.
+       Palette: surface #252851, border #242750, muted #b9bcd8. */
+    .ms-dark-theme .admin-section-divider {
+        border-bottom-color: #242750;
+    }
+    .ms-dark-theme .admin-section-divider span {
+        background: #252851;
+        color: #b9bcd8;
+    }
 </style>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>

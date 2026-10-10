@@ -12,6 +12,8 @@ class EncryptCookies extends Middleware
      * @var array<int, string>
      */
     protected $except = [
-        //
+        // Written by JavaScript (public/assets/js/theme.js) so that the layouts
+        // can render the dark/light class server side without a flash of light.
+        'tiu_theme',
     ];
 }

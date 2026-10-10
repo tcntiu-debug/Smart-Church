@@ -279,6 +279,63 @@
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
+
+    /* ---- Dark mode twins (see docs/DISPLAY-MODE.md) ----------------------
+       The layout only repaints Bootstrap surfaces (.card / .ms-panel) and
+       style.css forces every heading/paragraph/span to #fff, so this page's
+       own light rules (white search/child/empty cards on a #f4f6fa body) need
+       a `.ms-dark-theme` counterpart - otherwise the text is white on white.
+       Palette: surface #252851, deeper #323a67, border #242750, muted #b9bcd8. */
+    body.ms-dark-theme {
+        background-color: #292e5a;
+    }
+    .ms-dark-theme .search-card,
+    .ms-dark-theme .child-card,
+    .ms-dark-theme .no-results-card,
+    .ms-dark-theme .attendance-counter {
+        background: #252851;
+        border-color: #242750;
+        box-shadow: none;
+    }
+    .ms-dark-theme .child-card .child-name {
+        color: #e7e8f5;
+    }
+    .ms-dark-theme .child-card .child-details,
+    .ms-dark-theme .child-card .child-details span {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme .search-stats,
+    .ms-dark-theme .attendance-counter .label {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme .attendance-counter .count {
+        color: #10b981;
+    }
+    .ms-dark-theme span.badge-marked {
+        background: #1f3b2a;
+        color: #b7f0c5;
+    }
+    .ms-dark-theme .btn-mark:disabled {
+        background: #323a67;
+        color: #b9bcd8;
+    }
+    .ms-dark-theme .no-results-card .icon-big {
+        color: #5c6dc0;
+    }
+    .ms-dark-theme .modal-body-custom .form-group label {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme .modal-body-custom .form-control,
+    .ms-dark-theme .modal-footer-custom {
+        border-color: #242750;
+    }
+    /* Bootstrap utilities carry `!important`, so their twins need it too. */
+    .ms-dark-theme .text-dark {
+        color: #ffffff !important;
+    }
+    .ms-dark-theme .text-muted {
+        color: #b9bcd8 !important;
+    }
 </style>
 
 <div class="container py-4">

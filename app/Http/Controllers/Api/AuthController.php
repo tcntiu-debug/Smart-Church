@@ -247,7 +247,10 @@ class AuthController extends Controller
                 'tiu_member_id' => $user->tiu_member_id,
                 'date_logged_in' => now(),
                 'soure_addresss' => request()->ip() ?? '',
-                'theme_settings' => 'light'
+                // Legacy NOT NULL column, kept only for schema compatibility.
+                // The display mode is not stored per member any more; it lives in
+                // the `tiu_theme` cookie (see public/assets/js/theme.js).
+                'theme_settings' => '',
             ]);
         }
     }

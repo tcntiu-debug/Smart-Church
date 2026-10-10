@@ -15,8 +15,6 @@ use App\Http\Controllers\ProfileController;
 // ==========================================
 use App\Http\Controllers\Api\AnnouncementController;
 use App\Http\Controllers\Api\BirthdayController;
-use App\Http\Controllers\Api\FofController;
-use App\Http\Controllers\Api\TransportController;
 use App\Http\Controllers\Api\SubGroupController;
 use App\Http\Controllers\Api\ResourceController;
 use App\Http\Controllers\Api\TouchpointController;
@@ -99,24 +97,6 @@ Route::middleware(['verify.token'])->group(function () {
     Route::get('/birthdays/month/{month}', [BirthdayController::class, 'filterByMonth']);
     Route::post('/birthdays/send-wish', [BirthdayController::class, 'sendWish']);
 
-    // ===================== FOUNDATION OF FAITH (FOF) =====================
-    Route::get('/fof/cohorts', [FofController::class, 'getCohorts']);
-    Route::post('/fof/lookup', [FofController::class, 'lookup']);
-    Route::post('/fof/register', [FofController::class, 'register']);
-    Route::get('/fof/members', [FofController::class, 'members']);
-    Route::get('/fof/students', [FofController::class, 'getStudents']);
-    Route::post('/fof/mark-attendance', [FofController::class, 'markAttendance']);
-    Route::get('/fof/attendance', [FofController::class, 'viewAttendance']);
-
-    // ===================== TRANSPORT =====================
-    Route::get('/transport/routes', [TransportController::class, 'getRoutes']);
-    Route::get('/transport/stops', [TransportController::class, 'getStops']);
-    Route::get('/transport/my-registration', [TransportController::class, 'myRegistration']);
-    Route::post('/transport/register', [TransportController::class, 'saveRegistration']);
-    Route::get('/transport/attendance-members', [TransportController::class, 'getAttendanceMembers']);
-    Route::post('/transport/mark-attendance', [TransportController::class, 'markAttendance']);
-    Route::get('/transport/attendance', [TransportController::class, 'viewAttendance']);
-
     // ===================== SUB GROUPS =====================
     Route::get('/sub-groups', [SubGroupController::class, 'index']);
     Route::get('/sub-groups/members', [SubGroupController::class, 'getMembers']);
@@ -142,7 +122,6 @@ Route::middleware(['verify.token'])->group(function () {
     // ===================== MAPS =====================
     Route::get('/map/communities', [ApiMapController::class, 'getCommunities']);
     Route::get('/map/community-members', [ApiMapController::class, 'getCommunityMembers']);
-    Route::get('/map/bus-routes', [ApiMapController::class, 'getBusRoutes']);
 
     // ===================== CHILDREN CHURCH =====================
     Route::get('/children/search', [ChildrenChurchController::class, 'search']);

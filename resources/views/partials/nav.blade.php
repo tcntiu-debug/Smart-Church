@@ -31,7 +31,6 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
         <li><a href="{{ url('/profile') }}">Profile</a></li>
         <li><a href="{{ url('/mtouchpoint') }}">My SubGroup</a></li>
         <li><a href="{{ route('child-ceremony.index') }}">Child Ceremony</a></li>
-        <li><a href="{{ url('/bus-route') }}">Bus Route Registration</a></li>
         <li><a href="{{ url('/gallery') }}">Photos</a></li>
       </ul>
     </li>
@@ -175,38 +174,8 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
         <li><a href="{{ url('/group') }}">Subgroup Management</a></li>
         <li><a href="{{ url('/config-departments') }}">Department Config</a></li>
         <li><a href="{{ url('/config-community') }}">Community Config</a></li>
-        <li><a href="{{ url('/config-bus-route') }}">Bus Route Config</a></li>
         <li><a href="{{ url('/admin-marketplace') }}">Marketplace Admin</a></li>
         <li><a href="{{ url('/manage-resources') }}">Manage Resources</a></li>
-      </ul>
-    </li>
-    @endif
-
-    <!-- FOF ADMIN -->
-    @if($member_role == "Super User" || $member_role == "Admin" || (in_array('15', $user_departments) && $member_role == "Worker"))
-    <li class="menu-item">
-      <a href="#" class="has-chevron" data-toggle="collapse" data-target="#admin_fof">
-        <span><i class="fas fa-church fs-16"></i>FOF Admin</span>
-      </a>
-      <ul id="admin_fof" class="collapse">
-        <li><a href="{{ route('fof.register') }}">FOF Register</a></li>
-        <li><a href="{{ route('fof.view-students') }}">Mark Attendance</a></li>
-        <li><a href="{{ route('fof.view-attendance') }}">View Attendance</a></li>
-        <li><a href="{{ route('fof.members') }}">FOF Members</a></li>
-      </ul>
-    </li>
-    @endif
-
-    <!-- TRANSPORT ADMIN -->
-    @if($member_role == "Super User" || $member_role == "Admin" || (in_array('25', $user_departments) && $member_role == "Worker"))
-    <li class="menu-item">
-      <a href="#" class="has-chevron" data-toggle="collapse" data-target="#admin_transport">
-        <span><i class="fas fa-church fs-16"></i>Transport Admin</span>
-      </a>
-      <ul id="admin_transport" class="collapse">
-        <li><a href="{{ route('transport.admin-register') }}">Transport Register</a></li>
-        <li><a href="{{ route('transport.mark-attendance') }}">Mark Attendance</a></li>
-        <li><a href="{{ route('transport.view-attendance') }}">View Attendance</a></li>
       </ul>
     </li>
     @endif
@@ -221,6 +190,9 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
         <li><a href="{{ url('/data-policy') }}">Data Use Policy</a></li>
       </ul>
     </li>
+
+    <!-- DISPLAY MODE (dark / light) -->
+    @include('partials.theme-toggle', ['variant' => 'sidebar'])
 
     <!-- LOGOUT -->
     <li class="menu-item">

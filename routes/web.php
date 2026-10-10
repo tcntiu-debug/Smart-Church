@@ -10,10 +10,8 @@ use App\Http\Controllers\PendingTasksController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\AttendanceController;
-use App\Http\Controllers\TransportController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\MarketplaceController;
-use App\Http\Controllers\FofController;
 use App\Http\Controllers\AdminAssignmentController;
 use App\Http\Controllers\LeadViewController;
 use App\Http\Controllers\WeekListController;
@@ -34,6 +32,7 @@ use App\Http\Controllers\ChildrenChurchController;
 use App\Http\Controllers\ChildCeremonyController;
 use App\Http\Controllers\MapController;
 use App\Http\Controllers\AttendanceAnalysisController;
+use App\Http\Controllers\NotificationController;
 
 // ============================================================
 // PUBLIC ROUTES (No authentication required)
@@ -235,37 +234,14 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     
     // Member listing and management
     Route::get('/mview', [MemberController::class, 'index'])->name('member.index');
+    // DataTables server-side data source (must stay above /mview/{id})
+    Route::get('/mview/data', [MemberController::class, 'data'])->name('member.data');
     Route::get('/mview/{id}', [MemberController::class, 'show'])->name('member.show');
     Route::match(['get', 'post'], '/member/activate/{id}', [MemberController::class, 'activate'])->name('member.activate');
     Route::match(['get', 'post'], '/member/delete/{id}', [MemberController::class, 'destroy'])->name('member.delete');
 
     // Attendance
     Route::get('/attendance-report', [AttendanceController::class, 'report'])->name('attendance.report');
-
-    // Transport / Bus Route
-    Route::get('/bus-route/get-stops', [TransportController::class, 'getStops'])->name('transport.get-stops');
-    Route::post('/bus-route/save-registration', [TransportController::class, 'saveRegistration'])->name('transport.save-registration');
-    Route::get('/bus-route-admin', [TransportController::class, 'adminRoutes'])->name('transport.admin');
-    Route::get('/config-bus-route', [TransportController::class, 'adminRoutes'])->name('transport.config');
-    Route::post('/bus-route/save', [TransportController::class, 'saveRoute'])->name('transport.save-route');
-    Route::get('/bus-route/get/{id}', [TransportController::class, 'getRoute'])->name('transport.get-route');
-    Route::get('/bus-route/details', [TransportController::class, 'getRouteDetails'])->name('transport.get-details');
-    Route::get('/bus-route', [TransportController::class, 'register'])->name('transport.register');
-    Route::post('/bus-route/register', [TransportController::class, 'saveRegistration'])->name('transport.save-registration');
-
-    // Transport: Daily Attendance Marking (from TIU transport_mark_attendance.php)
-    Route::get('/bus-attendance', [TransportController::class, 'markAttendance'])->name('transport.mark-attendance');
-    Route::post('/bus-attendance/mark', [TransportController::class, 'markAttendanceAjax'])->name('transport.mark-attendance-ajax');
-    Route::post('/bus-attendance/revert', [TransportController::class, 'revertAttendance'])->name('transport.revert-attendance');
-    Route::post('/bus-attendance/delete-member', [TransportController::class, 'deleteMemberRegistration'])->name('transport.delete-member');
-
-    // Transport: Attendance View with Charts (from TIU transport_view_attendance.php)
-    Route::get('/bus-attendance-view', [TransportController::class, 'viewAttendance'])->name('transport.view-attendance');
-
-    // Transport: Admin Registration (from TIU transport_register.php)
-    Route::get('/transport-register', [TransportController::class, 'adminRegister'])->name('transport.admin-register');
-    Route::post('/transport-register/lookup', [TransportController::class, 'lookupMember'])->name('transport.lookup-member');
-    Route::post('/transport-register/submit', [TransportController::class, 'adminRegisterSubmit'])->name('transport.admin-register-submit');
 
     // Announcements
     Route::get('/admin-announcements', [AnnouncementController::class, 'index'])->name('announcements.index');
@@ -284,18 +260,6 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     Route::get('/purchase', [MarketplaceController::class, 'purchase'])->name('marketplace.purchase');
     Route::get('/my-business/deactivate-request', [MarketplaceController::class, 'requestDeactivation'])->name('marketplace.deactivate-request');
 
-    // FOF (Foundation of Faith)
-    Route::get('/fof-register', [FofController::class, 'register'])->name('fof.register');
-    Route::post('/fof-register/lookup', [FofController::class, 'lookup'])->name('fof.lookup');
-    Route::post('/fof-register', [FofController::class, 'store'])->name('fof.store');
-    Route::get('/fof-members', [FofController::class, 'members'])->name('fof.members');
-    Route::post('/fof-mark-attendance', [FofController::class, 'markAttendance'])->name('fof.mark-attendance');
-    Route::post('/fof-finish-week', [FofController::class, 'finishWeek'])->name('fof.finish-week');
-    Route::post('/fof-edit-week', [FofController::class, 'editWeek'])->name('fof.edit-week');
-    Route::get('/fof-get-attendance', [FofController::class, 'getAttendance'])->name('fof.get-attendance');
-    Route::get('/fof-view-attendance', [FofController::class, 'viewAttendance'])->name('fof.view-attendance');
-    Route::get('/fof-view-students', [FofController::class, 'viewStudents'])->name('fof.view-students');
-
     // Admin Assignments
     Route::get('/admin-assign', [AdminAssignmentController::class, 'index'])->name('admin.assignments.index');
     Route::post('/admin-assign/assign', [AdminAssignmentController::class, 'assign'])->name('admin.assignments.assign');
@@ -309,13 +273,10 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     Route::post('/admin-assign-ajax-unassign', [AdminAssignmentController::class, 'ajaxUnassign'])->name('admin.assignments.ajax-unassign');
     Route::get('/admin-assign-ajax-suggest', [AdminAssignmentController::class, 'ajaxSuggest'])->name('admin.assignments.ajax-suggest');
 
-    // FOF (Foundation of Faith) AJAX endpoints
-    Route::post('/admin-assign-ajax-fof-assign', [AdminAssignmentController::class, 'ajaxFofAssign'])->name('admin.assignments.ajax-fof-assign');
-    Route::post('/admin-assign-ajax-fof-unassign', [AdminAssignmentController::class, 'ajaxFofUnassign'])->name('admin.assignments.ajax-fof-unassign');
-
     // Lead Views
     Route::get('/lead', [LeadViewController::class, 'departmentLead'])->name('lead.department');
     Route::get('/weeklist', [WeekListController::class, 'index'])->name('weeklist.index');
+    Route::post('/weeklist/assign-caller', [WeekListController::class, 'saveCallerAssignment'])->name('weeklist.assign-caller');
     Route::get('/leaddepartment', [LeadViewController::class, 'departmentLead'])->name('lead.department');
     Route::get('/ftlead', [LeadViewController::class, 'firstTimerLead'])->name('lead.first-timer');
 
@@ -393,6 +354,12 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     // Birthdays
     Route::get('/birthdays', [BirthdayController::class, 'index'])->name('birthdays.index');
     Route::get('/birthdays/filter', [BirthdayController::class, 'filter'])->name('birthdays.filter');
+    Route::post('/birthdays/send-wish', [BirthdayController::class, 'sendWish'])->name('birthdays.send-wish');
+
+    // Notifications (in-app bell)
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+    Route::get('/notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
 
     // Touchpoint
     Route::get('/mtouchpoint', [TouchpointController::class, 'index'])->name('touchpoint');
