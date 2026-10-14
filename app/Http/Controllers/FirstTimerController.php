@@ -67,6 +67,49 @@ class FirstTimerController extends Controller
         return view('first-timer.register', compact('churchTypes', 'occupations', 'userCampusName', 'userCampusId'));
     }
 
+    /**
+     * GET /api/first-timers/{id} - one first timer's record.
+     *
+     * Nothing calls this yet (the app declares firstTimersApi.getOne and never
+     * uses it), so the payload follows the same {success, data} shape as store()
+     * above and MyTaskController::getApiFirstTimerDetails. The caller's campus is
+     * applied when they have one, so a token cannot read another campus's
+     * register. Until now the route pointed at a method that was never written,
+     * so a valid token got a 500 out of it.
+     */
+    public function show($id)
+    {
+        try {
+            $query = DB::table('first_timer')->where('first_timer_id', $id);
+
+            $user = Auth::user();
+            $campus_id = $user->campus_id ?? 0;
+
+            if (!empty($campus_id)) {
+                $query->where('campus_id', $campus_id);
+            }
+
+            $firstTimer = $query->first();
+
+            if (!$firstTimer) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'First timer not found'
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $firstTimer
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function store(Request $request)
     {
         try {

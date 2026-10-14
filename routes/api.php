@@ -2,7 +2,6 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\MyTaskController;
 use App\Http\Controllers\FirstTimerController;
 use App\Http\Controllers\AirtimeController;
@@ -25,34 +24,42 @@ use App\Http\Controllers\Api\ChildrenChurchController;
 use App\Http\Controllers\Api\WeekListController;
 
 // ==========================================
-// TEST ENDPOINTS
-// ==========================================
-Route::get('/test-db', function () {
-    try {
-        $count = DB::table('tiu_member')->count();
-        return response()->json(['success' => true, 'message' => 'Connected!', 'members' => $count]);
-    } catch (\Exception $e) {
-        return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-    }
-});
-
-// ==========================================
 // AUTH ENDPOINTS (no token required)
 // ==========================================
+// Only login is genuinely anonymous. Everything else on this controller reads or
+// writes the member named by the request, so those routes sit behind the token
+// instead - while /api/user and /api/update-profile were listed here, anyone could
+// read or rewrite any member's profile with no credential at all, because the
+// member id came from the query string or the body.
 Route::post('/login', [AuthController::class, 'login']);
+
+// Registration is admin-only by design: the controller answers 403 to every
+// caller, so this route exposes nothing.
 Route::post('/register', [AuthController::class, 'register']);
-Route::post('/check-policy', [AuthController::class, 'checkPolicy']);
-Route::post('/sign-policy', [AuthController::class, 'signPolicy']);
-Route::post('/check-profile', [AuthController::class, 'checkProfile']);
-Route::post('/update-profile', [AuthController::class, 'updateProfile']);
+
+// Logout is a no-op for a stateless token (the client drops its copy); it stays
+// public so a device holding a broken token can still clear its own session.
 Route::post('/logout', [AuthController::class, 'logout']);
-Route::get('/user', [AuthController::class, 'user']);
+
+// /api/test-db used to live here: it returned the member count and, on failure,
+// the raw database exception message to any anonymous caller. Use
+// `php artisan tinker` or the application log when you need to smoke-test the DB.
 
 // ==========================================
 // PROTECTED API ENDPOINTS (require token)
 // ==========================================
 Route::middleware(['verify.token'])->group(function () {
     
+    // ===================== ACCOUNT / SESSION =====================
+    // Behind the token, user_id comes from the verified claims, so these can no
+    // longer be pointed at another member by passing a user_id (the guard merges
+    // its claims over anything the client sends).
+    Route::get('/user', [AuthController::class, 'user']);
+    Route::post('/update-profile', [AuthController::class, 'updateProfile']);
+    Route::post('/check-policy', [AuthController::class, 'checkPolicy']);
+    Route::post('/sign-policy', [AuthController::class, 'signPolicy']);
+    Route::post('/check-profile', [AuthController::class, 'checkProfile']);
+
     // ===================== MY TASKS =====================
     Route::get('/my-tasks', [MyTaskController::class, 'getApiIndex']);
     Route::get('/my-tasks/{id}/details', [MyTaskController::class, 'getApiFirstTimerDetails']);

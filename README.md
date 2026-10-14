@@ -60,6 +60,8 @@ git push  ->  GitHub Actions  ->  composer install --no-dev  ->  SFTP/FTPS uploa
   [`docs/DEPLOY-dev.lit-grp.com.md`](docs/DEPLOY-dev.lit-grp.com.md)
 - Full setup guide, secrets table and troubleshooting:
   [`docs/CPANEL-DEPLOYMENT.md`](docs/CPANEL-DEPLOYMENT.md)
+- How the mobile app authenticates, and how to revoke every token at once:
+  [`docs/API-TOKENS.md`](docs/API-TOKENS.md)
 - After deploying, run once on the server:
 
   ```bash
@@ -82,6 +84,9 @@ Add the cron entry in cPanel → **Cron Jobs**.
 - `public/uploads`, `public/display_photo`, `public/gallery_uploads` and everything under
   `storage/` are git-ignored because they hold live member data on the server. Deploys
   never overwrite or delete them.
+- `API_TOKEN_KEY` - the secret that signs the mobile app's Bearer tokens - belongs in the
+  server-side `.env` only, never in a front end, a screenshot or a ticket. Rotating it signs
+  every device out: [`docs/API-TOKENS.md`](docs/API-TOKENS.md).
 - Never commit credentials. GitHub login details belong in Windows Credential Manager,
   cPanel deploy credentials belong in GitHub repository secrets, and application secrets
   belong in the server-side `.env`.

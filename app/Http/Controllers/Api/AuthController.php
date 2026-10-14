@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\ApiTokenService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -12,7 +13,7 @@ class AuthController extends Controller
     /**
      * Login user and return token
      */
-    public function login(Request $request)
+    public function login(Request $request, ApiTokenService $tokens)
     {
         $request->validate([
             'email' => 'required|email',
@@ -43,12 +44,15 @@ class AuthController extends Controller
             ->where('signature', 'yes')
             ->exists();
 
-        // Create a simple token for mobile consumption (Base64 encoded ID + Timestamp)
-        $token = base64_encode($user->tiu_member_id . '|' . time());
+        // Issues a signed HS256 JWT (App\Services\ApiTokenService). Clients treat
+        // it as opaque and send it back as `Authorization: Bearer <token>`; it is
+        // minted from the authenticated member id only, never from client input.
+        $issued = $tokens->issue($user->tiu_member_id);
 
         return response()->json([
             'success' => true,
-            'token' => $token,
+            'token' => $issued['token'],
+            'expires_at' => $issued['expires_at'],
             'user' => [
                 'id' => $user->tiu_member_id,
                 'first_name' => $user->first_name ?? '',
