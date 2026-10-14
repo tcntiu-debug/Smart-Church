@@ -10,9 +10,9 @@
  *   - The cookie is read server side by the layouts, which render the class with
  *     the HTML, so there is no white flash while the page loads.
  *   - The cookie is written here only after the user clicks a [data-theme-toggle].
- *   - While no cookie exists the operating system preference
- *     (`prefers-color-scheme`) is followed, and it keeps being followed if the
- *     user changes it mid-session.
+ *   - LIGHT IS THE DEFAULT. Until the user picks dark the interface stays light on
+ *     every device: the operating system preference (`prefers-color-scheme`) is
+ *     deliberately ignored, so a phone that is set to dark still gets the light UI.
  *
  * Markup contract: any element carrying `data-theme-toggle` becomes a switch.
  * Icons and labels swap through CSS (see public/assets/css/theme-toggle.css).
@@ -43,20 +43,13 @@
         document.cookie = COOKIE_NAME + '=' + theme + attributes;
     }
 
-    /** @returns {string} the operating system preference. */
-    function systemTheme() {
-        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-        return prefersDark ? 'dark' : 'light';
-    }
-
     /**
      * Resolve what should be displayed right now.
      *
-     * @returns {string} stored choice first, then the OS preference.
+     * @returns {string} the stored choice, otherwise light (the default).
      */
     function get() {
-        return read() || systemTheme();
+        return read() || 'light';
     }
 
     /** Walk up from the click target to the nearest switch element. */
@@ -122,22 +115,6 @@
         event.preventDefault();
         toggle();
     });
-
-    // Follow the OS preference live while the user has not made a choice.
-    if (window.matchMedia) {
-        var query = window.matchMedia('(prefers-color-scheme: dark)');
-        var syncWithSystem = function () {
-            if (!read()) {
-                apply(systemTheme());
-            }
-        };
-
-        if (query.addEventListener) {
-            query.addEventListener('change', syncWithSystem);
-        } else if (query.addListener) {
-            query.addListener(syncWithSystem); // Safari < 14
-        }
-    }
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () {

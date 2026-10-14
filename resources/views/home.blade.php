@@ -299,6 +299,11 @@
     @endif
 </div>
 
+{{-- "Install app on this device" (PWA). Renders nothing until the browser offers
+     the install prompt, or on iOS where it shows the Share > Add to Home Screen
+     hint - see resources/views/partials/pwa-install-button.blade.php. --}}
+@include('partials.pwa-install-button')
+
 <!-- Quick Actions -->
 <div class="section-title">Quick Actions</div>
 <div class="quick-actions-grid">

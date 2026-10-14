@@ -29,8 +29,8 @@
         <div class="ms-panel">
             <div class="ms-panel-header"><h6>Display Mode</h6></div>
             <div class="ms-panel-body">
-                <p>Switch the interface between light and dark. The choice is remembered on
-                    this device, and your operating system preference is used until you pick one.</p>
+                <p>Switch the interface between light and dark. Light is the default; your
+                    choice is remembered on this device only.</p>
                 @include('partials.theme-toggle', ['variant' => 'button'])
             </div>
         </div>

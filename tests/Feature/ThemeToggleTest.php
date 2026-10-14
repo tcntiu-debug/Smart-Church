@@ -13,21 +13,33 @@ use Tests\TestCase;
 class ThemeToggleTest extends TestCase
 {
     /**
-     * The guest login screen exposes the switch, its assets and the early
-     * anti-flash resolution script.
+     * The logged-out screens are light by default and carry no switch: the
+     * display mode is chosen from the signed-in screens only.
      */
-    public function test_login_page_offers_the_display_mode_switch()
+    public function test_login_page_has_no_display_mode_switch()
     {
         $response = $this->get('/');
 
         $response->assertStatus(200);
-        $response->assertSee('data-theme-toggle', false);
-        $response->assertSee('aria-label="Switch between dark and light mode"', false);
-        $response->assertSee('theme-icon-light fas fa-moon', false);
-        $response->assertSee('theme-icon-dark fas fa-sun', false);
-        $response->assertSee('assets/css/theme-toggle.css', false);
-        $response->assertSee('assets/js/theme.js', false);
-        $response->assertSee('prefers-color-scheme: dark', false);
+        $response->assertDontSee('data-theme-toggle', false);
+        $response->assertDontSee('theme-icon-light fas fa-moon', false);
+        $response->assertDontSee('theme-icon-dark fas fa-sun', false);
+        $response->assertDontSee('ms-theme-toggle', false);
+        $response->assertDontSee('assets/css/theme-toggle.css', false);
+        $response->assertDontSee('prefers-color-scheme', false);
+    }
+
+    /**
+     * Light is the default, so the theme script must not follow the operating
+     * system preference any more: it no longer asks `matchMedia` anything.
+     */
+    public function test_theme_script_does_not_follow_the_operating_system_preference()
+    {
+        $script = file_get_contents(public_path('assets/js/theme.js'));
+
+        $this->assertStringContainsString("read() || 'light'", $script);
+        $this->assertStringNotContainsString('matchMedia', $script);
+        $this->assertStringNotContainsString('systemTheme', $script);
     }
 
     /**

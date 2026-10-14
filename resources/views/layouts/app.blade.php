@@ -13,6 +13,12 @@
     <link href="{{ asset('assets/css/style2.css') }}" rel="stylesheet">
     <link href="{{ asset('assets/css/theme-toggle.css') }}" rel="stylesheet">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon.ico') }}">
+
+    {{-- Installable app (PWA): manifest + icons, driven by partials/pwa-install-button
+         and public/service-worker.js - see docs/PWA.md. --}}
+    <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
+    <meta name="theme-color" content="#F97316">
+    <link rel="apple-touch-icon" href="{{ asset('icons/icon-192.png') }}">
 </head>
 <style>
     /* Fix for accordion button hover - make text visible */
@@ -100,14 +106,13 @@
 </style>
 
 @php
-    // Display mode (dark / light). Rendered with the HTML so a dark page never
-    // flashes white while loading; the switch itself lives in partials/theme-toggle.
+    // Display mode (dark / light). The class is rendered with the HTML so a dark
+    // page never flashes white while loading; light is the default (see
+    // docs/DISPLAY-MODE.md) and the switch lives in partials/theme-toggle.
     $themeClass = request()->cookie('tiu_theme') === 'dark' ? ' ms-dark-theme' : '';
 @endphp
 
 <body class="ms-body ms-aside-left-open{{ $themeClass }}">
-
-    @include('partials.theme-init')
 
     @include('partials.nav')
 
@@ -156,6 +161,38 @@
     <script src="{{ asset('assets/js/perfect-scrollbar.js') }}"></script>
     <script src="{{ asset('assets/js/framework.js') }}"></script>
     <script src="{{ asset('assets/js/theme.js') }}"></script>
+
+    {{-- PWA plumbing: register the service worker and capture Chrome's
+         "beforeinstallprompt" so partials/pwa-install-button can offer the
+         install in one click. Both are no-ops on browsers without support. --}}
+    <script>
+        (function () {
+            'use strict';
+
+            // Chrome hands the event out once, early in the page life; stash it.
+            window.tiuInstallPrompt = null;
+
+            window.addEventListener('beforeinstallprompt', function (event) {
+                event.preventDefault();
+                window.tiuInstallPrompt = event;
+                window.dispatchEvent(new CustomEvent('tiu:install-available'));
+            });
+
+            window.addEventListener('appinstalled', function () {
+                window.tiuInstallPrompt = null;
+                window.dispatchEvent(new CustomEvent('tiu:installed'));
+            });
+
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function () {
+                    navigator.serviceWorker.register('{{ asset('service-worker.js') }}').catch(function () {
+                        // Installation still works without the worker; the page
+                        // itself does not need it (no offline caching yet).
+                    });
+                });
+            }
+        })();
+    </script>
     @stack('scripts')
 
     <!-- Airtime Topup Modal -->

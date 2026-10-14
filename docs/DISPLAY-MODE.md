@@ -1,6 +1,11 @@
 # Display Mode (Dark / Light)
 
-The interface can be switched between light and dark. The dark palette is the one
+The interface can be switched between light and dark. **Light is the default**:
+nothing is stored until a user actually switches, so every new device starts
+light and the operating system preference (`prefers-color-scheme`) is deliberately
+ignored — a phone set to dark mode still gets the light interface.
+
+The dark palette is the one
 that already ships with the "Modern Admin" template: every dark rule in
 `public/assets/css/style.css` is scoped to the `ms-dark-theme` class, for example
 `body.ms-dark-theme, .ms-dark-theme a, ...`. The class therefore has to sit on
@@ -14,14 +19,15 @@ login activity only (see `docs/Database-Architecture-Summary.md`).
 
 | Piece | Responsibility |
 |-------|----------------|
-| `tiu_theme` cookie | The single stored choice: `dark` or `light`. Written by JavaScript, one year, `SameSite=Lax` (+`Secure` on HTTPS). |
-| `resources/views/partials/theme-init.blade.php` | Inline script placed immediately after `<body>`: applies the operating system preference when no cookie exists, so a dark page never flashes white. |
+| `tiu_theme` cookie | The single stored choice: `dark` or `light`. Written by JavaScript, one year, `SameSite=Lax` (+`Secure` on HTTPS). Absent until the user switches, because light is the default. |
 | `app/Http/Middleware/EncryptCookies.php` | Whitelists `tiu_theme` (`$except`), because Laravel would otherwise discard the plain-text cookie written by JavaScript. |
 | `resources/views/partials/theme-toggle.blade.php` | The switch markup. Variants: `navbar`, `sidebar`, `floating`, `button`. |
 | `public/assets/js/theme.js` | Owns the `<body>` class: reads the cookie, follows `prefers-color-scheme` until the user chooses, swaps on click, keeps `aria-pressed`/`title` in sync. Exposes `window.TiuTheme`. |
 | `public/assets/css/theme-toggle.css` | Styles the switch and swaps the sun/moon icon and label. |
 
-Resolution order in `theme.js`: stored cookie → `prefers-color-scheme` → light.
+Resolution order in `theme.js`: stored cookie → light. There is no inline
+anti-flash script any more: light needs no class, and a `dark` cookie is already
+rendered into the `<body>` class by Blade, so no page can flash the wrong palette.
 Server side the layouts simply render the class, e.g.
 `<body class="ms-body ms-aside-left-open@if(request()->cookie('tiu_theme') === 'dark') ms-dark-theme@endif">`.
 
@@ -29,8 +35,11 @@ Server side the layouts simply render the class, e.g.
 
 - `resources/views/layouts/app.blade.php` — icon button in the top navbar (all authenticated pages).
 - `resources/views/partials/nav.blade.php` — "Dark Mode" / "Light Mode" item above Log Out in the side navigation.
-- `resources/views/auth/login.blade.php` and `resources/views/layouts/auth.blade.php` — floating pill on the logged-out screens.
 - `resources/views/settings/index.blade.php` — Display Mode card on the Settings page.
+
+The logged-out screens (`auth/login`, `layouts/auth`) deliberately have **no**
+switch: they always follow the default palette unless the browser carries a
+`tiu_theme=dark` cookie from a previous signed-in session.
 
 ## Adding the switch to another view
 
@@ -162,9 +171,13 @@ Checklist when a page still looks broken in dark mode:
 
 ## Tests
 
-`tests/Feature/ThemeToggleTest.php` (no `RefreshDatabase`) asserts that the switch
-and its assets are rendered and that a `tiu_theme=dark` cookie produces the
-`ms-dark-theme` body class. One HTTP test per swept page then asserts that the
+`tests/Feature/ThemeToggleTest.php` (no `RefreshDatabase`) asserts that the light
+default holds (no cookie → no `ms-dark-theme` class, the logged-out pages ship no
+switch and no toggle stylesheet), that the switch and its assets are rendered on
+the signed-in pages, and that a `tiu_theme=dark` cookie produces the
+`ms-dark-theme` body class. It also guards the default directly: the theme script
+must not call `matchMedia` (it can no longer follow `prefers-color-scheme`).
+One HTTP test per swept page then asserts that the
 dark counterparts (and the original light rules) reach the browser: the dashboard
 (`/home`), My Tasks (`/my-tasks`), the Drag & Drop page
 (`/admin-assign-dragdrop`), the check-in page (`/children-church`), attendance
