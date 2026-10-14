@@ -100,6 +100,7 @@ class SendBirthdayReminders extends Command
         $migrations = [
             'birthday_reminder_logs' => 'database/migrations/2026_10_09_000001_create_birthday_reminder_logs_table.php',
             'app_notifications' => 'database/migrations/2026_10_09_000002_create_app_notifications_table.php',
+            'member_tracking_followup_archive' => 'database/migrations/2026_10_14_000001_create_member_tracking_followup_archive_table.php',
         ];
 
         foreach ($migrations as $table => $path) {

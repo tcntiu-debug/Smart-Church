@@ -249,10 +249,10 @@ milestones. It runs through Laravel's scheduler, so add **one** cron entry
 * * * * * /usr/local/bin/ea-php80 /home/<cpanel-user>/public_html/artisan schedule:run >> /dev/null 2>&1
 ```
 
-That single entry drives every entry in `app/Console/Kernel.php::schedule()` — currently
-just `birthdays:remind`, which fires at `07:00` `Africa/Lagos`. Use the same PHP binary as
-the post-deploy cron above. This is **separate** from the daily `app:post-deploy` cron:
-keep both.
+That single entry drives every entry in `app/Console/Kernel.php::schedule()` — `birthdays:remind` at
+`07:00`, `app:sync-schema` at `03:20` and `firsttimers:auto-unassign` on Mondays at `04:10`, all
+`Africa/Lagos`. Use the same PHP binary as the post-deploy cron above. This is **separate** from the
+daily `app:post-deploy` cron: keep both.
 
 > **Do not leave this entry on *Once Per Day* (`0 0 * * *`).** The cron line is only the
 > heartbeat that wakes the scheduler — Laravel compares its own expression (`0 7 * * *`
@@ -272,6 +272,28 @@ keep both.
 > ever add to `Kernel::schedule()` will run), it breaks silently if the server clock is not
 > UTC, and it must be re-timed whenever `BIRTHDAY_SEND_AT` changes. Use the per-minute
 > `schedule:run` entry above unless you truly cannot.
+
+### Weekly release of first timers who reached 8 weeks
+
+`firsttimers:auto-unassign` releases every first timer who has had a guide for eight weeks or
+more. The follow-up is no longer thrown away: the row is copied into
+`member_tracking_followup_archive` **before** it is deleted, so the last guide and the last
+comment stay visible under **`/weeklist/guide-history`** (Admins / Super Users; `?search=` and
+`?reason=` filter it). The archive table is created on demand — the command applies its own
+migration, and so do `app:sync-schema` and `app:post-deploy --migrate` — so nothing has to be
+run by hand on the SFTP-only host.
+
+Look before you leap, and run it by hand any time:
+
+```bash
+php artisan firsttimers:auto-unassign --dry-run   # who would be released
+php artisan firsttimers:auto-unassign             # release + archive
+```
+
+**Alternative — if a weekly `schedule:run` is not possible:** `public/auto_unassign.php` runs the
+same release over HTTP (`https://yourdomain.com/auto_unassign.php`; add `?dry-run=1` to look
+first). Running it alongside the scheduler is harmless: a released first timer no longer has a
+follow-up row, so the second run finds nothing to do.
 
 **Verifying the cron is actually alive.** The tick is silent by design: its own output goes to
 `/dev/null`, and the event is what writes `storage/logs/birthday-reminders.log` - a tick where

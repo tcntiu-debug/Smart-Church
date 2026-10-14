@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
@@ -26,6 +27,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        // The whole app is served off Bootstrap 4.1 (layouts.app), so pages that
+        // paginate must not use the framework's Tailwind-flavoured default.
+        Paginator::useBootstrap();
+
         // Unread counter for the in-app notification bell (layouts.app navbar).
         View::composer('layouts.app', function ($view) {
             $unread = 0;

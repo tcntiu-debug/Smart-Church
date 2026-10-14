@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\GuideArchiveService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -37,53 +38,18 @@ class WeekListController extends Controller
         }
 
         // Get filter parameters
-        $start_date_filter = $request->get('start_date', '');
-        $end_date_filter = $request->get('end_date', '');
+        // The default window is the current week (Sunday to Saturday).
+        [$start_date_filter, $end_date_filter, $defaultWindow] = $this->resolveWindow($request);
         $guest_type_filter = $request->get('guest_type', '');
         $church_type_id_filter = $request->get('church_type_id', '');
 
-        // Set default date range (current week: Sunday to Saturday)
-        if (!$start_date_filter || !$end_date_filter) {
-            $today = Carbon::today();
-            $dayOfWeek = $today->dayOfWeek; // 0 = Sunday, 6 = Saturday
-            $sunday = $today->copy()->subDays($dayOfWeek);
-            $saturday = $sunday->copy()->addDays(6);
-            
-            $start_date_filter = $sunday->format('Y-m-d');
-            $end_date_filter = $saturday->format('Y-m-d');
-            $page_title = "Weekly Prayer List (" . $sunday->format('M d') . " - " . $saturday->format('M d, Y') . ")";
-        } else {
-            $page_title = "First Timers from " . date('M d, Y', strtotime($start_date_filter)) . " to " . date('M d, Y', strtotime($end_date_filter));
-        }
+        $page_title = $defaultWindow
+            ? "Weekly Prayer List (" . date('M d', strtotime($start_date_filter)) . " - " . date('M d, Y', strtotime($end_date_filter)) . ")"
+            : "First Timers from " . date('M d, Y', strtotime($start_date_filter)) . " to " . date('M d, Y', strtotime($end_date_filter));
 
-        // Build the query
-        $query = DB::table('first_timer as ft')
-            ->leftJoin('church_type as ct', 'ft.church_type_id', '=', 'ct.id');
-
-        // Campus filter - only show first timers from user's campus
-        if ($member_role !== 'Super User' && !empty($userCampusId)) {
-            $query->where('ft.campus_id', $userCampusId);
-        }
-
-        // Date range condition
-        if ($start_date_filter && $end_date_filter) {
-            $query->whereBetween('ft.register_date', [$start_date_filter . ' 00:00:00', $end_date_filter . ' 23:59:59']);
-        }
-
-        // Guest type filter
-        if ($guest_type_filter) {
-            $query->where('ft.attendant_type', $guest_type_filter);
-        }
-
-        // Church type filter
-        if ($church_type_id_filter && $church_type_id_filter !== 'All') {
-            $query->where('ft.church_type_id', $church_type_id_filter);
-        }
-
-        // Get the results
-        $firstTimers = $query->select('ft.*', 'ct.church_type_name')
-            ->orderBy('ft.register_date', 'desc')
-            ->get();
+        // Get the results. The bulk buttons (assign all callers / unassign all
+        // guides) rebuild exactly this window through the same helper.
+        $firstTimers = $this->windowRows($request, $start_date_filter, $end_date_filter, $member_role, $userCampusId);
 
         // Get guest types for filter dropdown (also filtered by campus)
         $guestTypesQuery = DB::table('first_timer')
@@ -181,7 +147,7 @@ class WeekListController extends Controller
             compact('rows', 'page_title', 'guestTypes', 'churchTypes',
                 'start_date_filter', 'end_date_filter', 'guest_type_filter', 'church_type_id_filter', 'member_role',
                 'callers', 'callerNames', 'assignments', 'groupedForPrint'),
-            ['callerSubgroup' => self::CALLER_SUBGROUP]
+            ['callerSubgroup' => self::CALLER_SUBGROUP, 'isAdmin' => $this->canManageAssignments($member_role)]
         ));
     }
 
@@ -428,5 +394,303 @@ class WeekListController extends Controller
 
             return response()->json(['success' => false, 'message' => 'Could not save assignment'], 500);
         }
+    }
+
+    /**
+     * Who may use the bulk buttons on the week list: Admins and Super Users.
+     *
+     * Workers still see the page and can still change one caller at a time, they
+     * just cannot release or reassign the whole window in one click.
+     *
+     * @param  mixed  $memberRole
+     */
+    private function canManageAssignments($memberRole): bool
+    {
+        return in_array($memberRole, ['Admin', 'Admins', 'Super User'], true);
+    }
+
+    /**
+     * The date window the week list is showing: the requested filter, or the
+     * current Sunday-to-Saturday week.
+     *
+     * @return array{0: string, 1: string, 2: bool}  [start, end, wasDefaulted]
+     */
+    private function resolveWindow(Request $request): array
+    {
+        $start = (string) $request->get('start_date', '');
+        $end = (string) $request->get('end_date', '');
+
+        if ($start !== '' && $end !== '') {
+            return [$start, $end, false];
+        }
+
+        $today = Carbon::today();
+        $sunday = $today->copy()->subDays($today->dayOfWeek); // 0 = Sunday
+        $saturday = $sunday->copy()->addDays(6);
+
+        return [$sunday->format('Y-m-d'), $saturday->format('Y-m-d'), true];
+    }
+
+    /**
+     * The first timers the week list is showing, with the filters the page
+     * applies (campus scope, date window, guest type, church type).
+     *
+     * Shared by the page and the admin bulk actions so a button always acts on
+     * exactly what the admin can see.
+     *
+     * @param  string  $memberRole
+     * @param  mixed   $userCampusId
+     * @return \Illuminate\Support\Collection
+     */
+    private function windowRows(Request $request, string $start, string $end, $memberRole, $userCampusId)
+    {
+        $query = DB::table('first_timer as ft')
+            ->leftJoin('church_type as ct', 'ft.church_type_id', '=', 'ct.id');
+
+        // Campus filter - only show first timers from the user's campus.
+        if ($memberRole !== 'Super User' && !empty($userCampusId)) {
+            $query->where('ft.campus_id', $userCampusId);
+        }
+
+        $query->whereBetween('ft.register_date', [$start . ' 00:00:00', $end . ' 23:59:59']);
+
+        $guestType = (string) $request->get('guest_type', '');
+        if ($guestType !== '') {
+            $query->where('ft.attendant_type', $guestType);
+        }
+
+        $churchTypeId = (string) $request->get('church_type_id', '');
+        if ($churchTypeId !== '' && $churchTypeId !== 'All') {
+            $query->where('ft.church_type_id', $churchTypeId);
+        }
+
+        return $query->select('ft.*', 'ct.church_type_name')
+            ->orderBy('ft.register_date', 'desc')
+            ->get();
+    }
+
+    /**
+     * Admin-only: save the automatic round-robin for every first timer in the
+     * current window.
+     *
+     * Instead of setting a caller row by row in the "View Call List" modal, one
+     * click locks in the spread the modal is showing: existing manual picks are
+     * kept, everything else gets its round-robin caller.
+     */
+    public function assignAllCallers(Request $request)
+    {
+        $user = Auth::user();
+        $member_role = $user->member_role ?? 'Guest';
+
+        if (!$this->canManageAssignments($member_role)) {
+            return response()->json(['success' => false, 'message' => 'Access Denied'], 403);
+        }
+
+        [$start, $end] = $this->resolveWindow($request);
+        $rows = $this->windowRows($request, $start, $end, $member_role, $user->campus_id ?? 0);
+
+        if ($rows->isEmpty()) {
+            return response()->json(['success' => true, 'assigned' => 0, 'skipped' => 0, 'message' => 'No first timers in this window.']);
+        }
+
+        try {
+            $this->ensureCallerAssignmentsTable();
+
+            // The same round-robin the modal renders, manual overrides included.
+            [, $callerNames, $assignments] = $this->buildCallerData($rows->values()->all());
+
+            $assigned = 0;
+            $skipped = 0;
+
+            DB::transaction(function () use ($rows, $callerNames, $assignments, &$assigned, &$skipped) {
+                foreach ($rows as $row) {
+                    $callerId = $assignments[$row->first_timer_id] ?? null;
+
+                    if (!$callerId) {
+                        // Nobody in this first timer's gender lane (or no callers).
+                        $skipped++;
+
+                        continue;
+                    }
+
+                    DB::table('caller_assignments')->updateOrInsert(
+                        ['first_timer_id' => $row->first_timer_id],
+                        [
+                            'caller_member_id' => $callerId,
+                            'caller_name'      => $callerNames[$callerId] ?? null,
+                            'created_at'       => now(),
+                            'updated_at'       => now(),
+                        ]
+                    );
+
+                    $assigned++;
+                }
+            });
+
+            $message = "Saved {$assigned} caller assignment(s).";
+
+            if ($skipped > 0) {
+                $message .= " {$skipped} first timer(s) had no caller available.";
+            }
+
+            return response()->json([
+                'success'  => true,
+                'assigned' => $assigned,
+                'skipped'  => $skipped,
+                'message'  => $message,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Bulk caller assignment failed: ' . $e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Could not save the caller list'], 500);
+        }
+    }
+
+    /**
+     * Admin-only: release every guide in the current window in one click.
+     *
+     * Same move the drag & drop page makes for a single first timer
+     * (AdminAssignmentController::ajaxUnassign): the follow-up row keeps its
+     * content and only loses the guide (tiu_member_id = 0), so the tasks, logs
+     * and comments the guide recorded stay on record.
+     */
+    public function unassignAllGuides(Request $request)
+    {
+        $user = Auth::user();
+        $member_role = $user->member_role ?? 'Guest';
+
+        if (!$this->canManageAssignments($member_role)) {
+            return response()->json(['success' => false, 'message' => 'Access Denied'], 403);
+        }
+
+        [$start, $end] = $this->resolveWindow($request);
+        $rows = $this->windowRows($request, $start, $end, $member_role, $user->campus_id ?? 0);
+
+        $firstTimerIds = $rows->pluck('first_timer_id')->map('intval')->filter()->unique()->values()->all();
+
+        if (empty($firstTimerIds)) {
+            return response()->json(['success' => true, 'unassigned' => 0, 'message' => 'No first timers in this window.']);
+        }
+
+        try {
+            $trackings = DB::table('member_tracking_followup')
+                ->whereIn('first_timer_id', $firstTimerIds)
+                ->where('tiu_member_id', '>', 0)
+                ->get(['tracking_id', 'first_timer_id']);
+
+            if ($trackings->isEmpty()) {
+                return response()->json(['success' => true, 'unassigned' => 0, 'message' => 'No guide is assigned in this window.']);
+            }
+
+            $trackingIds = $trackings->pluck('tracking_id')->all();
+            $releasedIds = $trackings->pluck('first_timer_id')->map('intval')->unique()->values()->all();
+
+            DB::transaction(function () use ($trackingIds, $releasedIds) {
+                // tiu_member_id = 0 and not a delete: the guide's feedback stays.
+                DB::table('member_tracking_followup')
+                    ->whereIn('tracking_id', $trackingIds)
+                    ->update(['tiu_member_id' => 0]);
+
+                DB::table('first_timer')
+                    ->whereIn('first_timer_id', $releasedIds)
+                    ->update(['status' => 'Unassigned', 'status_change_date' => now()]);
+            });
+
+            return response()->json([
+                'success'    => true,
+                'unassigned' => count($trackingIds),
+                'message'    => 'Released ' . count($trackingIds) . ' first timer(s). Their follow-up notes were kept.',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Bulk guide unassign failed: ' . $e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Could not unassign the guides'], 500);
+        }
+    }
+
+    /**
+     * Admin-only: who guided a first timer after they were released, with the
+     * last comment each guide logged.
+     *
+     * This is the answer to "the cron deletes the follow-up at 8 weeks but I
+     * still want to see the last guide and the last comment": the follow-up row
+     * is copied into member_tracking_followup_archive before it is deleted, and
+     * this page reads that copy.
+     */
+    public function guideHistory(Request $request)
+    {
+        $user = Auth::user();
+        $member_role = $user->member_role ?? 'Guest';
+
+        if (!$this->canManageAssignments($member_role)) {
+            return redirect()->route('weeklist.index')->with('error', 'Access Denied');
+        }
+
+        // Covers hosts that cannot run migrations after a deploy.
+        app(GuideArchiveService::class)->ensureArchiveTable();
+
+        $search = trim((string) $request->get('search', ''));
+        $reason = trim((string) $request->get('reason', ''));
+
+        $query = DB::table('member_tracking_followup_archive as a')
+            ->leftJoin('first_timer as ft', 'a.first_timer_id', '=', 'ft.first_timer_id')
+            ->leftJoin('tiu_member as tm', 'a.tiu_member_id', '=', 'tm.tiu_member_id');
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $like = '%' . $search . '%';
+                $q->where('ft.first_name', 'like', $like)
+                    ->orWhere('ft.last_name', 'like', $like)
+                    ->orWhere('tm.first_name', 'like', $like)
+                    ->orWhere('tm.last_name', 'like', $like);
+            });
+        }
+
+        if ($reason !== '') {
+            $query->where('a.archive_reason', $reason);
+        }
+
+        $records = $query->select(
+            'a.archive_id',
+            'a.first_timer_id',
+            'a.tiu_member_id',
+            'a.archive_reason',
+            'a.archived_at',
+            'a.timeStamp_registered',
+            'a.followup_response',
+            'a.followup_response_new',
+            'a.tiu_member_comment',
+            'ft.first_name as ft_first_name',
+            'ft.last_name as ft_last_name',
+            'ft.phone_number as ft_phone',
+            'tm.first_name as guide_first_name',
+            'tm.last_name as guide_last_name'
+        )
+            ->orderByDesc('a.archived_at')
+            ->orderByDesc('a.archive_id')
+            ->paginate(50)
+            ->withQueryString();
+
+        // "The last comment" straight out of the archived task log.
+        $records->getCollection()->transform(function ($row) {
+            $last = GuideArchiveService::lastActivity($row);
+
+            $row->ft_name = trim(($row->ft_first_name ?? '') . ' ' . ($row->ft_last_name ?? ''));
+            $row->guide_name = trim(($row->guide_first_name ?? '') . ' ' . ($row->guide_last_name ?? ''));
+            $row->last_comment = $last['comment'];
+            $row->last_outcome = $last['outcome'];
+            $row->last_task = $last['task'];
+            $row->last_logged_at = $last['logged_at'];
+
+            return $row;
+        });
+
+        $reasons = DB::table('member_tracking_followup_archive')
+            ->whereNotNull('archive_reason')
+            ->distinct()
+            ->orderBy('archive_reason')
+            ->pluck('archive_reason');
+
+        return view('weeklist.guide-history', compact('records', 'reasons', 'search', 'reason'));
     }
 }

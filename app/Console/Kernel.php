@@ -37,6 +37,20 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/schema-sync.log'));
 
+        // 8-week retention: a first timer keeps a guide for eight weeks and is then
+        // released. The follow-up is copied into member_tracking_followup_archive
+        // before the row is deleted, so /weeklist/guide-history can still show the
+        // last guide and the last comment. Weekly, and safe to run twice: a
+        // released first timer no longer has a member_tracking_followup row, so a
+        // second run finds nothing to do - that is why the hand-made cPanel cron
+        // hitting public/auto_unassign.php (which runs the same service) can stay
+        // in place without clashing with this entry.
+        $schedule->command('firsttimers:auto-unassign')
+            ->weeklyOn(1, '04:10')
+            ->timezone(config('birthday.timezone', 'Africa/Lagos'))
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/auto-unassign.log'));
+
         // $schedule->command('inspire')->hourly();
     }
 

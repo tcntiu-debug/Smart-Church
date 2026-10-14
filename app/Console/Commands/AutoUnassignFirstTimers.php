@@ -2,15 +2,15 @@
 
 namespace App\Console\Commands;
 
-use App\Models\FirstTimer;
-use App\Models\MemberTrackingFollowup;
+use App\Services\GuideArchiveService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 
 class AutoUnassignFirstTimers extends Command
 {
-    protected $signature = 'firsttimers:auto-unassign';
-    protected $description = 'Auto-unassign first-timers who have been assigned for 8+ weeks (runs weekly)';
+    protected $signature = 'firsttimers:auto-unassign
+                            {--dry-run : Report who would be released without changing anything}';
+
+    protected $description = 'Auto-unassign first-timers who have been assigned for 8+ weeks (runs weekly), archiving their follow-up';
 
     public function __construct()
     {
@@ -19,67 +19,41 @@ class AutoUnassignFirstTimers extends Command
 
     public function handle()
     {
+        $dryRun = (bool) $this->option('dry-run');
+
         $this->info('Starting Auto-Unassign Process...');
 
-        $trackings = MemberTrackingFollowup::where('tiu_member_id', '!=', 0)->get();
-
-        if ($trackings->isEmpty()) {
-            $this->info('No currently assigned first-timers to check. Process complete.');
-            return 0;
+        if ($dryRun) {
+            $this->warn('DRY RUN: nothing will be written.');
         }
 
-        $unassignedCount = 0;
-        $today = now();
+        $result = app(GuideArchiveService::class)->unassignAtEightWeeks($dryRun);
 
-        foreach ($trackings as $tracking) {
-            $firstTimer = FirstTimer::find($tracking->first_timer_id);
-
-            if (!$firstTimer) {
-                $this->warn("First timer ID {$tracking->first_timer_id} not found. Skipping.");
-                continue;
-            }
-
-            $registrationDate = $firstTimer->register_date
-                ?? $firstTimer->timeStamp_registered
-                ?? $tracking->created_at;
-
-            if (!$registrationDate) {
-                $this->warn("No registration date found for First Timer ID: {$tracking->first_timer_id}. Skipping.");
-                continue;
-            }
-
-            $weeksPassed = (int) floor($today->diffInDays($registrationDate) / 7);
-
-            $this->line("Checking First Timer ID: {$tracking->first_timer_id}... Registered on: {$registrationDate}. Weeks passed: {$weeksPassed}.");
-
-            if ($weeksPassed >= 8) {
-                $this->line(">> ACTION: Unassigning First Timer ID: {$tracking->first_timer_id}...");
-
-                try {
-                    DB::beginTransaction();
-
-                    $tracking->delete();
-
-                    $firstTimer->update([
-                        'status'             => 'Unassigned',
-                        'status_change_date' => now(),
-                    ]);
-
-                    DB::commit();
-
-                    $unassignedCount++;
-                    $this->info(">> SUCCESS: Unassigned First Timer ID: {$tracking->first_timer_id}.");
-                } catch (\Exception $e) {
-                    DB::rollBack();
-                    $this->error(">> ERROR: Database error for First Timer ID: {$tracking->first_timer_id}. Transaction rolled back. Error: " . $e->getMessage());
-                }
+        foreach ($result['lines'] as $line) {
+            if (strpos($line, '>> ERROR:') === 0) {
+                $this->error($line);
+            } elseif (strpos($line, '>>') === 0) {
+                $this->info($line);
             } else {
-                $this->line(">> No action needed. Less than 8 weeks.");
+                $this->line($line);
             }
         }
 
         $this->info('Process Complete.');
-        $this->info("Total records unassigned: {$unassignedCount}");
+        $this->info("Total records unassigned: {$result['unassigned']}");
+
+        // The follow-up row is copied here before it is deleted, so the last
+        // guide and the last comment survive the release (see
+        // GuideArchiveService and /weeklist/guide-history).
+        $this->info("Follow-ups kept in the archive: {$result['archived']}");
+
+        // A first timer is only released once its copy is in the archive, so
+        // the two totals above always match. Skipped rows are the ones left
+        // alone: no first timer for the follow-up, no registration date, or an
+        // archive that failed (logged as an error in the lines above).
+        if ($result['skipped'] > 0) {
+            $this->warn("Skipped without releasing: {$result['skipped']} (see the lines above).");
+        }
 
         return 0;
     }

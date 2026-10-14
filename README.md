@@ -71,11 +71,22 @@ git push  ->  GitHub Actions  ->  composer install --no-dev  ->  SFTP/FTPS uploa
 
 ## Scheduled tasks
 
-| Command | Purpose | Suggested schedule |
-| --- | --- | --- |
-| `php artisan firsttimers:auto-unassign` | Releases first-timers who have been assigned for 8+ weeks | weekly |
+Everything the app runs on a timer is registered in `app/Console/Kernel.php`, and a single
+per-minute `schedule:run` cron entry drives all of it — see
+[`docs/CPANEL-DEPLOYMENT.md`](docs/CPANEL-DEPLOYMENT.md).
 
-Add the cron entry in cPanel → **Cron Jobs**.
+| Command | Purpose | Schedule (`Africa/Lagos`) |
+| --- | --- | --- |
+| `php artisan birthdays:remind` | E-mail + push the Welcome Center (dept 28) birthday reminders | daily `07:00` |
+| `php artisan app:sync-schema` | Creates the tables the code needs (also part of `app:post-deploy`) | daily `03:20` |
+| `php artisan firsttimers:auto-unassign` | Releases first-timers who have had a guide for 8+ weeks. The follow-up is copied into `member_tracking_followup_archive` first, and stays readable under **/weeklist/guide-history** (Admins / Super Users) | weekly, Monday `04:10` |
+
+`public/auto_unassign.php` runs the same release over HTTP for a host that can only trigger a
+URL (`?dry-run=1` reports who would be released without writing). Running it as well as the
+scheduler is harmless: a released first timer has no follow-up row left, so the second run
+finds nothing to do.
+
+Add the per-minute `schedule:run` entry in cPanel → **Cron Jobs**.
 
 ## Environment notes
 

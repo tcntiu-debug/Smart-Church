@@ -83,6 +83,7 @@ TiuMember
 | 16 | `first_timer_trash` | `trash_id` | Soft-deleted/trashed records |
 | 17 | `first_time_view_limit` | `id` | Configurable view limits per campus |
 | 18 | `member_tracking_followup` | `tracking_id` | Member-to-first-timer followup tracking |
+| 19 | `member_tracking_followup_archive` | `archive_id` | The follow-up kept after a first timer is released (8-week rule or a bulk unassign): the last guide, the task log and the last comment. Read by `/weeklist/guide-history` |
 
 ### Relationship Chain
 

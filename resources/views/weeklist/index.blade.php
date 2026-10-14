@@ -108,11 +108,29 @@
                 </table>
             </div>
 
-            <!-- View Call List button -->
+            <!-- View Call List button, plus the admin-only bulk actions -->
             <div class="text-center mt-4">
-                <button type="button" class="btn btn-info btn-lg" data-toggle="modal" data-target="#callerModal">
+                <button type="button" class="btn btn-info btn-lg mb-2" data-toggle="modal" data-target="#callerModal">
                     <i class="fas fa-phone-alt"></i> View Call List
                 </button>
+
+                @if($isAdmin)
+                    <button type="button" id="assign-all-callers" class="btn btn-success btn-lg mb-2 ml-2">
+                        <i class="fas fa-users"></i> Assign all callers
+                    </button>
+                    <button type="button" id="unassign-all-guides" class="btn btn-warning btn-lg mb-2 ml-2">
+                        <i class="fas fa-user-slash"></i> Unassign all guides
+                    </button>
+                    <a href="{{ route('weeklist.guide-history') }}" class="btn btn-secondary btn-lg mb-2 ml-2">
+                        <i class="fas fa-history"></i> Guide history
+                    </a>
+                    <div class="text-muted small mt-2">
+                        <i class="fas fa-info-circle"></i>
+                        These three work on every first timer in the list above (Admin / Super User only).
+                    </div>
+                @endif
+
+                <div id="bulk-action-status" class="mt-2"></div>
             </div>
         </div>
     </div>
@@ -248,6 +266,63 @@
             });
         });
     });
+
+    @if($isAdmin)
+    // ------------------------------------------------------------------
+    // Admin-only bulk actions: one click for the whole filtered window
+    // (assign every caller / release every guide / open the guide history).
+    // ------------------------------------------------------------------
+    function runBulkAction(url, confirmText) {
+        var statusEl = $('#bulk-action-status');
+
+        if (!window.confirm(confirmText)) {
+            return;
+        }
+
+        statusEl.html('<i class="fas fa-spinner fa-spin"></i> Working...');
+
+        $.ajax({
+            url: url,
+            type: 'POST',
+            data: {
+                _token: '{{ csrf_token() }}',
+                start_date: @json($start_date_filter),
+                end_date: @json($end_date_filter),
+                guest_type: @json($guest_type_filter),
+                church_type_id: @json($church_type_id_filter)
+            },
+            dataType: 'json',
+            success: function (response) {
+                if (response && response.success) {
+                    statusEl.html('<i class="fas fa-check-circle text-success"></i> ' + (response.message || 'Done'));
+                    // Reload so the caller list and the guide column show what
+                    // is now stored.
+                    window.setTimeout(function () { window.location.reload(); }, 1200);
+                } else {
+                    statusEl.html('<i class="fas fa-exclamation-circle text-danger"></i> ' + ((response && response.message) || 'Action failed'));
+                }
+            },
+            error: function (xhr) {
+                var msg = (xhr.responseJSON && xhr.responseJSON.message) ? xhr.responseJSON.message : 'Action failed';
+                statusEl.html('<i class="fas fa-exclamation-circle text-danger"></i> ' + msg);
+            }
+        });
+    }
+
+    $('#assign-all-callers').on('click', function () {
+        runBulkAction(
+            '{{ route('weeklist.assign-callers') }}',
+            'Save the caller list for every first timer shown? Existing manual picks are kept.'
+        );
+    });
+
+    $('#unassign-all-guides').on('click', function () {
+        runBulkAction(
+            '{{ route('weeklist.unassign-guides') }}',
+            'Unassign the guide of every first timer shown? Their follow-up notes and comments are kept.'
+        );
+    });
+    @endif
 
     function buildCallerBlock(caller, persons) {
         var html = '<div class="caller-group"><strong>' + escapeHtml(caller) + ':</strong><br>';

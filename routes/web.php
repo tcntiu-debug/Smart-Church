@@ -56,48 +56,40 @@ Route::get('/attendance', [AttendanceController::class, 'clockIn']);
 Route::post('/attendance/search', [AttendanceController::class, 'search']);
 Route::post('/attendance/submit', [AttendanceController::class, 'submit']);
 
-// Auto-unassign route (for testing or cron job via HTTP)
+// Auto-unassign route (for testing or cron job via HTTP).
+// ?dry-run=1 only reports who would be released.
 Route::get('/auto-unassign', function () {
-    $trackings = App\Models\MemberTrackingFollowup::where('tiu_member_id', '!=', 0)->get();
-    $unassignedCount = 0;
-    $today = now();
+    $dryRun = request()->boolean('dry-run') || request()->boolean('dry_run');
 
     echo "<h1>Starting Auto-Unassign Process...</h1>";
 
-    if ($trackings->isEmpty()) {
-        echo "<p style='color:green;'>No currently assigned first-timers to check. Process complete.</p>";
-        return;
+    if ($dryRun) {
+        echo "<p style='color:orange;font-weight:bold;'>DRY RUN: nothing will be written.</p>";
     }
 
-    foreach ($trackings as $tracking) {
-        $firstTimer = App\Models\FirstTimer::find($tracking->first_timer_id);
-        if (!$firstTimer) { continue; }
+    // GuideArchiveService copies each follow-up into
+    // member_tracking_followup_archive before deleting it, so the last guide and
+    // the last comment stay visible under /weeklist/guide-history.
+    $result = app(\App\Services\GuideArchiveService::class)->unassignAtEightWeeks($dryRun);
 
-        $registrationDate = $firstTimer->register_date ?? $firstTimer->timeStamp_registered ?? $tracking->created_at;
-        if (!$registrationDate) { continue; }
+    foreach ($result['lines'] as $line) {
+        $style = 'color:#333;';
 
-        $weeksPassed = (int) floor($today->diffInDays($registrationDate) / 7);
-        echo "<p>Checking FT ID: <strong>{$tracking->first_timer_id}</strong>... Weeks: <strong>{$weeksPassed}</strong></p>";
-
-        if ($weeksPassed >= 8) {
-            try {
-                \DB::beginTransaction();
-                $tracking->delete();
-                $firstTimer->update(['status' => 'Unassigned', 'status_change_date' => now()]);
-                \DB::commit();
-                $unassignedCount++;
-                echo "<p style='color:green;'>&raquo; SUCCESS: Unassigned FT ID: {$tracking->first_timer_id}.</p>";
-            } catch (\Exception $e) {
-                \DB::rollBack();
-                echo "<p style='color:red;'>&raquo; ERROR: {$e->getMessage()}</p>";
-            }
-        } else {
-            echo "<p>&raquo; Skipped. Less than 8 weeks.</p>";
+        if (strpos($line, '>> ERROR:') === 0) {
+            $style = 'color:red;';
+        } elseif (strpos($line, '>> SUCCESS:') === 0) {
+            $style = 'color:green;';
+        } elseif (strpos($line, '>> WARNING:') === 0) {
+            $style = 'color:orange;';
+        } elseif (strpos($line, '>>') === 0) {
+            $style = 'color:blue;';
         }
-        echo "<hr>";
+
+        echo "<p style='{$style}'>" . htmlspecialchars($line, ENT_QUOTES, 'UTF-8') . "</p><hr>";
     }
 
-    echo "<h2>Complete. Total unassigned: {$unassignedCount}</h2>";
+    echo "<h2>Complete. Total unassigned: {$result['unassigned']}</h2>";
+    echo "<p>Follow-ups kept in the archive: {$result['archived']}</p>";
 })->name('auto-unassign');
 
 // Test routes
@@ -277,6 +269,11 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     Route::get('/lead', [LeadViewController::class, 'departmentLead'])->name('lead.department');
     Route::get('/weeklist', [WeekListController::class, 'index'])->name('weeklist.index');
     Route::post('/weeklist/assign-caller', [WeekListController::class, 'saveCallerAssignment'])->name('weeklist.assign-caller');
+    // Admin-only bulk actions (the toolbar on the week list renders them for
+    // Admins / Super Users only, and the controller re-checks the role).
+    Route::post('/weeklist/assign-callers', [WeekListController::class, 'assignAllCallers'])->name('weeklist.assign-callers');
+    Route::post('/weeklist/unassign-guides', [WeekListController::class, 'unassignAllGuides'])->name('weeklist.unassign-guides');
+    Route::get('/weeklist/guide-history', [WeekListController::class, 'guideHistory'])->name('weeklist.guide-history');
     Route::get('/leaddepartment', [LeadViewController::class, 'departmentLead'])->name('lead.department');
     Route::get('/ftlead', [LeadViewController::class, 'firstTimerLead'])->name('lead.first-timer');
 
