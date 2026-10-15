@@ -35,7 +35,11 @@ return [
     )),
 
     // Member roles (tiu_member.member_role) that count as an admin recipient.
-    'recipient_roles' => ['Super User', 'Admin'],
+    // Comma separated so a non-admin worker of the Welcome Center can be added
+    // (BIRTHDAY_RECIPIENT_ROLES="Super User,Admin,Member") without a code change.
+    'recipient_roles' => array_values(array_filter(
+        array_map('trim', explode(',', (string) env('BIRTHDAY_RECIPIENT_ROLES', 'Super User,Admin')))
+    )),
 
     // tiu_member.status values that are never reminded about (3 = deleted).
     'excluded_status' => ['3'],
