@@ -21,7 +21,7 @@ class ChildrenChurchController extends Controller
         $query = $request->q;
 
         $children = DB::table('children_church')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->where(function ($q) use ($query) {
                 $q->where('child_name', 'LIKE', "%{$query}%")
                   ->orWhere('parent_name', 'LIKE', "%{$query}%");

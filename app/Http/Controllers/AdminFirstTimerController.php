@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -95,7 +96,7 @@ class AdminFirstTimerController extends Controller
         // CAMPUS FILTER: Only show first timers from the same campus as the logged-in user
         // Super Users see ALL first timers regardless of campus
         if ($memberRole !== 'Super User' && !empty($userCampusId)) {
-            $query->where('ft.campus_id', $userCampusId);
+            $query->forCurrentCampus('ft.campus_id', $userCampusId);
         }
 
         $firstTimers = $query->orderBy('ft.register_date', 'desc')->paginate(50);
@@ -108,7 +109,7 @@ class AdminFirstTimerController extends Controller
             });
 
         if ($memberRole !== 'Super User' && !empty($userCampusId)) {
-            $statusCountsQuery->where('campus_id', $userCampusId);
+            $statusCountsQuery->forCurrentCampus('campus_id', $userCampusId);
         }
 
         $statusCounts = $statusCountsQuery->groupBy('status')->pluck('count', 'status');
@@ -179,7 +180,7 @@ class AdminFirstTimerController extends Controller
         // CAMPUS FILTER: Only show first timers from the same campus as the logged-in user
         // Super Users see ALL
         if ($memberRole !== 'Super User' && !empty($userCampusId)) {
-            $query->where('ft.campus_id', $userCampusId);
+            $query->forCurrentCampus('ft.campus_id', $userCampusId);
         }
 
         $updates = $query->orderBy('ftu.created_date', 'desc')->get();
@@ -455,7 +456,7 @@ class AdminFirstTimerController extends Controller
                     'age' => $ft->age ?? null,
                     'occupation' => $ft->occupation ?? '',
                     'residential_address' => $ft->address ?? '',
-                    'campus_id' => $ft->campus_id ?? null,
+                    'campus_id' => Campus::writeId($ft->campus_id ?? null),
                     'church_type_id' => $ft->church_type_id ?? null,
                     'parent_gaudian' => $ft->parent_name ?? '',
                     'Phone' => $ft->parent_phone ?? '',

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +24,7 @@ class ManageDepartmentController extends Controller
 
         $deptTypes = DB::table('department')
             ->whereIn('dept_type', ['Department', 'Cluster', 'House Fellowship'])
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->distinct()
             ->orderBy('dept_type', 'asc')
             ->pluck('dept_type')
@@ -50,7 +51,7 @@ class ManageDepartmentController extends Controller
 
         $departments = DB::table('department')
             ->where('dept_type', $deptType)
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('dept_name', 'asc')
             ->select('dept_id', 'dept_name')
             ->get();
@@ -74,7 +75,7 @@ class ManageDepartmentController extends Controller
         // Get all departments of this type for the user's campus
         $depts = DB::table('department')
             ->where('dept_type', $deptType)
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('dept_name', 'asc')
             ->select('dept_id', 'dept_name')
             ->get();
@@ -111,7 +112,7 @@ class ManageDepartmentController extends Controller
             ->select($columnToQuery)
             ->whereNotNull($columnToQuery)
             ->where($columnToQuery, '!=', '[]')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->get();
 
         foreach ($members as $member) {
@@ -182,7 +183,7 @@ class ManageDepartmentController extends Controller
         }
 
         // Filter by the user's campus
-        $query->where('campus_id', $campusId);
+        $query->forCurrentCampus('campus_id', $campusId);
 
         $members = $query->orderBy('first_name', 'asc')
             ->orderBy('last_name', 'asc')
@@ -236,14 +237,14 @@ class ManageDepartmentController extends Controller
 
         $departments = DB::table('department')
             ->select('dept_id', 'dept_type', 'dept_name', 'dept_address', 'community_id', 'dept_lead', 'dept_lead_id')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('dept_type', 'asc')
             ->orderBy('dept_name', 'asc')
             ->get();
 
         $communities = DB::table('communities')
             ->select('id', 'community_name')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('community_name', 'asc')
             ->get();
 
@@ -268,7 +269,7 @@ class ManageDepartmentController extends Controller
                 'dept_type' => $request->dept_type,
                 'dept_address' => $request->dept_address ?? '',
                 'community_id' => $request->community_id ? (int)$request->community_id : null,
-                'campus_id' => $user->campus_id,
+                'campus_id' => Campus::writeId($user->campus_id),
             ]);
 
             return redirect('/manage-departments')->with('success', 'Department added successfully!');
@@ -292,7 +293,7 @@ class ManageDepartmentController extends Controller
         try {
             $updated = DB::table('department')
                 ->where('dept_id', $request->dept_id)
-                ->where('campus_id', $user->campus_id)
+                ->forCurrentCampus('campus_id', $user->campus_id)
                 ->update([
                     'dept_name' => $request->dept_name,
                     'dept_address' => $request->dept_address ?? '',
@@ -321,7 +322,7 @@ class ManageDepartmentController extends Controller
         try {
             $deleted = DB::table('department')
                 ->where('dept_id', $id)
-                ->where('campus_id', $user->campus_id)
+                ->forCurrentCampus('campus_id', $user->campus_id)
                 ->delete();
 
             if ($deleted) {

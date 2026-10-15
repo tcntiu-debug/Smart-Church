@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -66,7 +67,7 @@ class SubGroupController extends Controller
         $existing = DB::table('sub_group')
             ->where('department_id', $departmentId)
             ->where('sub_group_name', $subGroupName)
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->first();
 
         if ($existing) {
@@ -76,7 +77,7 @@ class SubGroupController extends Controller
         DB::table('sub_group')->insert([
             'department_id' => $departmentId,
             'sub_group_name' => $subGroupName,
-            'campus_id' => $campusId,
+            'campus_id' => Campus::writeId($campusId),
         ]);
 
         return response()->json(['status' => 'success', 'message' => 'Subgroup created successfully!']);
@@ -192,7 +193,7 @@ class SubGroupController extends Controller
                 ->where('department_name', 'LIKE', '%"23"%')
                 ->where($notAssignedClosure)
                 ->where('status', '!=', '2')
-                ->where('campus_id', $campusId)
+                ->forCurrentCampus('campus_id', $campusId)
                 ->select('tiu_member_id', 'first_name', 'last_name')
                 ->get();
 
@@ -203,7 +204,7 @@ class SubGroupController extends Controller
                 ->where('church_type.church_type_name', 'Switch')
                 ->where($notAssignedClosure)
                 ->where('tiu_member.status', '!=', '2')
-                ->where('tiu_member.campus_id', $campusId)
+                ->forCurrentCampus('tiu_member.campus_id', $campusId)
                 ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name')
                 ->get();
 
@@ -215,7 +216,7 @@ class SubGroupController extends Controller
                 ->where('church_type.church_type_name', 'Adult')
                 ->where($notAssignedClosure)
                 ->where('tiu_member.status', '!=', '2')
-                ->where('tiu_member.campus_id', $campusId)
+                ->forCurrentCampus('tiu_member.campus_id', $campusId)
                 ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name')
                 ->get();
 
@@ -227,7 +228,7 @@ class SubGroupController extends Controller
                 ->where('church_type.church_type_name', 'Adult')
                 ->where($notAssignedClosure)
                 ->where('tiu_member.status', '!=', '2')
-                ->where('tiu_member.campus_id', $campusId)
+                ->forCurrentCampus('tiu_member.campus_id', $campusId)
                 ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name')
                 ->get();
 
@@ -237,7 +238,7 @@ class SubGroupController extends Controller
                 ->where('department_name', 'LIKE', '%"15"%')
                 ->where($notAssignedClosure)
                 ->where('status', '!=', '2')
-                ->where('campus_id', $campusId)
+                ->forCurrentCampus('campus_id', $campusId)
                 ->select('tiu_member_id', 'first_name', 'last_name')
                 ->get();
         } else {
@@ -247,7 +248,7 @@ class SubGroupController extends Controller
         // Fetch subgroups
         $groups = DB::table('sub_group')
             ->where('department_id', $deptId)
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('sub_group_name')
             ->select('*')
             ->get();
@@ -295,7 +296,7 @@ class SubGroupController extends Controller
             $assignedMembers = DB::table('tiu_member')
                 ->where('subgroup', 'LIKE', '%"' . $searchKey . '"%')
                 ->where('status', '!=', '2')
-                ->where('campus_id', $campusId)
+                ->forCurrentCampus('campus_id', $campusId)
                 ->select('tiu_member_id', 'first_name', 'last_name')
                 ->get();
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use App\Models\ChildrenChurch;
 use App\Models\ChildrenChurchAttendance;
 use Illuminate\Http\Request;
@@ -37,8 +38,9 @@ class ChildrenChurchController extends Controller
             ]);
         }
 
-        // Search by child name OR parent name within same campus
-        $children = ChildrenChurch::where('campus_id', $campusId)
+        // Search by child name OR parent name within the same campus (inert in
+        // single campus mode, like every other campus filter).
+        $children = ChildrenChurch::query()->forCurrentCampus('campus_id', $campusId)
             ->where(function ($q) use ($query) {
                 $q->where('child_name', 'LIKE', "%{$query}%")
                   ->orWhere('parent_name', 'LIKE', "%{$query}%");
@@ -142,7 +144,7 @@ class ChildrenChurchController extends Controller
                 'parent_name'  => $request->parent_name ?? '',
                 'dob'          => $request->dob ?? '',
                 'parent_phone' => $request->parent_phone ?? '',
-                'campus_id'    => $campusId,
+                'campus_id'    => Campus::writeId($campusId),
             ]);
 
             return response()->json([
@@ -175,7 +177,7 @@ class ChildrenChurchController extends Controller
         $user = Auth::user();
         $campusId = $user->campus_id ?? 0;
 
-        $children = ChildrenChurch::where('campus_id', $campusId)
+        $children = ChildrenChurch::query()->forCurrentCampus('campus_id', $campusId)
             ->orderBy('child_name', 'asc')
             ->get();
 
@@ -197,7 +199,9 @@ class ChildrenChurchController extends Controller
         $user = Auth::user();
         $campusId = $user->campus_id ?? 0;
 
-        $child = ChildrenChurch::where('campus_id', $campusId)
+        // Row identity for the update below, not a filter: still a plain where()
+        // the moment the campus layer is switched back on.
+        $child = ChildrenChurch::query()->forCurrentCampus('campus_id', $campusId)
             ->findOrFail($id);
 
         try {
@@ -231,7 +235,7 @@ class ChildrenChurchController extends Controller
         $today = now()->format('Y-m-d');
 
         $attendances = ChildrenChurchAttendance::whereHas('child', function ($q) use ($campusId) {
-                $q->where('campus_id', $campusId);
+                $q->forCurrentCampus('campus_id', $campusId);
             })
             ->where('attendance_date', $today)
             ->with('child')

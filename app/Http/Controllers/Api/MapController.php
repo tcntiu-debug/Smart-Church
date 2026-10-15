@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -17,6 +18,11 @@ class MapController extends Controller
         $user = DB::selectOne("SELECT campus_id FROM tiu_member WHERE tiu_member_id = ?", [$userId]);
         $campusId = $user->campus_id ?? 0;
 
+        // Campus filter: Campus::filterId() is null in single campus mode, so the
+        // condition (and its binding) only exist while the church runs more than
+        // one campus.
+        $campusId = Campus::filterId($campusId);
+
         $communities = DB::select("
             SELECT c.id AS community_id, c.community_name, c.latitude, c.longitude, 
                    COUNT(t.tiu_member_id) AS member_count,
@@ -25,10 +31,10 @@ class MapController extends Controller
             FROM communities c 
             LEFT JOIN tiu_member t ON c.id = t.community_id AND t.status = '1'
             WHERE c.latitude IS NOT NULL AND c.longitude IS NOT NULL
-            AND c.campus_id = ?
+            " . ($campusId ? 'AND c.campus_id = ?' : '') . "
             GROUP BY c.id, c.community_name, c.latitude, c.longitude
             ORDER BY member_count DESC, c.community_name ASC
-        ", [$campusId]);
+        ", $campusId ? [$campusId] : []);
 
         return response()->json([
             'success' => true,

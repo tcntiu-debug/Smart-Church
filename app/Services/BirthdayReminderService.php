@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Mail\BirthdayReminderMail;
+use App\Models\Campus;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +28,11 @@ class BirthdayReminderService
     protected $departmentMap = [];
 
     /**
-     * Run every configured milestone for every campus.
+     * Run every configured milestone for every campus the church runs.
+     *
+     * Single campus mode is the default (config/campus.php): the campus filter
+     * no longer narrows the members, recipients or dedupe checks, the campus id
+     * is only carried along for the notification / log rows.
      *
      * @param  array<int, int>     $days      Milestones in days before the birthday, e.g. [3, 2, 1].
      * @param  array<int, string>  $channels  mail | database | telegram.
@@ -130,6 +135,10 @@ class BirthdayReminderService
     /**
      * Campuses to process.
      *
+     * In single campus mode this is the one campus the church runs, so the
+     * digest is never split over - or skipped because of - a campus that is no
+     * longer in use. (--campus=<id> still forces a specific one for support.)
+     *
      * @return Collection
      */
     protected function campuses(?int $campusId = null)
@@ -138,13 +147,30 @@ class BirthdayReminderService
 
         if ($campusId) {
             $query->where('cid', $campusId);
+        } elseif (Campus::isSingle()) {
+            $query->where('cid', Campus::defaultId());
         }
 
-        return $query->get();
+        $campuses = $query->get();
+
+        // Nothing usable in the campus table: the reminder still belongs to the
+        // church, so fall back to the configured default instead of sending
+        // nothing at all.
+        if ($campuses->isEmpty() && Campus::isSingle()) {
+            return collect([
+                (object) ['cid' => Campus::defaultId(), 'cname' => Campus::defaultName()],
+            ]);
+        }
+
+        return $campuses;
     }
 
     /**
-     * Every member whose birthday falls on the given date, for one campus.
+     * Every member whose birthday falls on the given date.
+     *
+     * $campusId still identifies the digest in multi-campus mode; in single
+     * campus mode the filter is dropped, so members whose campus_id is 0/NULL
+     * (or a campus the church no longer uses) are reminded about too.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -152,7 +178,7 @@ class BirthdayReminderService
     {
         $rows = DB::table('birthday as b')
             ->join('tiu_member as m', 'm.tiu_member_id', '=', 'b.tiu_member_id')
-            ->where('m.campus_id', $campusId)
+            ->forCurrentCampus('m.campus_id', $campusId)
             ->where(function ($query) {
                 $query->whereNull('m.status')->orWhere('m.status', '!=', '3');
             })
@@ -210,7 +236,10 @@ class BirthdayReminderService
     }
 
     /**
-     * Admins of the configured departments (Welcome Center = 28) for one campus.
+     * Admins of the configured departments (Welcome Center = 28).
+     *
+     * The campus filter is inert in single campus mode, so a Welcome Center
+     * admin is a recipient even if their campus_id is blank or stale.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -221,7 +250,7 @@ class BirthdayReminderService
 
         $query = DB::table('tiu_member')
             ->select('tiu_member_id', 'first_name', 'last_name', 'email', 'member_role', 'department_name')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->where(function ($q) {
                 $q->whereNull('status')->orWhere('status', '!=', '3');
             })
@@ -252,16 +281,23 @@ class BirthdayReminderService
     }
 
     /**
-     * Has this campus + milestone + birthday date already been delivered?
+     * Has this milestone already been delivered for that birthday date?
+     *
+     * Scoped per campus only while the app still runs more than one: a campus
+     * the church no longer uses must not make yesterday's digest look unsent.
      */
     public function alreadySent(int $campusId, int $daysBefore, string $birthdayDate): bool
     {
-        return DB::table('birthday_reminder_logs')
-            ->where('campus_id', $campusId)
+        $query = DB::table('birthday_reminder_logs')
             ->where('days_before', $daysBefore)
             ->where('reminder_date', $birthdayDate)
-            ->where('status', 'sent')
-            ->exists();
+            ->where('status', 'sent');
+
+        if (!Campus::isSingle()) {
+            $query->where('campus_id', $campusId);
+        }
+
+        return $query->exists();
     }
 
     /**

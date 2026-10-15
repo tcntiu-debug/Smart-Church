@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -33,7 +34,7 @@ class CommunityController extends Controller
         // Fetch communities for the user's campus only
         $allCommunities = DB::table('communities')
             ->select('id', 'community_name', 'latitude', 'longitude', 'campus_id')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('community_name', 'asc')
             ->get();
 
@@ -41,7 +42,7 @@ class CommunityController extends Controller
         if ($isEditMode) {
             $communityData = DB::table('communities')
                 ->where('id', $editId)
-                ->where('campus_id', $campusId)
+                ->forCurrentCampus('campus_id', $campusId)
                 ->select('community_name', 'latitude', 'longitude')
                 ->first();
 
@@ -76,7 +77,7 @@ class CommunityController extends Controller
                 // UPDATE existing record (only if it belongs to user's campus)
                 $updated = DB::table('communities')
                     ->where('id', $communityId)
-                    ->where('campus_id', $campusId)
+                    ->forCurrentCampus('campus_id', $campusId)
                     ->update([
                         'community_name' => $communityName,
                         'latitude' => $latitude,
@@ -96,7 +97,7 @@ class CommunityController extends Controller
                     'community_name' => $communityName,
                     'latitude' => $latitude,
                     'longitude' => $longitude,
-                    'campus_id' => $campusId,
+                    'campus_id' => Campus::writeId($campusId),
                 ]);
 
                 return redirect('/config-community')
@@ -122,7 +123,7 @@ class CommunityController extends Controller
         try {
             $deleted = DB::table('communities')
                 ->where('id', $id)
-                ->where('campus_id', $campusId)
+                ->forCurrentCampus('campus_id', $campusId)
                 ->delete();
 
             if ($deleted) {

@@ -284,7 +284,7 @@ class MyTaskController extends Controller
                         $userCampusId = Auth::user()->campus_id ?? 0;
                         $taskRow = DB::table('task')
                             ->where('wid', $nextWeekNumber)
-                            ->where('campus_id', $userCampusId)
+                            ->forCurrentCampus('campus_id', $userCampusId)
                             ->value('questions');
 
                         if ($taskRow) {
@@ -388,7 +388,7 @@ class MyTaskController extends Controller
                             $userCampusId = Auth::user()->campus_id ?? 0;
                             $taskRow = DB::table('task')
                                 ->where('wid', $nextWeekNumber)
-                                ->where('campus_id', $userCampusId)
+                                ->forCurrentCampus('campus_id', $userCampusId)
                                 ->value('questions');
 
                             if ($taskRow) {
@@ -706,7 +706,7 @@ class MyTaskController extends Controller
                         $userCampusId = Auth::user()->campus_id ?? 0;
                         $taskRow = DB::table('task')
                             ->where('wid', $nextWeekNumber)
-                            ->where('campus_id', $userCampusId)
+                            ->forCurrentCampus('campus_id', $userCampusId)
                             ->value('questions');
 
                         if ($taskRow) {

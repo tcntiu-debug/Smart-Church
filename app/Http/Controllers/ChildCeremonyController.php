@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use App\Models\ChildCeremony;
 use App\Models\TiuMember;
 use Illuminate\Http\Request;
@@ -57,7 +58,7 @@ class ChildCeremonyController extends Controller
 
             $data = [
                 'member_id'     => $memberId,
-                'campus_id'     => $campusId,
+                'campus_id'     => Campus::writeId($campusId),
                 'ceremony_type' => $request->ceremony_type,
             ];
 
@@ -153,7 +154,7 @@ class ChildCeremonyController extends Controller
 
         // Non-Super Users see only their campus records
         if (!$isSuperUser && $adminCampusId) {
-            $query->where('campus_id', $adminCampusId);
+            $query->forCurrentCampus('campus_id', $adminCampusId);
         }
 
         // Filter by ceremony type
@@ -186,7 +187,7 @@ class ChildCeremonyController extends Controller
         // Stats counts also filtered by campus for non-super users
         $baseStats = ChildCeremony::query();
         if (!$isSuperUser && $adminCampusId) {
-            $baseStats->where('campus_id', $adminCampusId);
+            $baseStats->forCurrentCampus('campus_id', $adminCampusId);
         }
         $namingCount = (clone $baseStats)->where('ceremony_type', 'naming')->count();
         $dedicationCount = (clone $baseStats)->where('ceremony_type', 'dedication')->count();

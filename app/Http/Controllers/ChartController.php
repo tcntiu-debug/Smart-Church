@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -42,8 +43,16 @@ class ChartController extends Controller
         // Build conditions for main query
         $conditions = [];
         $bindings   = [];
-        $conditions[] = "ft.campus_id = ?";
-        $bindings[] = (int) $campusId;
+
+        // Campus filter: null in single campus mode (config/campus.php), so the
+        // condition and its binding are only added while multi-campus is on.
+        $campusFilter = Campus::filterId($campusId);
+
+        if ($campusFilter) {
+            $conditions[] = "ft.campus_id = ?";
+            $bindings[] = $campusFilter;
+        }
+
         $conditions[] = "DATE(ft.register_date) BETWEEN ? AND ?";
         $bindings[] = $startDate;
         $bindings[] = $endDate;
@@ -161,8 +170,15 @@ class ChartController extends Controller
         // Build conditions
         $conditions = [];
         $bindings   = [];
-        $conditions[] = "ft.campus_id = ?";
-        $bindings[] = (int) $campusId;
+
+        // Campus filter: null in single campus mode (config/campus.php).
+        $campusFilter = Campus::filterId($campusId);
+
+        if ($campusFilter) {
+            $conditions[] = "ft.campus_id = ?";
+            $bindings[] = $campusFilter;
+        }
+
         $conditions[] = "DATE(ft.register_date) BETWEEN ? AND ?";
         $bindings[] = $startDate;
         $bindings[] = $endDate;
@@ -217,6 +233,8 @@ class ChartController extends Controller
     {
         $yr = (int) $yr;
         $mon = (int) $mon;
+        $campusId = Campus::filterId($campusId);
+
         if ($campusId) {
             $result = DB::selectOne("SELECT COUNT(first_timer_id) as total FROM first_timer WHERE campus_id = ? AND YEAR(register_date) = ? AND MONTH(register_date) = ?", [$campusId, $yr, $mon]);
         } else {
@@ -228,6 +246,8 @@ class ChartController extends Controller
     private function getCompTotalYear($yr, $campusId = null)
     {
         $yr = (int) $yr;
+        $campusId = Campus::filterId($campusId);
+
         if ($campusId) {
             $result = DB::selectOne("SELECT COUNT(first_timer_id) as total FROM first_timer WHERE campus_id = ? AND YEAR(register_date) = ?", [$campusId, $yr]);
         } else {
@@ -238,6 +258,8 @@ class ChartController extends Controller
 
     private function getAvailableYears($campusId = null)
     {
+        $campusId = Campus::filterId($campusId);
+
         if ($campusId) {
             $rows = DB::select("SELECT DISTINCT YEAR(register_date) as yr FROM first_timer WHERE campus_id = ? ORDER BY yr DESC", [$campusId]);
         } else {

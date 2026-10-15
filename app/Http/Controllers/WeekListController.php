@@ -66,7 +66,7 @@ class WeekListController extends Controller
             ->whereNotNull('attendant_type')
             ->where('attendant_type', '!=', '');
         if ($member_role !== 'Super User' && !empty($userCampusId)) {
-            $guestTypesQuery->where('campus_id', $userCampusId);
+            $guestTypesQuery->forCurrentCampus('campus_id', $userCampusId);
         }
         $guestTypes = $guestTypesQuery->distinct()->pluck('attendant_type');
 
@@ -544,7 +544,7 @@ class WeekListController extends Controller
 
         // Campus filter - only show first timers from the user's campus.
         if ($memberRole !== 'Super User' && !empty($userCampusId)) {
-            $query->where('ft.campus_id', $userCampusId);
+            $query->forCurrentCampus('ft.campus_id', $userCampusId);
         }
 
         $query->whereBetween('ft.register_date', [$start . ' 00:00:00', $end . ' 23:59:59']);

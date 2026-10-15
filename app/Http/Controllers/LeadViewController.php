@@ -271,7 +271,7 @@ class LeadViewController extends Controller
 
         // Filter by same campus
         if ($campusId) {
-            $query->where('ft.campus_id', $campusId);
+            $query->forCurrentCampus('ft.campus_id', $campusId);
         }
 
         // Date filters
@@ -318,7 +318,7 @@ class LeadViewController extends Controller
 
             // Filter by same campus as the logged-in user
             if ($campusId) {
-                $query->where('campus_id', $campusId);
+                $query->forCurrentCampus('campus_id', $campusId);
             }
 
             $results = $query->orderBy('first_name', 'asc')

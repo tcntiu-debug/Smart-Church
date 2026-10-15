@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\FirstTimer;
 use App\Models\ChurchType;
 use App\Models\Occupation;
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -86,7 +87,7 @@ class FirstTimerController extends Controller
             $campus_id = $user->campus_id ?? 0;
 
             if (!empty($campus_id)) {
-                $query->where('campus_id', $campus_id);
+                $query->forCurrentCampus('campus_id', $campus_id);
             }
 
             $firstTimer = $query->first();
@@ -170,7 +171,7 @@ class FirstTimerController extends Controller
                 'parent_phone' => $request->parent_guardian_phone,
                 'relationship' => $request->parent_guardian_relationship,
                 'church_type_id' => $request->church_type_id,
-                'campus_id' => $campus_id,
+                'campus_id' => Campus::writeId($campus_id),
                 'registered_by' => $registered_by,
                 'attendance_count' => 0,
                 'status' => 'Not Assigned',

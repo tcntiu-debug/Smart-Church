@@ -93,7 +93,7 @@ class ChurchAttendanceController extends Controller
         }
 
         if ($campusId) {
-            $query->where('tm.campus_id', $campusId);
+            $query->forCurrentCampus('tm.campus_id', $campusId);
         }
 
         $records = $query->orderBy('ca.attendance_date', 'desc')->limit(100)->get();

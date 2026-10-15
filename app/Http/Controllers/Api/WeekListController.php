@@ -52,7 +52,7 @@ class WeekListController extends Controller
 
         // Campus filter - only show first timers from user's campus
         if ($member_role !== 'Super User' && !empty($userCampusId)) {
-            $query->where('ft.campus_id', $userCampusId);
+            $query->forCurrentCampus('ft.campus_id', $userCampusId);
         }
 
         // Date range condition

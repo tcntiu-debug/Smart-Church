@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Campus;
 use App\Services\BirthdayReminderService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Artisan;
@@ -12,9 +13,15 @@ use Tests\TestCase;
  * Welcome Center birthday reminders (`php artisan birthdays:remind`).
  *
  * The digest has to reach every Admin / Super User of department 28 (Welcome
- * Center) **on the campus the birthday belongs to**, and nobody else. That is
- * what the assertions below pin down, against the live rows, so the test keeps
- * passing when the team changes.
+ * Center), and nobody else. That is what the assertions below pin down, against
+ * the live rows, so the test keeps passing when the team changes.
+ *
+ * Which members and recipients a campus id resolves to depends on the switch in
+ * config/campus.php: in single campus mode (the default, and what Ikorodu runs)
+ * the digest is the whole church and the campus id is only carried along for the
+ * notification and log rows. Every mirror query below therefore goes through the
+ * same ->forCurrentCampus() switch as the service, so this test holds in both
+ * modes.
  *
  * Read-only on purpose: the suite runs against the application's real
  * connection, so nothing here may write a `birthday_reminder_logs` row, an
@@ -26,6 +33,14 @@ class BirthdayReminderTest extends TestCase
     private function service(): BirthdayReminderService
     {
         return app(BirthdayReminderService::class);
+    }
+
+    /**
+     * Is the app running as a one-campus church? (config/campus.php)
+     */
+    private function single(): bool
+    {
+        return Campus::isSingle();
     }
 
     /**
@@ -111,7 +126,7 @@ class BirthdayReminderTest extends TestCase
                 $this->inConfiguredDepartments(
                     $this->notDeleted(
                         DB::table('tiu_member')
-                            ->where('campus_id', $campusId)
+                            ->forCurrentCampus('campus_id', $campusId)
                             ->whereIn('member_role', $this->recipientRoles())
                     )
                 )->get(['tiu_member_id'])->all()
@@ -135,7 +150,10 @@ class BirthdayReminderTest extends TestCase
                     ->first(['first_name', 'last_name', 'member_role', 'campus_id', 'department_name', 'status']);
 
                 $this->assertNotNull($row, 'A recipient came back without a tiu_member row.');
-                $this->assertSame($campusId, (int) $row->campus_id, 'A member of another campus is being reminded.');
+
+                if (! $this->single()) {
+                    $this->assertSame($campusId, (int) $row->campus_id, 'A member of another campus is being reminded.');
+                }
                 $this->assertContains($row->member_role, $this->recipientRoles(), 'A non-admin role is being reminded.');
                 $this->assertNotSame('3', (string) $row->status, 'A deleted member is being reminded.');
                 $this->assertSame(
@@ -191,11 +209,12 @@ class BirthdayReminderTest extends TestCase
     }
 
     /**
-     * A campus with no Welcome Center admin (Yaba today) must resolve to an empty
-     * list rather than blowing up - the run in that case simply has nothing to
-     * deliver.
+     * A campus can have no Welcome Center admin of its own (Yaba today). That
+     * must never blow up and must never invent recipients: the list a campus id
+     * resolves to is at most the admins that campus has - and in single campus
+     * mode it is the church-wide list, whatever id is asked for.
      */
-    public function test_a_campus_without_recipients_still_resolves_to_an_empty_list()
+    public function test_a_campus_without_recipients_never_resolves_to_more_than_its_admins()
     {
         $campusIds = $this->campusIds();
 
@@ -207,7 +226,7 @@ class BirthdayReminderTest extends TestCase
             $recipients = $this->service()->recipientsFor($campusId);
             $adminsOnCampus = $this->notDeleted(
                 DB::table('tiu_member')
-                    ->where('campus_id', $campusId)
+                    ->forCurrentCampus('campus_id', $campusId)
                     ->whereIn('member_role', $this->recipientRoles())
             )->count();
 
@@ -215,6 +234,26 @@ class BirthdayReminderTest extends TestCase
                 $adminsOnCampus,
                 count($recipients),
                 'Campus '.$campusId.' resolved to more recipients than it has admins.'
+            );
+        }
+
+        if (! $this->single()) {
+            return;
+        }
+
+        // Single campus: the campus id no longer narrows anything, so every id
+        // resolves to the same digest audience.
+        $first = $this->ids($this->service()->recipientsFor($campusIds[0]));
+        sort($first);
+
+        foreach ($campusIds as $campusId) {
+            $actual = $this->ids($this->service()->recipientsFor($campusId));
+            sort($actual);
+
+            $this->assertSame(
+                $first,
+                $actual,
+                'Campus '.$campusId.' resolves to a different audience while single campus mode is on.'
             );
         }
     }
@@ -254,11 +293,13 @@ class BirthdayReminderTest extends TestCase
                 DB::table('birthday')->where('tiu_member_id', $row['member_id'])->value('birthday'),
                 'A member was listed without a birthday row.'
             );
-            $this->assertSame(
-                $found['campus'],
-                (int) DB::table('tiu_member')->where('tiu_member_id', $row['member_id'])->value('campus_id'),
-                'A birthday from another campus was listed.'
-            );
+            if (! $this->single()) {
+                $this->assertSame(
+                    $found['campus'],
+                    (int) DB::table('tiu_member')->where('tiu_member_id', $row['member_id'])->value('campus_id'),
+                    'A birthday from another campus was listed.'
+                );
+            }
         }
 
         // Tomorrow is somebody else's birthday, never this one's.
@@ -302,11 +343,12 @@ class BirthdayReminderTest extends TestCase
     }
 
     /**
-     * The "this milestone was already sent" guard is scoped by campus, milestone
-     * and birthday date - otherwise the second campus (or tomorrow) would be
-     * skipped after the first digest.
+     * The "this milestone was already sent" guard is scoped by milestone and
+     * birthday date, so tomorrow (or the next milestone) is not skipped after
+     * today's digest. The campus is part of that guard only while the app still
+     * runs more than one campus.
      */
-    public function test_already_sent_is_scoped_to_campus_milestone_and_date()
+    public function test_already_sent_is_scoped_to_milestone_and_date()
     {
         $campusIds = $this->campusIds();
 
@@ -328,7 +370,7 @@ class BirthdayReminderTest extends TestCase
         // ... and the answer for today agrees with the log table itself.
         $today = Carbon::today()->toDateString();
         $logged = DB::table('birthday_reminder_logs')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->where('days_before', $milestone)
             ->where('reminder_date', $today)
             ->where('status', 'sent')

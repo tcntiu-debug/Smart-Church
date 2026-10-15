@@ -283,7 +283,7 @@ class TiuMember extends Authenticatable
     
     public function scopeByCampus($query, $campusId)
     {
-        return $query->where('campus_id', $campusId);
+        return $query->forCurrentCampus('campus_id', $campusId);
     }
     
     public function scopeByChurchType($query, $churchTypeId)

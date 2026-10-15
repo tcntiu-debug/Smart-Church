@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Campus;
+
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -43,7 +45,10 @@ class CheckProfileComplete
             if (empty($user->next_of_kin_name) || empty($user->next_of_kin_phone)) {
                 $missing[] = 'Next of Kin';
             }
-            if (empty($user->campus_id)) {
+            // The campus is only a profile requirement while the church runs more
+            // than one (config/campus.php): in single campus mode it is stamped on
+            // writes, so it must not block anybody.
+            if (empty($user->campus_id) && ! Campus::isSingle()) {
                 $missing[] = 'Campus';
             }
 

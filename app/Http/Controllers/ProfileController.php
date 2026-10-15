@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Models\Campus;
 use App\Models\TiuMember;
 use App\Models\Birthday;
 use App\Models\Department;
@@ -46,9 +47,9 @@ class ProfileController extends Controller
             ->orderBy('dept_name', 'asc')
             ->get(['dept_id as id', 'dept_name as name']);
 
-        // Fetch communities (filtered by user's campus)
+        // Fetch communities (campus filter is inert in single campus mode)
         $campusId = $user->campus_id;
-        $communities = Community::where('campus_id', $campusId)
+        $communities = Community::query()->forCurrentCampus('campus_id', $campusId)
             ->orderBy('community_name', 'asc')
             ->get();
 
@@ -202,7 +203,7 @@ class ProfileController extends Controller
                 'community_id' => $communityId,
                 'community_other' => $communityOther,
                 'occupation' => $request->occupation,
-                'campus_id' => $request->campus_id,
+                'campus_id' => Campus::writeId($request->campus_id),
                 'church_type_id' => $request->church_type_id,
                 'department_name' => json_encode($deptArray),
                 'cluster' => json_encode($request->clusters_json ?? []),
@@ -513,7 +514,7 @@ class ProfileController extends Controller
             $user = Auth::user();
             $campusId = $user->campus_id;
 
-            $communities = Community::where('campus_id', $campusId)
+            $communities = Community::query()->forCurrentCampus('campus_id', $campusId)
                 ->orderBy('community_name', 'asc')
                 ->get();
 

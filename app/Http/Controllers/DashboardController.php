@@ -34,7 +34,7 @@ public function adminOverview(Request $request)
     
     // Filter by same campus (supports multi-campus)
     if (in_array($member_role, ['Super User', 'Admin'])) {
-        $query->where('tm.campus_id', $user->campus_id);
+        $query->forCurrentCampus('tm.campus_id', $user->campus_id);
     }
     
     // Filter by role
@@ -102,7 +102,7 @@ public function adminOverview(Request $request)
         })
         ->leftJoin('church_type as ct', 'ca.church_type_id', '=', 'ct.id')
         ->whereDate('ca.attendance_date', today())
-        ->where('tm.campus_id', $user->campus_id)
+        ->forCurrentCampus('tm.campus_id', $user->campus_id)
         ->select(
             'ca.*',
             'tm.first_name',

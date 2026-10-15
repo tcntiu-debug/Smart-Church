@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -84,6 +85,31 @@ class WeekListCallerAssignmentTest extends TestCase
     private function fullName($member): string
     {
         return trim(($member->first_name ?? '') . ' ' . ($member->last_name ?? ''));
+    }
+
+    /**
+     * The first timers whose caller is stored in `caller_assignments` - a pick
+     * made by hand in the modal, which the lane rule does not apply to.
+     *
+     * Keyed by the same display name the print payload carries, so a rendered
+     * person can be recognised as a manual pick.
+     *
+     * @return array<string, int>
+     */
+    private function manualPickNames(): array
+    {
+        if (! Schema::hasTable('caller_assignments')) {
+            return [];
+        }
+
+        return DB::table('caller_assignments')
+            ->join('first_timer', 'first_timer.first_timer_id', '=', 'caller_assignments.first_timer_id')
+            ->get(['first_timer.first_name', 'first_timer.last_name'])
+            ->map(function ($row) {
+                return trim(($row->first_name ?? '') . ' ' . ($row->last_name ?? ''));
+            })
+            ->flip()
+            ->all();
     }
 
     /**
@@ -181,6 +207,12 @@ class WeekListCallerAssignmentTest extends TestCase
         // have no lane of their own and are ignored).
         $laneCounts = ['male' => [], 'female' => []];
 
+        // First timers whose caller was picked by hand in the modal. The modal
+        // offers every caller, so a manual pick may cross the lanes on purpose
+        // (the round-robin itself never does - WeekListController::buildCallerData
+        // only falls back to the whole team when the gender is blank).
+        $manualPicks = $this->manualPickNames();
+
         foreach ($data as $callerName => $persons) {
             $this->assertArrayHasKey(
                 $callerName,
@@ -194,6 +226,10 @@ class WeekListCallerAssignmentTest extends TestCase
                 $lane = strtolower(trim((string) $person['gender']));
 
                 if (! in_array($lane, ['male', 'female'], true)) {
+                    continue;
+                }
+
+                if (isset($manualPicks[$person['name']])) {
                     continue;
                 }
 

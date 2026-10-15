@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -39,7 +40,7 @@ class WeekTaskController extends Controller
         // Fetch tasks filtered by campus
         $taskQuery = DB::table('task');
         if ($userCampusId) {
-            $taskQuery->where('campus_id', $userCampusId);
+            $taskQuery->forCurrentCampus('campus_id', $userCampusId);
         }
         $tasks = $taskQuery->get();
 
@@ -93,7 +94,9 @@ class WeekTaskController extends Controller
         $week = intval($request->input('week'));
         $task = $request->input('task');
         $questiontext = $request->input('questiontext');
-        $campus_id = $request->input('campus_id', Auth::user()->campus_id);
+        // The campus column is still written (the data stays usable if a second
+        // campus is opened) but it can no longer come from a stale form field.
+        $campus_id = Campus::writeId($request->input('campus_id', Auth::user()->campus_id));
         $department_id = $request->input('department_id');
 
         // Check if a record exists for this week + department
@@ -157,13 +160,15 @@ class WeekTaskController extends Controller
     {
         $week = $request->input('week');
         $question = $request->input('question');
-        $campus_id = $request->input('campus_id', Auth::user()->campus_id);
+        $campus_id = Campus::writeId($request->input('campus_id', Auth::user()->campus_id));
         $department_id = $request->input('department_id');
 
         if (!$week || !$question || !$department_id) {
             return redirect('/etask?campus_id=' . $campus_id)->with('error', 'Invalid request.');
         }
 
+        // Row identity, not a filter: the campus here decides WHICH task row is
+        // read and later rewritten, so it stays a plain where().
         $existing = DB::table('task')
             ->where('wid', $week)
             ->where('department_id', $department_id)

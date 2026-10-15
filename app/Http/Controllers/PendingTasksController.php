@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +101,10 @@ class PendingTasksController extends Controller
      */
     private function touchpointList($campus_id)
     {
+        // Campus filter: null in single campus mode, so the condition and its
+        // binding only exist while multi-campus is on.
+        $campusId = Campus::filterId($campus_id);
+
         return DB::select("
             SELECT DISTINCT tm.subgroup 
             FROM tiu_member tm
@@ -107,9 +112,9 @@ class PendingTasksController extends Controller
             JOIN first_timer ft ON mtf.first_timer_id = ft.first_timer_id
             WHERE tm.subgroup IS NOT NULL 
             AND tm.subgroup != '' 
-            AND ft.campus_id = ?
+            " . ($campusId ? ' AND ft.campus_id = ?' : '') . "
             ORDER BY tm.subgroup ASC
-        ", [$campus_id]);
+        ", $campusId ? [$campusId] : []);
     }
 
     /**
@@ -126,10 +131,12 @@ class PendingTasksController extends Controller
         $where_clauses = ["mtf.followup_rank = 1"];
         $bindings = [];
 
-        // Campus filter
-        if (!empty($campus_id)) {
+        // Campus filter (inert while the church runs a single campus)
+        $campusId = Campus::filterId($campus_id);
+
+        if ($campusId) {
             $where_clauses[] = "ft.campus_id = ?";
-            $bindings[] = intval($campus_id);
+            $bindings[] = $campusId;
         }
 
         if ($filter_tp !== '') {

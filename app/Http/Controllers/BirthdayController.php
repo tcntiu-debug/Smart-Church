@@ -29,7 +29,7 @@ class BirthdayController extends Controller
         $campusId = $user->campus_id ?? 0;
         $birthdays = DB::table('birthday as b')
             ->join('tiu_member as m', 'b.tiu_member_id', '=', 'm.tiu_member_id')
-            ->where('m.campus_id', $campusId)
+            ->forCurrentCampus('m.campus_id', $campusId)
             ->select('b.*', 'm.first_name', 'm.last_name', 'm.phone_number', 'm.email')
             ->orderByRaw("MONTH(b.birthday), DAY(b.birthday)")
             ->get();
@@ -97,7 +97,7 @@ class BirthdayController extends Controller
 
         $birthdays = DB::table('birthday as b')
             ->join('tiu_member as m', 'b.tiu_member_id', '=', 'm.tiu_member_id')
-            ->where('m.campus_id', $campusId)
+            ->forCurrentCampus('m.campus_id', $campusId)
             ->whereMonth('b.birthday', $month)
             ->select('b.*', 'm.first_name', 'm.last_name', 'm.phone_number', 'm.email')
             ->orderByRaw("DAY(b.birthday)")

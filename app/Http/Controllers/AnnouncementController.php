@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +20,7 @@ class AnnouncementController extends Controller
         $campusId = $user->campus_id ?? 0;
         
         $announcements = DB::table('announcements')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -32,7 +33,7 @@ class AnnouncementController extends Controller
         $campusId = $user->campus_id ?? 0;
         
         $announcements = DB::table('announcements')
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -53,7 +54,7 @@ class AnnouncementController extends Controller
             'title' => $request->title,
             'content' => $request->content ?? '',
             'created_at' => now(),
-            'campus_id' => $campusId,
+            'campus_id' => Campus::writeId($campusId),
         ]);
 
         return redirect()->back()->with('success', 'Announcement posted successfully!');

@@ -215,7 +215,7 @@ class MarketplaceController extends Controller
 
         // Apply campus filter
         if ($campusId) {
-            $query->where('tm.campus_id', $campusId);
+            $query->forCurrentCampus('tm.campus_id', $campusId);
         }
 
         $businesses = $query->orderBy('mc.category_name', 'asc')

@@ -21,7 +21,7 @@ class SubGroupController extends Controller
 
         $groups = DB::table('sub_group')
             ->where('department_id', $request->department_id)
-            ->where('campus_id', $campusId)
+            ->forCurrentCampus('campus_id', $campusId)
             ->orderBy('sub_group_name')
             ->get();
 

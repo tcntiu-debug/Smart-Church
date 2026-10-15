@@ -129,7 +129,7 @@ class AttendanceAnalysisController extends Controller
                     ->get();
 
                 if ($campusId) {
-                    $allGroupMembers = $allGroupMembers->where('campus_id', $campusId);
+                    $allGroupMembers = $allGroupMembers->forCurrentCampus('campus_id', $campusId);
                 }
 
                 // Separate present and absent
@@ -164,7 +164,7 @@ class AttendanceAnalysisController extends Controller
             ->orderBy('child_name', 'asc');
 
         if ($campusId) {
-            $allChildrenQuery->where('campus_id', $campusId);
+            $allChildrenQuery->forCurrentCampus('campus_id', $campusId);
         }
 
         $allChildren = $allChildrenQuery->get();

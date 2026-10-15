@@ -44,7 +44,7 @@ class AdminAssignmentController extends Controller
                 $q->whereNull('status')
                   ->orWhere('status', 'Not Assigned');
             })
-            ->where('campus_id', $userCampusId)
+            ->forCurrentCampus('campus_id', $userCampusId)
             ->orderBy('first_name', 'asc');
 
         if (!empty($search)) {
@@ -60,7 +60,7 @@ class AdminAssignmentController extends Controller
         // Get all active TIU members (guides)
         $guides = DB::table('tiu_member')
             ->where('status', 1)
-            ->where('campus_id', $userCampusId)
+            ->forCurrentCampus('campus_id', $userCampusId)
             ->whereNotIn('member_role', ['Super User', 'Admin'])
             ->orderBy('first_name', 'asc')
             ->get();
@@ -69,7 +69,7 @@ class AdminAssignmentController extends Controller
         $assignmentsQuery = DB::table('member_tracking_followup as mtf')
             ->join('first_timer as ft', 'mtf.first_timer_id', '=', 'ft.first_timer_id')
             ->join('tiu_member as tm', 'mtf.tiu_member_id', '=', 'tm.tiu_member_id')
-            ->where('ft.campus_id', $userCampusId)
+            ->forCurrentCampus('ft.campus_id', $userCampusId)
             ->select(
                 'mtf.*',
                 'ft.first_name as ft_first_name',
@@ -140,7 +140,7 @@ class AdminAssignmentController extends Controller
                 $userCampusId = Auth::user()->campus_id ?? 0;
                 $taskRow = DB::table('task')
                     ->where('wid', 1)
-                    ->where('campus_id', $userCampusId)
+                    ->forCurrentCampus('campus_id', $userCampusId)
                     ->value('questions');
                 if ($taskRow) {
                     $rawJson = html_entity_decode($taskRow, ENT_QUOTES | ENT_HTML5);
@@ -172,7 +172,7 @@ class AdminAssignmentController extends Controller
                     $userCampusId = Auth::user()->campus_id ?? 0;
                     $taskRow = DB::table('task')
                         ->where('wid', 1)
-                        ->where('campus_id', $userCampusId)
+                        ->forCurrentCampus('campus_id', $userCampusId)
                         ->value('questions');
                     if ($taskRow) {
                         $rawJson = html_entity_decode($taskRow, ENT_QUOTES | ENT_HTML5);
@@ -278,7 +278,7 @@ class AdminAssignmentController extends Controller
             $guideQuery = DB::table('tiu_member as tm')
                 ->leftJoin('member_tracking_followup as mtf', 'tm.tiu_member_id', '=', 'mtf.tiu_member_id')
                 ->where('tm.department_name', 'LIKE', '%"23"%')
-                ->where('tm.campus_id', $userCampusId)
+                ->forCurrentCampus('tm.campus_id', $userCampusId)
                 ->select(
                     'tm.tiu_member_id',
                     'tm.first_name',
@@ -304,7 +304,7 @@ class AdminAssignmentController extends Controller
             // Unassigned first timers
             $ftQuery = DB::table('first_timer')
                 ->whereIn('status', ['Unassigned', 'Not Assigned'])
-                ->where('campus_id', $userCampusId)
+                ->forCurrentCampus('campus_id', $userCampusId)
                 ->whereNotIn('first_timer_id', function ($q) {
                     $q->select('first_timer_id')->from('member_tracking_followup')->where('tiu_member_id', '>', 0);
                 });
@@ -391,7 +391,7 @@ class AdminAssignmentController extends Controller
             $followupResponse = $this->generateDefaultFollowupResponse();
             $taskRow = DB::table('task')
                 ->where('wid', 1)
-                ->where('campus_id', $userCampusId)
+                ->forCurrentCampus('campus_id', $userCampusId)
                 ->value('questions');
             if ($taskRow) {
                 $rawJson = html_entity_decode($taskRow, ENT_QUOTES | ENT_HTML5);
@@ -523,7 +523,7 @@ class AdminAssignmentController extends Controller
         // --- 1. FETCH GUIDES (filtered by selected department) ---
         $guideQuery = DB::table('tiu_member')
             ->where('department_name', 'LIKE', '%"' . $selectedDeptId . '"%')
-            ->where('campus_id', $userCampusId);
+            ->forCurrentCampus('campus_id', $userCampusId);
 
         if (!empty($guideGender)) {
             $guideQuery->where('gender', $guideGender);
@@ -567,7 +567,7 @@ class AdminAssignmentController extends Controller
             // TRACKING & INTEGRATION: Unassigned first_timer records
             $unassignedQuery = DB::table('first_timer')
                 ->whereIn('status', ['Unassigned', 'Not Assigned'])
-                ->where('campus_id', $userCampusId)
+                ->forCurrentCampus('campus_id', $userCampusId)
                 ->whereNotIn('first_timer_id', function ($q) {
                     $q->select('first_timer_id')
                       ->from('member_tracking_followup')
@@ -620,7 +620,7 @@ class AdminAssignmentController extends Controller
                 $q->whereNull('status')
                   ->orWhere('status', 'Not Assigned');
             })
-            ->where('campus_id', $userCampusId)
+            ->forCurrentCampus('campus_id', $userCampusId)
             ->orderBy('first_name', 'asc')
             ->get();
 
@@ -628,7 +628,7 @@ class AdminAssignmentController extends Controller
         $guides = DB::table('tiu_member')
             ->leftJoin('member_tracking_followup', 'tiu_member.tiu_member_id', '=', 'member_tracking_followup.tiu_member_id')
             ->where('tiu_member.status', 1)
-            ->where('tiu_member.campus_id', $userCampusId)
+            ->forCurrentCampus('tiu_member.campus_id', $userCampusId)
             ->select(
                 'tiu_member.tiu_member_id',
                 'tiu_member.first_name',
@@ -670,7 +670,7 @@ class AdminAssignmentController extends Controller
                     $followupResponse = $this->generateDefaultFollowupResponse();
                     $taskRow = DB::table('task')
                         ->where('wid', 1)
-                        ->where('campus_id', $userCampusId)
+                        ->forCurrentCampus('campus_id', $userCampusId)
                         ->value('questions');
                     if ($taskRow) {
                         $rawJson = html_entity_decode($taskRow, ENT_QUOTES | ENT_HTML5);

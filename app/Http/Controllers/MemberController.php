@@ -29,7 +29,7 @@ class MemberController extends Controller
      */
     private function memberBaseQuery($campusId)
     {
-        return TiuMember::where('status', '!=', '3')->where('campus_id', $campusId);
+        return TiuMember::where('status', '!=', '3')->forCurrentCampus('campus_id', $campusId);
     }
 
     /**
@@ -180,7 +180,7 @@ class MemberController extends Controller
                 'email' => $email,
                 'gender' => $gender,
                 'residential_address' => $residential_address,
-                'campus_id' => (int) $campus_id,
+                'campus_id' => Campus::writeId($campus_id),
                 'church_type_id' => $church_type_id,
                 'community_id' => $final_community_id,
                 'community_other' => $final_community_other,
@@ -290,7 +290,7 @@ class MemberController extends Controller
                 'gender' => $request->gender,
                 'occupation' => $occupationName,
                 'church_type_id' => $request->church_type_id,
-                'campus_id' => $campusId,
+                'campus_id' => Campus::writeId($campusId),
                 'subgroup' => $request->sub_group_id,
                 'marital_status' => $request->marital_status,
                 'residential_address' => $request->address,

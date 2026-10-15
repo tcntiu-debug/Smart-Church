@@ -321,8 +321,18 @@ class AssignmentNotificationTest extends TestCase
         );
 
         $this->assertSame(2, $written);
-        $this->assertSame(1, $this->rowsFor($members[0], NotificationService::TYPE_CALLER_ASSIGNMENT)->count());
-        $this->assertSame(1, $this->rowsFor($members[1], NotificationService::TYPE_CALLER_ASSIGNMENT)->count());
+
+        // The two members are real callers, so the bell may already hold alerts
+        // this test must not count: only the rows written just now (the body is
+        // this test's marker) are asserted on.
+        $this->assertSame(
+            1,
+            $this->rowsFor($members[0], NotificationService::TYPE_CALLER_ASSIGNMENT)->where('body', 'Notify Testcase')->count()
+        );
+        $this->assertSame(
+            1,
+            $this->rowsFor($members[1], NotificationService::TYPE_CALLER_ASSIGNMENT)->where('body', 'Notify Testcase')->count()
+        );
     }
 
     /**
