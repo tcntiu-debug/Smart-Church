@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -9,8 +10,17 @@ use Illuminate\Support\Facades\Log;
 
 class AdminAssignmentController extends Controller
 {
-    public function __construct()
+    /**
+     * Writes the "a first timer is now yours to follow up" alerts (item 11).
+     *
+     * @var \App\Services\NotificationService
+     */
+    private $notifications;
+
+    public function __construct(NotificationService $notifications)
     {
+        $this->notifications = $notifications;
+
         $this->middleware('auth');
     }
 
@@ -118,6 +128,12 @@ class AdminAssignmentController extends Controller
 
             $newStatus = $existing ? 'Reassigned' : 'Assigned';
 
+            // Who followed this first timer up before, so saving for the same
+            // guide again does not send a second alert (item 11).
+            $previousGuideId = $existing
+                ? (int) DB::table('member_tracking_followup')->where('first_timer_id', $firstTimerId)->value('tiu_member_id')
+                : 0;
+
             if (!$existing) {
                 // NEW ASSIGNMENT — fetch Week 1 tasks from task table (filtered by campus)
                 $followupResponseJson = '{}';
@@ -193,9 +209,15 @@ class AdminAssignmentController extends Controller
                 ->where('first_timer_id', $firstTimerId)
                 ->update(['status' => $newStatus, 'status_change_date' => now()]);
 
+            // Item 11: the guide is told about the first timer they now follow up.
+            $notified = (int) $guideId !== $previousGuideId
+                ? $this->notifyGuide($guideId, $ftFullName, $firstTimerId)
+                : false;
+
             return response()->json([
-                'status'  => 'success',
-                'message' => "$ftFullName has been successfully $newStatus.",
+                'status'   => 'success',
+                'notified' => $notified,
+                'message'  => "$ftFullName has been successfully $newStatus.".($notified ? ' The guide has been notified.' : ''),
             ]);
         } catch (\Exception $e) {
             Log::error('ajaxAssign error: ' . $e->getMessage());
@@ -396,7 +418,17 @@ class AdminAssignmentController extends Controller
                 ->where('first_timer_id', $ftId)
                 ->update(['status' => 'Assigned']);
 
-            return redirect()->back()->with('success', 'First timer assigned successfully!');
+            // Item 11: the guide hears about the first timer they now follow up.
+            $firstTimer = DB::table('first_timer')
+                ->where('first_timer_id', $ftId)
+                ->first(['first_name', 'last_name']);
+
+            $notified = $this->notifyGuide($guideId, $this->personName($firstTimer, $ftId), $ftId);
+
+            return redirect()->back()->with(
+                'success',
+                'First timer assigned successfully!'.($notified ? ' The guide has been notified.' : '')
+            );
         } catch (\Exception $e) {
             Log::error('Assign error: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Error: ' . $e->getMessage());
@@ -624,6 +656,10 @@ class AdminAssignmentController extends Controller
             $ftIds = $request->first_timer_ids;
             $userCampusId = Auth::user()->campus_id ?? 0;
 
+            // Collected so the guide gets one summary alert, not one per person.
+            $assignedNames = [];
+            $assignedIds = [];
+
             foreach ($ftIds as $ftId) {
                 $existing = DB::table('member_tracking_followup')
                     ->where('first_timer_id', $ftId)
@@ -659,13 +695,75 @@ class AdminAssignmentController extends Controller
                     DB::table('first_timer')
                         ->where('first_timer_id', $ftId)
                         ->update(['status' => 'Assigned']);
+
+                    $assignedNames[] = $this->personName(
+                        DB::table('first_timer')->where('first_timer_id', $ftId)->first(['first_name', 'last_name']),
+                        $ftId
+                    );
+                    $assignedIds[] = (int) $ftId;
                 }
             }
 
-            return redirect()->back()->with('success', 'Pairings generated successfully!');
+            // Item 11: one alert for the whole batch.
+            $notified = $this->notifyGuide(
+                $guideId,
+                $this->notifications->names($assignedNames, 3),
+                $assignedIds[0] ?? null,
+                count($assignedNames)
+            );
+
+            return redirect()->back()->with(
+                'success',
+                'Pairings generated successfully!'.($notified ? ' The guide has been notified.' : '')
+            );
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Error: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Tell a guide that one or more first timers are now theirs to follow up
+     * (item 11). The row feeds both the navbar bell and the browser alert.
+     *
+     * @param  mixed  $guideId
+     * @param  string  $firstTimerNames  Summary, e.g. "Ada, Bola and 3 others"
+     * @param  mixed  $firstTimerId  Opened by the bell / the browser alert
+     * @param  int  $howMany
+     */
+    private function notifyGuide($guideId, string $firstTimerNames, $firstTimerId = null, int $howMany = 1): bool
+    {
+        $guideId = (int) $guideId;
+
+        if ($guideId <= 0 || $howMany < 1) {
+            return false;
+        }
+
+        $title = $howMany > 1
+            ? "You have {$howMany} new first timers to follow up"
+            : 'You have a new first timer to follow up';
+
+        return $this->notifications->notify(
+            $guideId,
+            NotificationService::TYPE_GUIDE_ASSIGNMENT,
+            $title,
+            $firstTimerNames !== '' ? $firstTimerNames : null,
+            ['url' => '/my-tasks', 'first_timer_id' => $firstTimerId],
+            (int) (Auth::user()->campus_id ?? 0) ?: null
+        );
+    }
+
+    /**
+     * "Ada Bola" for a first_timer row, or "First timer #12" when unnamed.
+     *
+     * @param  mixed  $row
+     * @param  mixed  $firstTimerId
+     */
+    private function personName($row, $firstTimerId = null): string
+    {
+        $row = is_object($row) ? $row : (object) [];
+        $name = trim(($row->first_name ?? '') . ' ' . ($row->last_name ?? ''));
+
+        return $name !== '' ? $name : 'First timer #'.(int) $firstTimerId;
     }
 
     private function generateDefaultFollowupResponse()

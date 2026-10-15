@@ -195,6 +195,23 @@
     </script>
     @stack('scripts')
 
+    {{-- In-app alerts: poll the unread feed so a new caller / guide alert also
+         reaches the browser as a system notification. Web only for now (no native
+         app, no Web Push) - see docs/NOTIFICATIONS.md and
+         public/assets/js/notifications.js. The member allows it once from the
+         notification centre; until then this only keeps the bell badge fresh. --}}
+    @auth
+        <script>
+            window.tiuNotifications = {
+                feedUrl: '{{ route('notifications.feed') }}',
+                pollSeconds: {{ (int) config('notifications.poll_seconds', 60) }},
+                enabled: {{ config('notifications.enabled', true) ? 'true' : 'false' }},
+                icon: '{{ asset('icons/icon-192.png') }}'
+            };
+        </script>
+        <script src="{{ asset('assets/js/notifications.js') }}"></script>
+    @endauth
+
     <!-- Airtime Topup Modal -->
     <div id="airtimeModalContainer" style="display:none;">
         <div class="modal fade" id="airtimeModal" tabindex="-1" role="dialog" aria-labelledby="airtimeModalLabel" aria-hidden="true">

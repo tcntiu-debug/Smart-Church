@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\GuideArchiveService;
+use App\Services\NotificationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,8 +19,17 @@ class WeekListController extends Controller
      */
     private const CALLER_SUBGROUP = 'Touch Point 7';
 
-    public function __construct()
+    /**
+     * Writes the "you have been given first timers to call" alerts (item 5(b)).
+     *
+     * @var \App\Services\NotificationService
+     */
+    private $notifications;
+
+    public function __construct(NotificationService $notifications)
     {
+        $this->notifications = $notifications;
+
         $this->middleware('auth');
     }
 
@@ -378,6 +388,11 @@ class WeekListController extends Controller
 
             $callerName = trim($caller->first_name . ' ' . $caller->last_name);
 
+            // Who holds the row right now, so re-picking the same caller is silent.
+            $previousCallerId = (int) DB::table('caller_assignments')
+                ->where('first_timer_id', $firstTimerId)
+                ->value('caller_member_id');
+
             DB::table('caller_assignments')->updateOrInsert(
                 ['first_timer_id' => $firstTimerId],
                 [
@@ -388,7 +403,23 @@ class WeekListController extends Controller
                 ]
             );
 
-            return response()->json(['success' => true, 'caller_name' => $callerName, 'message' => 'Saved']);
+            // The caller learns about the first timer they have just been handed.
+            $notified = 0;
+
+            if ($previousCallerId !== $callerId) {
+                $notified = $this->notifyCallers(
+                    [$callerId => [$this->firstTimerName(DB::table('first_timer')->where('first_timer_id', $firstTimerId)->first(), $firstTimerId)]],
+                    [$callerId => $callerName],
+                    $user->campus_id ?? null
+                );
+            }
+
+            return response()->json([
+                'success'     => true,
+                'caller_name' => $callerName,
+                'notified'    => $notified,
+                'message'     => $notified > 0 ? 'Saved, caller notified' : 'Saved',
+            ]);
         } catch (\Throwable $e) {
             Log::error('Caller assignment save failed: ' . $e->getMessage());
 
@@ -407,6 +438,70 @@ class WeekListController extends Controller
     private function canManageAssignments($memberRole): bool
     {
         return in_array($memberRole, ['Admin', 'Admins', 'Super User'], true);
+    }
+
+    /**
+     * Tell each caller which first timers are now theirs to call (item 5(b)).
+     *
+     * One notification per caller and per change: the bell shows what was added,
+     * and the browser alert (see resources/views/layouts/app.blade.php) points at
+     * the week list so the caller can open it straight away.
+     *
+     * @param  array<int, array<int, string>>  $newForCaller  caller id => first timer names
+     * @param  array<int, string>  $callerNames  caller id => name
+     * @param  mixed  $campusId
+     * @return int  How many callers were notified
+     */
+    private function notifyCallers(array $newForCaller, array $callerNames, $campusId = null): int
+    {
+        if ($newForCaller === []) {
+            return 0;
+        }
+
+        $messages = [];
+
+        foreach ($newForCaller as $callerId => $names) {
+            $count = count($names);
+
+            $messages[$callerId] = [
+                'title' => $count === 1
+                    ? 'You have 1 new first timer to call'
+                    : "You have {$count} new first timers to call",
+                'body'  => $this->notifications->names($names, 3),
+                'data'  => [
+                    'url'          => '/weeklist',
+                    'caller_name'  => $callerNames[$callerId] ?? null,
+                    'first_timers' => $names,
+                ],
+            ];
+        }
+
+        return $this->notifications->notifyEach(
+            $messages,
+            NotificationService::TYPE_CALLER_ASSIGNMENT,
+            $campusId ? (int) $campusId : null
+        );
+    }
+
+    /**
+     * The display name of a week list row (the query selects `ft.*`, so the row
+     * carries first_name / last_name) or of a bare first_timer lookup.
+     *
+     * @param  mixed  $row
+     * @param  mixed  $firstTimerId  Used when the row is missing or unnamed
+     */
+    private function firstTimerName($row, $firstTimerId = null): string
+    {
+        $row = is_object($row) ? $row : (object) [];
+        $name = trim(($row->first_name ?? '') . ' ' . ($row->last_name ?? ''));
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        $id = $row->first_timer_id ?? $firstTimerId;
+
+        return $id ? 'First timer #' . (int) $id : 'A first timer';
     }
 
     /**
@@ -502,7 +597,17 @@ class WeekListController extends Controller
             $assigned = 0;
             $skipped = 0;
 
-            DB::transaction(function () use ($rows, $callerNames, $assignments, &$assigned, &$skipped) {
+            // caller id => the first timers that are new to that caller, so the
+            // alert only mentions what this click actually changed.
+            $newForCaller = [];
+
+            // Who holds each row right now: clicking the button twice must not
+            // alert the same caller about the same first timer again.
+            $currentCallers = DB::table('caller_assignments')
+                ->whereIn('first_timer_id', $rows->pluck('first_timer_id')->all())
+                ->pluck('caller_member_id', 'first_timer_id');
+
+            DB::transaction(function () use ($rows, $callerNames, $assignments, $currentCallers, &$assigned, &$skipped, &$newForCaller) {
                 foreach ($rows as $row) {
                     $callerId = $assignments[$row->first_timer_id] ?? null;
 
@@ -511,6 +616,10 @@ class WeekListController extends Controller
                         $skipped++;
 
                         continue;
+                    }
+
+                    if ((int) ($currentCallers[$row->first_timer_id] ?? 0) !== (int) $callerId) {
+                        $newForCaller[(int) $callerId][] = $this->firstTimerName($row);
                     }
 
                     DB::table('caller_assignments')->updateOrInsert(
@@ -527,16 +636,24 @@ class WeekListController extends Controller
                 }
             });
 
+            // Every caller hears about the list they have just been given.
+            $notified = $this->notifyCallers($newForCaller, $callerNames, $user->campus_id ?? null);
+
             $message = "Saved {$assigned} caller assignment(s).";
 
             if ($skipped > 0) {
                 $message .= " {$skipped} first timer(s) had no caller available.";
             }
 
+            if ($notified > 0) {
+                $message .= " {$notified} caller(s) notified.";
+            }
+
             return response()->json([
                 'success'  => true,
                 'assigned' => $assigned,
                 'skipped'  => $skipped,
+                'notified' => $notified,
                 'message'  => $message,
             ]);
         } catch (\Throwable $e) {

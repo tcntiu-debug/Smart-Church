@@ -355,6 +355,10 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
 
     // Notifications (in-app bell)
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+
+    // Polled by the layout (resources/views/layouts/app.blade.php) so an open page
+    // can raise a browser notification for a caller / guide alert.
+    Route::get('/notifications/feed', [NotificationController::class, 'feed'])->name('notifications.feed');
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
     Route::get('/notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
 

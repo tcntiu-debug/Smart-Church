@@ -2,18 +2,27 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 /**
  * In-app notification centre (the navbar bell). Rows are written by
- * App\Services\BirthdayReminderService but the page is generic enough to show
- * any future notification type.
+ * App\Services\NotificationService (assignment alerts) and
+ * App\Services\BirthdayReminderService (birthday digests); the page is generic
+ * enough to show any future notification type.
  */
 class NotificationController extends Controller
 {
-    public function __construct()
+    /**
+     * @var \App\Services\NotificationService
+     */
+    protected $notifications;
+
+    public function __construct(NotificationService $notifications)
     {
+        $this->notifications = $notifications;
+
         $this->middleware('auth');
     }
 
@@ -37,6 +46,35 @@ class NotificationController extends Controller
             ->count();
 
         return view('notifications.index', compact('notifications', 'unread'));
+    }
+
+    /**
+     * The unread notifications as JSON.
+     *
+     * Polled by the layout (resources/views/layouts/app.blade.php) so an open page
+     * on a phone or a laptop turns a new caller / guide alert into a browser
+     * notification. Read-only: the rows are only marked read from the centre.
+     */
+    public function feed()
+    {
+        $memberId = (int) Auth::id();
+        $limit = (int) config('notifications.feed_limit', 10);
+
+        $notifications = $this->notifications->unreadFor($memberId, $limit);
+
+        return response()->json([
+            'unread' => $this->notifications->unreadCount($memberId),
+            'notifications' => $notifications->map(function ($notification) {
+                return [
+                    'id' => (int) $notification->id,
+                    'type' => (string) $notification->type,
+                    'title' => (string) $notification->title,
+                    'body' => $notification->body,
+                    'url' => $this->notifications->urlFor($notification),
+                    'created_at' => (string) $notification->created_at,
+                ];
+            })->values(),
+        ]);
     }
 
     /**
