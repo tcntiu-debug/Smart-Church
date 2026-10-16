@@ -87,9 +87,11 @@ class MemberController extends Controller
     {
         $churchTypes = ChurchType::orderBy('church_type_name', 'asc')->get();
         $communities = DB::table('communities')->orderBy('community_name', 'asc')->get(['id', 'community_name']);
-        $campuses = DB::table('campus')->orderBy('cname', 'asc')->get();
 
-        return view('member.public-register', compact('churchTypes', 'communities', 'campuses'));
+        // No campus picker on this form any more: TCN Ikorodu is one campus, so
+        // there is nothing to choose and the column is left empty on save (see
+        // docs/SINGLE-CAMPUS.md).
+        return view('member.public-register', compact('churchTypes', 'communities'));
     }
 
     /**
@@ -111,8 +113,12 @@ class MemberController extends Controller
         $parent_guardian_phone = trim($request->parent_guardian_phone ?? '');
         $parent_guardian_relationship = trim($request->parent_guardian_relationship ?? '');
 
-        // Basic required fields
-        if (empty($first_name) || empty($last_name) || empty($gender) || empty($residential_address) || empty($church_type_id) || empty($community_id_input) || empty($campus_id)) {
+        // Basic required fields. The campus is only required while the form still
+        // asks for one (SINGLE_CAMPUS=false) - the picker is gone in single campus
+        // mode, so requiring it would reject every registration.
+        $campusRequired = !Campus::isSingle();
+
+        if (empty($first_name) || empty($last_name) || empty($gender) || empty($residential_address) || empty($church_type_id) || empty($community_id_input) || ($campusRequired && empty($campus_id))) {
             return response()->json(['success' => false, 'message' => 'All required fields must be filled.'], 400);
         }
 
@@ -223,11 +229,12 @@ class MemberController extends Controller
         $occupations = Occupation::orderBy('occ_name', 'asc')->get();
         $departments = Department::orderBy('dept_name', 'asc')->get();
         $churchTypes = ChurchType::select('id', 'church_type_name')->distinct('church_type_name')->orderBy('church_type_name', 'asc')->get();
-        $campuses = DB::table('campus')->orderBy('cname', 'asc')->get();
         $subGroups = SubGroup::orderBy('sub_group_name', 'asc')->get();
         $communities = DB::table('communities')->orderBy('community_name', 'asc')->get(['id', 'community_name']);
 
-        return view('member.register', compact('occupations', 'departments', 'churchTypes', 'campuses', 'subGroups', 'communities'));
+        // No campus picker here either - Campus::writeId() leaves the column empty
+        // while the church runs a single campus.
+        return view('member.register', compact('occupations', 'departments', 'churchTypes', 'subGroups', 'communities'));
     }
 
     /**
@@ -278,8 +285,9 @@ class MemberController extends Controller
             $departmentIds = $request->department_name ?? [];
             $departmentJson = json_encode($departmentIds);
 
-            // Get campus_id from user or request
-            $campusId = $request->campus_id ?? Auth::user()->campus_id ?? 1;
+            // Campus::writeId() ignores a posted campus in single campus mode, so
+            // the column is left empty instead of refilled with campus 1.
+            $campusId = $request->campus_id ?? Auth::user()->campus_id;
 
             // Create new member
             $member = TiuMember::create([

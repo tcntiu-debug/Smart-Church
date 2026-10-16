@@ -134,7 +134,7 @@
                         <td>{{ $ft->occupation }}</td>
                         <td>{{ $ft->attendant_type }}</td>
                         <td>{{ $ft->church_type_name ?? '&mdash;' }}</td>
-                        <td>{{ $ft->campus_name ?? '&mdash;' }}</td>
+                        <td>{{ $ft->campus_name ?? '—' }}</td>
                         <td><span class="badge badge-{{ $ft->status === 'Assigned' ? 'success' : ($ft->status === 'Not Assigned' ? 'warning' : 'secondary') }}">{{ $ft->status }}</span></td>
                         <td>{{ $ft->register_date ? \Carbon\Carbon::parse($ft->register_date)->format('M d, Y h:i A') : '&mdash;' }}</td>
                         <td><a class="media fs-14 p-2" href="{{ route('member.show', $ft->first_timer_id) }}">View</a></td>

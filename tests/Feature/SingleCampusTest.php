@@ -12,20 +12,26 @@ use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
  * Single campus mode (`config/campus.php`, SINGLE_CAMPUS=true).
  *
- * TCN Ikorodu is one church again, so the campus filter layer is retired: the
- * ~70 call sites still read - and still work - as campus filters
- * (`->forCurrentCampus()`), but they no longer narrow anything, and no new row
- * can be stamped with a campus the church does not run. The `campus_id` columns
- * (and this switch) are kept so a second campus can be opened later:
- * SINGLE_CAMPUS=false puts every filter back without touching a controller.
+ * TCN Ikorodu is one church again, so the campus layer is retired: the ~70 call
+ * sites still read - and still work - as campus filters (`->forCurrentCampus()`),
+ * but they no longer narrow anything, new rows are left without a campus
+ * (`Campus::writeId()` is null) and the campus_id that was already on the rows is
+ * emptied: 2026_10_14_000002 makes the columns nullable, 2026_10_14_000003
+ * retires the data, and both ship through `app:sync-schema` / `migrate`. The
+ * column (and this switch) are kept so a second campus can be opened later:
+ * SINGLE_CAMPUS=false puts every filter and every stamp back without touching a
+ * controller.
  *
- * These are the assertions that hold that in place. Read-only against the live
- * rows, exactly like BirthdayReminderTest.
+ * These are the assertions that hold that in place. Mostly read-only against the
+ * live rows, exactly like BirthdayReminderTest - the exceptions are the task row
+ * and the member the row-identity and registration tests create, and they clean
+ * up after themselves.
  */
 class SingleCampusTest extends TestCase
 {
@@ -49,27 +55,86 @@ class SingleCampusTest extends TestCase
             Announcement::query()->count(),
             'The global campus scope still narrows Announcement.'
         );
+    }
 
-        $this->assertNotEmpty(
-            DB::table('first_timer')->whereNotNull('campus_id')->distinct()->pluck('campus_id')->all(),
-            'No first timer row carries a campus at all, so this test proves nothing.'
+    /**
+     * New rows are left without a campus: the picker is gone, so there is nothing
+     * to stamp - not for a blank field and not for a stale one that still posts a
+     * campus the church does not run (the columns allow the emptiness, see
+     * 2026_10_14_000002).
+     */
+    public function test_new_rows_are_left_without_a_campus()
+    {
+        $this->assertNull(Campus::writeId(), 'A new row is still being stamped with a campus.');
+        $this->assertNull(Campus::writeId(null));
+        $this->assertNull(Campus::writeId(''));
+        $this->assertNull(Campus::writeId(0));
+        $this->assertNull(
+            Campus::writeId(2),
+            'A posted campus id is still stamping new rows with a campus the church does not run.'
         );
     }
 
     /**
-     * New rows are stamped with the one campus the church runs, whatever a stale
-     * form field still posts - the columns are NOT NULL and must not drift.
+     * The other half of leaving the column empty: the schema has to allow it, and
+     * the data that was already there has to be retired - otherwise row identity
+     * that reads a row back by campus looks for a campus no write produces.
+     *
+     * Both halves ship as migrations (2026_10_14_000002 makes the columns
+     * nullable, _000003 empties them), applied by `app:sync-schema` / `migrate`
+     * before the code that writes NULL runs.
      */
-    public function test_new_rows_are_stamped_with_the_one_campus()
+    public function test_the_campus_columns_and_data_are_retired()
     {
-        $this->assertSame(Campus::defaultId(), Campus::writeId());
-        $this->assertSame(Campus::defaultId(), Campus::writeId(null));
-        $this->assertSame(Campus::defaultId(), Campus::writeId(''));
-        $this->assertSame(Campus::defaultId(), Campus::writeId(0));
-        $this->assertSame(
-            Campus::defaultId(),
-            Campus::writeId(2),
-            'A posted campus id is still stamping new rows with a campus the church does not run.'
+        foreach ($this->campusColumns() as $table) {
+            if (! Schema::hasTable($table)) {
+                continue;
+            }
+
+            $this->assertSame(
+                'YES',
+                $this->nullableFlag($table),
+                "{$table}.campus_id is still NOT NULL, so a row written without a campus is rejected."
+            );
+        }
+
+        foreach (['tiu_member', 'first_timer', 'task', 'communities', 'department'] as $table) {
+            $left = DB::table($table)->whereNotNull('campus_id')->count();
+
+            $this->assertSame(
+                0,
+                $left,
+                "{$table} still carries a campus on {$left} row(s): run the campus retirement migration (2026_10_14_000003)."
+            );
+        }
+    }
+
+    /**
+     * The map lists the communities of the church. It used to run
+     * `AND c.campus_id = ?`, which against the retired (NULL) column matches
+     * nothing - the page would come back empty.
+     */
+    public function test_the_map_lists_every_community_after_the_campus_came_out()
+    {
+        $expected = DB::table('communities')
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->count();
+
+        if ($expected < 1) {
+            $this->markTestSkipped('No community carries coordinates, so the map has nothing to draw.');
+        }
+
+        $response = $this->actingAs($this->signedInViewer())->get('/map-view');
+
+        $response->assertOk();
+
+        $communities = json_decode($response->original->getData()['communities_json'] ?? '[]', true);
+
+        $this->assertCount(
+            $expected,
+            $communities,
+            'The map lost communities when the campus data was retired.'
         );
     }
 
@@ -200,6 +265,15 @@ class SingleCampusTest extends TestCase
             FirstTimer::query()->forCurrentCampus('ft.campus_id', 2)->toSql(),
             'An Eloquent query is still filtered by campus.'
         );
+
+        // Row identity does not soften: the row this app writes carries no campus,
+        // so that - and not a campus that no longer exists - is what a
+        // read-then-rewrite has to match.
+        $this->assertSame(
+            DB::table('task')->whereNull('campus_id')->toSql(),
+            Campus::matchQuery(DB::table('task'), 'campus_id', 2)->toSql(),
+            'Row identity is matched against a campus that no longer exists.'
+        );
     }
 
     /**
@@ -212,6 +286,7 @@ class SingleCampusTest extends TestCase
         $this->actingAs($this->signedInViewer());
 
         $pages = [
+            '/profile',
             '/pending-tasks',
             '/report-barcharts',
             '/report-piecharts',
@@ -234,6 +309,109 @@ class SingleCampusTest extends TestCase
             );
         }
     }
+    /**
+     * A week-task row written without a campus is the row the delete finds. This
+     * is row identity, not a filter: looking the row up by the user's (empty)
+     * campus still has to match it, while a row that does carry a campus belongs
+     * to somebody else and must survive.
+     */
+    public function test_a_task_written_without_a_campus_is_the_row_that_gets_deleted()
+    {
+        $mine = 900;   // no real week uses these wids
+        $other = 901;
+        $departmentId = 999;
+
+        DB::table('task')->insert([
+            ['wid' => $mine, 'department_id' => $departmentId, 'campus_id' => null, 'questions' => json_encode(['1' => ['text' => 'Mine']])],
+            ['wid' => $other, 'department_id' => $departmentId, 'campus_id' => Campus::defaultId(), 'questions' => json_encode(['1' => ['text' => 'Somebody else']])],
+        ]);
+
+        try {
+            $this->actingAs($this->signedInViewer());
+
+            // campus_id is empty, exactly as the (campus-less) form posts it.
+            $response = $this->get('/etask/delete?week='.$mine.'&question=1&campus_id=&department_id='.$departmentId);
+
+            $response->assertRedirect();
+            $this->assertSame(
+                'Question deleted successfully.',
+                $response->getSession()->get('success'),
+                'The delete did not find the row it wrote itself.'
+            );
+            $this->assertSame(0, DB::table('task')->where('wid', $mine)->count(), 'The task row survived the delete.');
+
+            $survivor = $this->get('/etask/delete?week='.$other.'&question=1&campus_id=&department_id='.$departmentId);
+
+            $survivor->assertRedirect();
+            $this->assertSame(
+                1,
+                DB::table('task')->where('wid', $other)->count(),
+                'A row that still carries a campus was deleted as if it were the blank one.'
+            );
+        } finally {
+            DB::table('task')->whereIn('wid', [$mine, $other])->delete();
+        }
+    }
+
+    /**
+     * A registration goes through without a campus: neither form posts one, the
+     * server does not demand one, and the member lands in the table with the
+     * column empty. The profile form drops the picker too (the select2 init that
+     * still names the selector is harmless).
+     */
+    public function test_a_member_is_registered_without_a_campus()
+    {
+        $publicForm = $this->get('/mregister');
+        $publicForm->assertOk();
+        $publicForm->assertDontSee('campus_id', false);
+        $publicForm->assertDontSee('campusId', false);
+
+        $adminForm = $this->actingAs($this->signedInViewer())->get(route('member.register'));
+        $adminForm->assertOk();
+        $adminForm->assertDontSee('campus_id', false);
+
+        $profileForm = $this->get('/profile');
+        $profileForm->assertOk();
+        $profileForm->assertDontSee('<select name="campus_id"', false);
+
+        $churchTypeId = DB::table('church_type')->where('church_type_name', 'Adult')->value('id')
+            ?: DB::table('church_type')->value('id');
+        $communityId = DB::table('communities')->value('id');
+
+        if (! $churchTypeId || ! $communityId) {
+            $this->markTestSkipped('No church type / community to register against.');
+        }
+
+        $email = 'single-campus-'.uniqid().'@example.test';
+
+        try {
+            $response = $this->post('/mregister', [
+                'first_name' => 'Campus',
+                'last_name' => 'Retired',
+                'phone_number' => '08000000000',
+                'email' => $email,
+                'gender' => 'Male',
+                'residential_address' => 'Test address',
+                'church_type_id' => $churchTypeId,
+                'community_id' => $communityId,
+            ]);
+
+            $response->assertOk();
+            $this->assertTrue(
+                (bool) ($response->json('success') ?? false),
+                'Registering without a campus was rejected: '.json_encode($response->json())
+            );
+
+            $member = DB::table('tiu_member')->where('email', $email)->first();
+
+            $this->assertNotNull($member, 'The registration did not write the member.');
+            $this->assertNull($member->campus_id, 'The registration stamped a campus on the new member.');
+        } finally {
+            DB::table('tiu_member')->where('email', $email)->delete();
+        }
+    }
+
+
 
     /**
      * The other half of the promise: SINGLE_CAMPUS=false brings the whole campus
@@ -254,6 +432,14 @@ class SingleCampusTest extends TestCase
                 DB::table('tiu_member')->where('campus_id', 2)->toSql(),
                 DB::table('tiu_member')->forCurrentCampus('campus_id', 2)->toSql(),
                 'The macro no longer applies the campus filter.'
+            );
+
+            // Row identity matches on the campus that gets written again, blank
+            // field or not.
+            $this->assertSame(
+                DB::table('task')->where('campus_id', Campus::defaultId())->toSql(),
+                Campus::matchQuery(DB::table('task'), 'campus_id', null)->toSql(),
+                'Row identity no longer matches on the campus that gets written.'
             );
 
             // A campus user is scoped to their own campus again - in the macro and
@@ -289,6 +475,42 @@ class SingleCampusTest extends TestCase
     private function campusIds(): array
     {
         return array_map('intval', DB::table('campus')->orderBy('cid')->pluck('cid')->all());
+    }
+
+    /**
+     * Every table that carries a campus_id column, in the order the migration
+     * that made them nullable lists them.
+     *
+     * @return array<int, string>
+     */
+    private function campusColumns(): array
+    {
+        return [
+            'announcements',
+            'birthday_reminder_logs',
+            'children_church',
+            'communities',
+            'department',
+            'first_timer',
+            'first_time_view_limit',
+            'sub_group',
+            'tiu_member',
+        ];
+    }
+
+    /**
+     * What information_schema says about `$table.campus_id`: 'YES' when the
+     * column accepts a blank campus, 'NO' while it is still NOT NULL.
+     */
+    private function nullableFlag(string $table): ?string
+    {
+        $column = DB::selectOne(
+            'SELECT IS_NULLABLE as nullable FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+            [$table, 'campus_id']
+        );
+
+        return $column->nullable ?? null;
     }
 
     /**

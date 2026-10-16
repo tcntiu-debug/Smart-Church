@@ -431,7 +431,11 @@ class BirthdayReminderService
     protected function deliver($campus, int $daysBefore, Carbon $target, array $birthdays, array $recipients, array $channels, bool $dryRun): array
     {
         $campusName = (string) $campus->cname;
-        $campusId = (int) $campus->cid;
+        // What the notification and log rows carry: the campus the app writes
+        // now - none while the church runs a single campus (Campus::writeId()),
+        // the campus_id data having been retired. The digest names its campus in
+        // the title and is identified by its date, not by the column.
+        $campusId = Campus::writeId((int) $campus->cid);
         $delivered = [];
         $notes = [];
 
@@ -589,8 +593,11 @@ class BirthdayReminderService
 
     /**
      * Write (or refresh) the idempotency row for this digest.
+     *
+     * $campusId is what the app writes into campus_id (null in single campus
+     * mode), so the row this run reads back is the row it wrote.
      */
-    protected function writeLog(int $campusId, int $daysBefore, string $birthdayDate, int $birthdayCount, int $recipientCount, array $delivered, string $status, string $note, bool $dryRun): void
+    protected function writeLog(?int $campusId, int $daysBefore, string $birthdayDate, int $birthdayCount, int $recipientCount, array $delivered, string $status, string $note, bool $dryRun): void
     {
         if ($dryRun) {
             return;

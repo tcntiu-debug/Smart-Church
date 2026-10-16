@@ -24,22 +24,29 @@ class MyTaskGuideContextTest extends TestCase
     /**
      * Members with the profile fields `CheckProfileComplete` demands, otherwise
      * the request is redirected to the profile page instead of the task list.
+     *
+     * The campus is only demanded while the church runs more than one (single
+     * campus mode retired the data - docs/SINGLE-CAMPUS.md).
      */
     private function memberQuery()
     {
-        return \App\Models\TiuMember::query()
+        $members = \App\Models\TiuMember::query()
             ->whereNotNull('marital_status')
             ->whereNotNull('age')
             ->whereNotNull('occupation')
             ->whereNotNull('next_of_kin_name')
-            ->whereNotNull('next_of_kin_phone')
-            ->whereNotNull('campus_id')
-            ->whereExists(function ($query) {
-                $query->select(DB::raw(1))
-                    ->from('birthday')
-                    ->whereColumn('birthday.tiu_member_id', 'tiu_member.tiu_member_id')
-                    ->whereNotNull('birthday.birthday');
-            });
+            ->whereNotNull('next_of_kin_phone');
+
+        if (! \App\Models\Campus::isSingle()) {
+            $members->whereNotNull('campus_id');
+        }
+
+        return $members->whereExists(function ($query) {
+            $query->select(DB::raw(1))
+                ->from('birthday')
+                ->whereColumn('birthday.tiu_member_id', 'tiu_member.tiu_member_id')
+                ->whereNotNull('birthday.birthday');
+        });
     }
 
     /**

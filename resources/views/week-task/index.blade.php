@@ -7,10 +7,7 @@
             <div class="card-body d-flex align-items-center">
                 <label class="mb-0 mr-3 font-weight-bold">Campus:</label>
                 <span class="font-weight-normal" style="font-size: 1.1rem;">
-                    @php
-                        $currentCampus = $campuses->firstWhere('cid', $userCampusId);
-                    @endphp
-                    {{ $currentCampus ? $currentCampus->cname : 'N/A' }}
+                    {{ $currentCampusName }}
                 </span>
                 <input type="hidden" name="campus_id" value="{{ $userCampusId }}">
             </div>

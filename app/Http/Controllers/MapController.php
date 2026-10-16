@@ -5,18 +5,24 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Models\Campus;
 
 class MapController extends Controller
 {
     /**
      * Show the full community map with list, markers, demographics, and member loading.
-     * Only shows communities for the user's campus.
+     * Only shows communities for the user's campus while the church runs more
+     * than one (the campus filter is inert in single campus mode).
      * Replicates the functionality of TIU's map.php
      */
     public function communityMap(Request $request)
     {
         $user = Auth::user();
-        $campusId = $user->campus_id;
+
+        // Campus filter: Campus::filterId() is null in single campus mode, so the
+        // condition and its binding only exist while multi-campus is on. A plain
+        // "c.campus_id = ?" against the retired (NULL) column would empty the map.
+        $campusId = Campus::filterId($user->campus_id);
 
         // Fetch communities filtered by user's campus
         $communities_data = DB::select("
@@ -28,10 +34,10 @@ class MapController extends Controller
             FROM communities c 
             LEFT JOIN tiu_member t ON c.id = t.community_id AND t.status = '1'
             WHERE c.latitude IS NOT NULL AND c.longitude IS NOT NULL
-            AND c.campus_id = ?
+            " . ($campusId ? 'AND c.campus_id = ?' : '') . "
             GROUP BY c.id, c.community_name, c.latitude, c.longitude
             ORDER BY member_count DESC, c.community_name ASC
-        ", [$campusId]);
+        ", $campusId ? [$campusId] : []);
 
         $communities_json = json_encode($communities_data);
 

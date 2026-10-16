@@ -184,13 +184,18 @@ class BirthdayReminderTest extends TestCase
             $this->markTestSkipped('No department configured.');
         }
 
+        $outsiders = DB::table('tiu_member')
+            ->whereNotIn('member_role', $this->recipientRoles());
+
+        // Single campus mode retired the campus_id data, so the population of the
+        // Welcome Center is "everybody in it" rather than "everybody on a campus".
+        if (! $this->single()) {
+            $outsiders->whereNotNull('campus_id');
+        }
+
         $outsider = $this->ids(
             $this->inConfiguredDepartments(
-                $this->notDeleted(
-                    DB::table('tiu_member')
-                        ->whereNotNull('campus_id')
-                        ->whereNotIn('member_role', $this->recipientRoles())
-                )
+                $this->notDeleted($outsiders)
             )->get(['tiu_member_id'])->all()
         );
 

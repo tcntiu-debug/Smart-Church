@@ -78,7 +78,7 @@ per-minute `schedule:run` cron entry drives all of it — see
 | Command | Purpose | Schedule (`Africa/Lagos`) |
 | --- | --- | --- |
 | `php artisan birthdays:remind` | E-mail + push the Welcome Center (dept 28) birthday reminders | daily `07:00` |
-| `php artisan app:sync-schema` | Creates the tables the code needs (also part of `app:post-deploy`) | daily `03:20` |
+| `php artisan app:sync-schema` | Brings the database in step with the code: creates the tables the code needs, drops the retired Transport / FOF tables and applies the campus retirement migrations (also part of `app:post-deploy`) | daily `03:20` |
 | `php artisan firsttimers:auto-unassign` | Releases first-timers who have had a guide for 8+ weeks. The follow-up is copied into `member_tracking_followup_archive` first, and stays readable under **/weeklist/guide-history** (Admins / Super Users) | weekly, Monday `04:10` |
 
 `public/auto_unassign.php` runs the same release over HTTP for a host that can only trigger a

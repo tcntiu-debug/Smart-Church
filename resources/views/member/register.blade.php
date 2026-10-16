@@ -79,19 +79,6 @@
                             </div>
                         </div>
 
-                        <!-- Campus Section -->
-                        <div class="row">
-                            <div class="col-md-12 mb-3">
-                                <label for="campus">Campus <span class="text-danger">*</span></label>
-                                <select id="campus" name="campus_id" class="form-control" required>
-                                    <option value="">-- Select Your Campus --</option>
-                                    @foreach($campuses ?? [] as $cmp)
-                                        <option value="{{ $cmp->cid }}">{{ $cmp->cname }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        </div>
-
                         <!-- Church Type - Single instance -->
                         <div class="row">
                             <div class="col-md-12 mb-3">
@@ -190,7 +177,6 @@ function registerMember() {
     var email = $("#email").val().trim();
     var gender = $("#gender").val();
     var residentialAddress = $("#residential_address").val().trim();
-    var campusId = $("#campus").val();
     var churchTypeId = $("#church_type").val();
     var churchTypeName = $("#church_type").find('option:selected').text();
     var communityId = $("#community").val();
@@ -201,15 +187,14 @@ function registerMember() {
     var parentGuardianRelationship = $("#parent_guardian_relationship").val().trim();
 
     // Basic Validation
-    if (!firstName || !lastName || !gender || !residentialAddress || !churchTypeId || !communityId || !campusId) {
+    if (!firstName || !lastName || !gender || !residentialAddress || !churchTypeId || !communityId) {
         console.error('Validation Failed: Missing required fields', {
             firstName: !!firstName,
             lastName: !!lastName,
             gender: !!gender,
             residentialAddress: !!residentialAddress,
             churchTypeId: !!churchTypeId,
-            communityId: !!communityId,
-            campusId: !!campusId
+            communityId: !!communityId
         });
         Swal.fire('Error', 'Please fill out all required fields.', 'error');
         return;
@@ -271,7 +256,6 @@ function registerMember() {
         email: email,
         gender: gender,
         residential_address: residentialAddress,
-        campus_id: campusId,
         church_type_id: churchTypeId,
         community_id: communityId === 'Other' ? null : communityId,
         community_other: communityOther,
@@ -303,7 +287,7 @@ function registerMember() {
                     showConfirmButton: false
                 }).then(() => {
                     $('#member-register-form')[0].reset();
-                    $('#church_type, #community, #campus, #gender').val('');
+                    $('#church_type, #community, #gender').val('');
                     $('#other_community_div').hide();
                     $('#parent_guardian_section').hide();
                 });

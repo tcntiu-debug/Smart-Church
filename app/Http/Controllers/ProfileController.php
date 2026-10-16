@@ -59,8 +59,10 @@ class ProfileController extends Controller
         // Fetch occupations
         $occupations = Occupation::orderBy('occ_name', 'asc')->get();
 
-        // Fetch campuses
+        // Fetch campuses (the picker itself is only rendered while the church
+        // runs more than one - see resources/views/profile/edit.blade.php)
         $campuses = DB::table('campus')->orderBy('cname', 'asc')->get();
+        $singleCampus = Campus::isSingle();
 
         // Fetch church types
         $churchTypes = ChurchType::orderBy('church_type_name', 'asc')->get();
@@ -92,6 +94,7 @@ class ProfileController extends Controller
             'subGroups',
             'occupations',
             'campuses',
+            'singleCampus',
             'churchTypes',
             'bday',
             'bmonth',

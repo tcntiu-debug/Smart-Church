@@ -22,7 +22,7 @@ class SyncSchema extends Command
      *
      * @var string
      */
-    protected $description = 'Bring the server database in step with the deployed code: create the notification tables and retire the Transport / FOF tables';
+    protected $description = 'Bring the server database in step with the deployed code: create the notification tables, retire the Transport / FOF tables and the campus data';
 
     /**
      * Tables the code needs but the SFTP-only deploy pipeline cannot create (it
@@ -55,6 +55,22 @@ class SyncSchema extends Command
         'database/migrations/2026_05_25_000002_drop_transport_foreign_keys_from_tiu_member_table.php',
         'database/migrations/2026_05_25_000003_drop_transport_tables.php',
         'database/migrations/2026_05_25_000004_drop_fof_tables.php',
+    ];
+
+    /**
+     * Migrations that change rows or columns that already exist instead of
+     * creating a table, applied one file at a time for the same reason as the
+     * drops above (a plain `migrate` aborts on this database).
+     *
+     * The campus_id retirement - single campus mode, see docs/SINGLE-CAMPUS.md:
+     * the columns are made nullable first, then the data that no longer means
+     * anything is emptied.
+     *
+     * @var array
+     */
+    protected $alterMigrations = [
+        'database/migrations/2026_10_14_000002_make_campus_id_nullable.php',
+        'database/migrations/2026_10_14_000003_retire_the_campus_id_data.php',
     ];
 
     /**
@@ -91,7 +107,13 @@ class SyncSchema extends Command
         }
 
         foreach ($this->dropMigrations as $migration) {
-            if (! $this->dropLegacyObjects($migration)) {
+            if (! $this->applyGuardedFile($migration)) {
+                $failed++;
+            }
+        }
+
+        foreach ($this->alterMigrations as $migration) {
+            if (! $this->applyGuardedFile($migration)) {
                 $failed++;
             }
         }
@@ -104,6 +126,12 @@ class SyncSchema extends Command
         $this->table(['Retired table', 'State'], array_map(function ($table) {
             return [$table, Schema::hasTable($table) ? 'STILL PRESENT' : 'gone'];
         }, $this->legacyTables));
+
+        $this->table(['Column / data migration', 'State'], array_map(function ($migration) {
+            $name = pathinfo($migration, PATHINFO_FILENAME);
+
+            return [$name, $this->isRecorded($name) ? 'applied' : 'PENDING'];
+        }, $this->alterMigrations));
 
         if ($this->option('dry-run')) {
             $this->info('Dry run: nothing was changed.');
@@ -135,7 +163,7 @@ class SyncSchema extends Command
      */
     protected function ensureTable($table, $migration)
     {
-        $name = basename($migration);
+        $name = pathinfo($migration, PATHINFO_FILENAME);
         $path = base_path($migration);
 
         if (! is_file($path)) {
@@ -167,19 +195,24 @@ class SyncSchema extends Command
             return true;
         }
 
-        return $this->applyMigration($name, $path);
+        return $this->applyMigration($name, $migration);
     }
 
     /**
-     * Apply a drop-migration. Every drop in those files is guarded, so this is
-     * safe on a database where the tables were already removed by hand.
+     * Apply one migration file on its own: a drop (the Transport / FOF tables),
+     * a column change or a data retirement.
+     *
+     * Applied through `migrate --path`, which keeps the `migrations` table in
+     * step and skips a file that is already recorded. Every file in these lists
+     * is guarded, so this is safe on a database where the work was already done
+     * by hand.
      *
      * @param  string  $migration
      * @return bool
      */
-    protected function dropLegacyObjects($migration)
+    protected function applyGuardedFile($migration)
     {
-        $name = basename($migration);
+        $name = pathinfo($migration, PATHINFO_FILENAME);
         $path = base_path($migration);
 
         if (! is_file($path)) {
@@ -194,15 +227,19 @@ class SyncSchema extends Command
             return true;
         }
 
-        return $this->applyMigration($name, $path);
+        return $this->applyMigration($name, $migration);
     }
 
     /**
      * Run one migration file with `migrate --path`, which also keeps the
      * `migrations` table in step.
      *
+     * The path has to stay relative to base_path(): `migrate --path` resolves it
+     * itself, and an absolute Windows path used to come back as
+     * "File does not exist at path C:\.../C:\...".
+     *
      * @param  string  $name
-     * @param  string  $path
+     * @param  string  $path  Migration path relative to base_path()
      * @return bool
      */
     protected function applyMigration($name, $path)

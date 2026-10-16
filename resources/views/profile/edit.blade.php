@@ -187,6 +187,7 @@
                             @endforeach
                         </select>
                     </div>
+                    @unless($singleCampus)
                     <div class="col-md-6 mb-3">
                         <label>Campus</label>
                         <select name="campus_id" class="form-control">
@@ -198,6 +199,7 @@
                             @endforeach
                         </select>
                     </div>
+                    @endunless
                     @if($sessionRole == 'Super User' || $sessionRole == 'Admin')
                     <div class="col-md-6 mb-3">
                         <label>Member Role</label>

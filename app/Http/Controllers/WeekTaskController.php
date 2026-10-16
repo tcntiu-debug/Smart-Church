@@ -25,11 +25,17 @@ class WeekTaskController extends Controller
             return redirect('/mytask')->with('error', 'Access Denied');
         }
 
-        // Get user's campus_id
-        $userCampusId = $request->get('campus_id', $user->campus_id);
+        // Get user's campus_id (null while the church runs a single campus)
+        $userCampusId = Campus::filterId($request->get('campus_id', $user->campus_id));
 
         // Get campus list for the dropdown filter
         $campuses = DB::table('campus')->orderBy('cname')->get();
+
+        // Campus named in the header. In single campus mode there is no id to
+        // resolve, so the page names the one campus the church runs instead of
+        // printing "N/A" for a value that was retired on purpose.
+        $currentCampus = $userCampusId ? $campuses->firstWhere('cid', $userCampusId) : null;
+        $currentCampusName = $currentCampus ? $currentCampus->cname : Campus::defaultName();
 
         // Get departments for the dropdown (restricted to Foundation of Faith Support and Tracking and Integration)
         $departments = DB::table('department')
@@ -76,7 +82,7 @@ class WeekTaskController extends Controller
             }
         }
 
-        return view('week-task.index', compact('taskGroups', 'deptWeekGroups', 'campuses', 'userCampusId', 'departments'));
+        return view('week-task.index', compact('taskGroups', 'deptWeekGroups', 'campuses', 'userCampusId', 'currentCampusName', 'departments'));
     }
 
     /**
@@ -168,12 +174,21 @@ class WeekTaskController extends Controller
         }
 
         // Row identity, not a filter: the campus here decides WHICH task row is
-        // read and later rewritten, so it stays a plain where().
-        $existing = DB::table('task')
-            ->where('wid', $week)
-            ->where('department_id', $department_id)
-            ->where('campus_id', $campus_id)
-            ->first();
+        // read and later rewritten. Campus::matchQuery() keeps that working with
+        // the retired (NULL) campus data: the row this controller writes carries
+        // no campus either, so identity has to be matched on "no campus" and not
+        // on a campus that no longer exists.
+        $taskRow = function () use ($week, $department_id, $campus_id) {
+            return Campus::matchQuery(
+                DB::table('task')
+                    ->where('wid', $week)
+                    ->where('department_id', $department_id),
+                'campus_id',
+                $campus_id
+            );
+        };
+
+        $existing = $taskRow()->first();
 
         if (!$existing) {
             return redirect('/etask?campus_id=' . $campus_id)->with('error', 'Week not found.');
@@ -186,18 +201,10 @@ class WeekTaskController extends Controller
 
         if (empty($existingQuestions)) {
             // Delete entire row if no questions left
-            DB::table('task')
-                ->where('wid', $week)
-                ->where('department_id', $department_id)
-                ->where('campus_id', $campus_id)
-                ->delete();
+            $taskRow()->delete();
         } else {
             // Update with remaining questions
-            DB::table('task')
-                ->where('wid', $week)
-                ->where('department_id', $department_id)
-                ->where('campus_id', $campus_id)
-                ->update(['questions' => json_encode($existingQuestions)]);
+            $taskRow()->update(['questions' => json_encode($existingQuestions)]);
         }
 
         return redirect('/etask?campus_id=' . $campus_id)->with('success', 'Question deleted successfully.');

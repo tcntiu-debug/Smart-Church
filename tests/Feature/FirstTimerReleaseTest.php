@@ -54,22 +54,31 @@ class FirstTimerReleaseTest extends TestCase
     /**
      * Members carrying every field CheckProfileComplete demands, otherwise the
      * request is redirected to the profile page before it reaches the controller.
+     *
+     * The campus is demanded only while the church runs more than one: in single
+     * campus mode CheckProfileComplete stopped asking for it and the campus_id
+     * data was retired (docs/SINGLE-CAMPUS.md), so requiring it here would find
+     * nobody and skip the test instead of testing the page.
      */
     private function memberQuery()
     {
-        return \App\Models\TiuMember::query()
+        $members = \App\Models\TiuMember::query()
             ->whereNotNull('marital_status')
             ->whereNotNull('age')
             ->whereNotNull('occupation')
             ->whereNotNull('next_of_kin_name')
-            ->whereNotNull('next_of_kin_phone')
-            ->whereNotNull('campus_id')
-            ->whereExists(function ($query) {
-                $query->select(DB::raw(1))
-                    ->from('birthday')
-                    ->whereColumn('birthday.tiu_member_id', 'tiu_member.tiu_member_id')
-                    ->whereNotNull('birthday.birthday');
-            });
+            ->whereNotNull('next_of_kin_phone');
+
+        if (! \App\Models\Campus::isSingle()) {
+            $members->whereNotNull('campus_id');
+        }
+
+        return $members->whereExists(function ($query) {
+            $query->select(DB::raw(1))
+                ->from('birthday')
+                ->whereColumn('birthday.tiu_member_id', 'tiu_member.tiu_member_id')
+                ->whereNotNull('birthday.birthday');
+        });
     }
 
     /**

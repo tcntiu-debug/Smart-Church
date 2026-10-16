@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Campus;
 use App\Services\ApiTokenService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -62,7 +63,7 @@ class AuthController extends Controller
                 'phone_number' => $user->phone_number ?? '',
                 'role' => $user->member_role ?? 'Worker',
                 'member_role' => $user->member_role ?? 'Worker',
-                'campus_id' => $user->campus_id ?? 1,
+                'campus_id' => $user->campus_id ?? Campus::defaultId(),
                 'church_type_id' => $user->church_type_id ?? null,
                 'profile_complete' => $profileComplete,
                 'policy_signed' => $policySigned
@@ -100,7 +101,7 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'phone_number' => $user->phone_number ?? '',
                 'member_role' => $user->member_role ?? 'Worker',
-                'campus_id' => $user->campus_id ?? 1,
+                'campus_id' => $user->campus_id ?? Campus::defaultId(),
                 'marital_status' => $user->marital_status,
                 'age' => $user->age,
                 'occupation' => $user->occupation,

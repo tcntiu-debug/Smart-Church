@@ -127,9 +127,9 @@ class Campus extends Model
      * Is the app running as a single-campus church?
      *
      * When true every campus filter is inert: queries are no longer narrowed by
-     * `campus_id`, only the column (and the value written into it) is kept, so a
-     * second campus can be added later without rewriting 22 controllers. The
-     * filters themselves are not deleted - they all go through
+     * `campus_id`, and new rows leave the column empty. Only the column itself
+     * is kept, so a second campus can be added later without rewriting 22
+     * controllers. The filters themselves are not deleted - they all go through
      * ->forCurrentCampus() / Campus::filterId(), so SINGLE_CAMPUS=false in .env
      * brings every one of them back.
      */
@@ -139,7 +139,11 @@ class Campus extends Model
     }
 
     /**
-     * Campus stamped on rows created while the campus pickers are gone.
+     * The campus the church runs. Nothing is stamped with it any more
+     * (writeId() returns null), so it is what everything that still has to name
+     * a campus uses: the birthday digest, the campus table fallback, the undo
+     * step of the data retirement - and what SINGLE_CAMPUS=false goes back to
+     * stamping on new rows.
      */
     public static function defaultId(): int
     {
@@ -199,21 +203,45 @@ class Campus extends Model
     }
 
     /**
-     * Campus id to store on a new row. Always a real id because the columns are
-     * NOT NULL - in single campus mode a stale form field can no longer stamp a
-     * campus the church is not using.
+     * Campus id to store on a new row, or null while the church runs a single
+     * campus: there is no second campus to stamp, so the column is left empty
+     * (the columns were made nullable and the data retired with the
+     * 2026_10_14_000002 / _000003 migrations) instead of refilling it with a
+     * campus nobody picks any more. Switching SINGLE_CAMPUS=false turns the
+     * stamping back on, exactly like the filters.
      *
      * @param  mixed  $requested
      */
-    public static function writeId($requested = null): int
+    public static function writeId($requested = null): ?int
     {
-        $requested = (int) $requested;
-
-        if ($requested > 0 && !self::isSingle()) {
-            return $requested;
+        if (self::isSingle()) {
+            return null;
         }
 
-        return self::defaultId();
+        $requested = (int) $requested;
+
+        return $requested > 0 ? $requested : self::defaultId();
+    }
+
+    /**
+     * Match a query's campus column against the value the app would write into
+     * it (see writeId()). This is row identity, not a filter: it is what a
+     * read-then-rewrite needs (fetch the row you are about to update or delete),
+     * so it never softens and it survives the retired (NULL) campus data.
+     *
+     * `where('campus_id', null)` happens to build `campus_id is null` as well -
+     * Laravel turns a null value into whereNull() - but relying on that in a
+     * delete path reads like a bug, so the identity is written out.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder  $query
+     * @param  mixed  $requested
+     * @return \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder
+     */
+    public static function matchQuery($query, string $column = 'campus_id', $requested = null)
+    {
+        $campusId = self::writeId($requested);
+
+        return $campusId === null ? $query->whereNull($column) : $query->where($column, $campusId);
     }
 
     /**

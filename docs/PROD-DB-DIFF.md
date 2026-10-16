@@ -125,3 +125,11 @@ SHOW COLUMNS FROM caller_assignments LIKE 'caller_member_id';
 SHOW COLUMNS FROM member_tracking_followup LIKE 'department_id';
 ```
 
+One requirement on those `campus_id` columns in particular: the deployed code now
+writes `NULL` into them (single campus mode - see `docs/SINGLE-CAMPUS.md`), so an
+`ADD COLUMN ... NOT NULL` would reject every new row and every profile save. Add
+them (or alter them) as **nullable**, and let `php artisan app:sync-schema` retire
+the values that are already there (`2026_10_14_000002` makes the columns nullable,
+`_000003` empties them).
+
+

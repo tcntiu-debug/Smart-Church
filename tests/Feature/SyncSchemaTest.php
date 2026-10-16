@@ -8,14 +8,16 @@ use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
- * `app:sync-schema` - the two things the deploy must do to the database that the
+ * `app:sync-schema` - the things the deploy must do to the database that the
  * SFTP-only pipeline cannot do itself (it has no shell to run artisan):
  *
  *   1. create the tables the shipped code needs (the notification bell and the
  *      birthday reminder log);
  *   2. retire the Transport (bus route) and standalone FOF program - dropping
  *      their tables, the tiu_member transport foreign keys and the files/routes
- *      that belonged to them.
+ *      that belonged to them;
+ *   3. retire the campus_id columns of the church (single campus mode): make them
+ *      nullable, then empty the data that no row is written with any more.
  *
  * Deliberately no RefreshDatabase: the suite runs against the application's real
  * connection and the command is a no-op once everything is in step.
@@ -58,6 +60,8 @@ class SyncSchemaTest extends TestCase
         '2026_05_25_000002_drop_transport_foreign_keys_from_tiu_member_table',
         '2026_05_25_000003_drop_transport_tables',
         '2026_05_25_000004_drop_fof_tables',
+        '2026_10_14_000002_make_campus_id_nullable',
+        '2026_10_14_000003_retire_the_campus_id_data',
     ];
 
     /**

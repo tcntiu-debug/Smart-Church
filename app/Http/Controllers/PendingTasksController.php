@@ -76,7 +76,9 @@ class PendingTasksController extends Controller
             'success' => true,
             'data' => $pending_actions,
             'total' => count($pending_actions),
-            'campus_id' => $campus_id,
+            // The campus the board belongs to, not the (now empty) column: the
+            // app is told the campus the church runs instead of 0.
+            'campus_id' => Campus::filterId($campus_id) ?? Campus::defaultId(),
         ]);
     }
 
