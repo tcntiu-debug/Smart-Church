@@ -3,6 +3,14 @@
 Every push to `main` (or `master`) builds the application on GitHub's runners and
 publishes it to your cPanel account. No manual uploading, ever.
 
+> **Dev deploys itself; production waits for you.** The dev workflow
+> (`.github/workflows/deploy-cpanel.yml`) publishes on every push, unreviewed. The
+> **production** workflow (`.github/workflows/deploy-cpanel-prod.yml`) ships the
+> live folder from **`main` only** and sits in *Pending* until a required reviewer
+> clicks **Approve and deploy** — nothing is checked out, built or uploaded before
+> that click. Both rules are GitHub settings; see
+> [§3e](#3e-gate-production-with-a-required-reviewer).
+
 ```
  git push
     │
@@ -15,12 +23,13 @@ publishes it to your cPanel account. No manual uploading, ever.
     │  4. smoke test the build
     │  5. SFTP/FTPS upload of changed files only
     ▼
- cPanel  →  public_html/   (app, config, vendor, storage, public, .htaccess)
+ cPanel  →  public_html/<domain>/   (app, config, vendor, storage, public, .htaccess)
 ```
 
 What is deliberately **not** uploaded: `.env`, `vendor/` sources are replaced by the
 built copy, `tests/`, `docs/`, `node_modules/`, git metadata, debug scripts and every
-user upload (`public/uploads`, `public/display_photo`, `public/gallery_uploads`).
+user upload (`public/uploads`, `public/display_photo`, `public/gallery_uploads`,
+`public/member_photos`).
 
 **Deletions are propagated as well.** The upload itself only adds and overwrites, so a
 file removed from the repository would linger on the server forever. The *Prune files
@@ -29,7 +38,8 @@ successful deploy against the commit being pushed and deletes exactly the paths 
 `git rm` took out of the tree (paths the publish step never uploads, such as `tests/` and
 `docs/`, are skipped). Paths that only ever exist on the server are protected by a
 hard-coded list — `.env`, `storage/**`, `bootstrap/cache/**`, `public/uploads/**`,
-`public/display_photo/**`, `public/gallery_uploads/**`, `public/storage`,
+`public/display_photo/**`, `public/gallery_uploads/**`, `public/member_photos/**`,
+`public/storage`,
 `.well-known/**`, `vendor/**`, `node_modules/**` — so live member photos, PDFs and the
 production environment file can never be removed by a commit.
 
@@ -51,8 +61,11 @@ git push -u origin master
 ```
 
 > Your Git default branch is `master` (not `main`), so the examples use `master`.
-> The workflow listens for **both** `main` and `master`, so either name works — rename
-> it in GitHub → Settings → Branches if you prefer `main`.
+> The dev workflow listens for **both** `main` and `master`, so either name works —
+> rename it in GitHub → Settings → Branches if you prefer `main`.
+>
+> The **production** workflow is **`main`-only**: pushing `master` deploys the dev
+> copy and nothing else. Ship the live site from `main`.
 
 The first push opens a browser window (Windows Credential Manager). Sign in to GitHub
 once and every future push is silent. Nothing is stored in the project.
@@ -102,9 +115,16 @@ GitHub → your repository → **Settings** → **Secrets and variables** → **
 
 | Name | Default | Notes |
 | --- | --- | --- |
-| `CPANEL_PROTOCOL` | `ftps` | `ftps` (port 21, encrypted), `sftp` (port 22, needs SSH enabled), or `ftp` (port 21, **unencrypted — avoid**). |
-| `CPANEL_PORT` | `21` | Use `22` when `CPANEL_PROTOCOL` is `sftp`. |
+| `CPANEL_SSH_PORT` | `22` | The SFTP port. Use `22`, not `21`. |
 | `CPANEL_REMOTE_DIR` | `public_html/` | The directory to publish into. **Must end with a `/`**. See the warning below. |
+
+> ⚠️ **There is no `CPANEL_PROTOCOL` and no `CPANEL_PORT` variable.** The workflow is
+> deliberately hardcoded to SFTP on `CPANEL_SSH_PORT` — FTPS passive data ports are
+> filtered when reached from GitHub's runners, which aborts the upload halfway and
+> leaves a half-written tree (the *"Index of /"* symptom). Adding either variable on
+> GitHub changes nothing; the reason is in the header comment of the deploy workflow.
+> A protocol variable scoped to the `production` **environment** is doubly inert: it
+> is not read by the production workflow either.
 
 > ⚠️ **`CPANEL_REMOTE_DIR` is the setting that breaks most first deploys.** The main cPanel
 > account is jailed to your **home directory**, so the FTP path `/` means `/home/tcnikoro/`
@@ -124,58 +144,122 @@ GitHub → your repository → **Settings** → **Secrets and variables** → **
 
 ### 3d. Your setup: deploying to a subdomain
 
-Create the subdomain **first** and point its document root at the app's `public` folder.
-That one decision puts `.env`, `app/` and `vendor/` *above* the web root, so they are
-physically unreachable over HTTP — no rewrite rules have to protect them.
+Create the subdomain **first**. cPanel gives every domain on this account its own folder
+inside `public_html/` (`public_html/church.yourdomain.com/`), and **that folder is the
+deploy target** — `CPANEL_REMOTE_DIR` is relative to the account home, so it reads
+`public_html/church.yourdomain.com/`. Never point it at `public/`: the repository root is
+what gets uploaded.
 
 1. cPanel → **Domains** → **Create A New Domain** (older themes: **Subdomains**).
-2. Subdomain: e.g. `church` → creates `church.yourdomain.com`.
-3. **Document Root**: set it to `/home/tcnikoro/smart-church/public`
-   (cPanel creates the whole path, including `public/`).
+2. Domain: `church.yourdomain.com` — cPanel creates (or asks you to confirm) the folder
+   `public_html/church.yourdomain.com/`.
+3. Set `CPANEL_REMOTE_DIR` to `public_html/church.yourdomain.com/`.
 4. cPanel → **SSL/TLS Status** → **Run AutoSSL** so HTTPS works on the subdomain.
-
-Then set `CPANEL_REMOTE_DIR` to `smart-church/` — the app folder, **not** `public/`. The
-repo root is what gets uploaded, and the `public/` inside it becomes the document root.
 
 Resulting layout on the server:
 
 ```
-/home/tcnikoro/smart-church/          <- CPANEL_REMOTE_DIR
+/home/tcnikoro/public_html/church.yourdomain.com/   <- CPANEL_REMOTE_DIR
 ├── app/ bootstrap/ config/ routes/   <- NOT web-accessible
-├── .env                              <- NOT web-accessible
-├── vendor/                           <- NOT web-accessible
-└── public/                           <- document root of church.yourdomain.com
+├── .env                              <- NOT web-accessible (root .htaccess denies it)
+├── vendor/
+├── .htaccess                         <- repo root: forwards every request into public/
+└── public/                           <- Laravel front controller
     ├── .htaccess        (Laravel's own, already in the repo)
     ├── index.php
     ├── assets/  vendors/
     ├── storage/         (symlink created by app:post-deploy)
-    └── uploads/  display_photo/  gallery_uploads/
+    └── uploads/  display_photo/  gallery_uploads/  member_photos/
 ```
 
 Set `APP_URL=https://church.yourdomain.com` in the server `.env` so uploads, links and
 redirects all resolve to the subdomain.
 
-> Alternative: leave the document root at cPanel's default
-> (`/home/tcnikoro/church.yourdomain.com`) and set `CPANEL_REMOTE_DIR` to
-> `church.yourdomain.com/`. That also works — the repo's root `.htaccess` funnels traffic
-> into `public/` — but then `.env` is protected only by rewrite rules rather than by being
-> outside the web root.
+> **Document root — pick one. Both work, and the upload target never changes;
+> `smartchurch.tcnikorodu.org` and `dev.lit-grp.com` on this account use the
+> first:**
+> * **the domain folder** (`public_html/church.yourdomain.com/`) — the repo's root
+>   `.htaccess` forwards every request into `public/`. This is how
+>   `public_html/dev.lit-grp.com/` and `public_html/smartchurch.tcnikorodu.org/`
+>   run today; `.env` is then protected by the rewrite rules (and the `FilesMatch`
+>   block) in that same file — so never delete or replace the repo's root
+>   `.htaccess` on the server.
+> * **`…/public`** (cPanel → **Domains** → *Manage* → **Document Root**, set it to
+>   `public_html/church.yourdomain.com/public`) — then `.env`, `app/` and `vendor/` sit
+>   physically *above* the web root, so no rewrite rule has to protect them.
 
 
+### 3e. Gate production with a required reviewer
+
+The **dev** target is allowed to deploy itself: every push lands in the dev folder,
+unreviewed, exactly as before. The **live** site is not. The production workflow
+declares `environment: production`, and a GitHub Environment is where a deploy can be
+forced to wait for a human.
+
+> **Set both settings below *before* the first push that carries
+> `.github/workflows/deploy-cpanel-prod.yml` to `main`.** The gate is an environment
+> setting, not workflow YAML: a push that lands while `production` still has no required
+> reviewer publishes to the live folder immediately. Rules first, then push.
+
+Two settings, both under **Settings → Environments → `production`**. Neither replaces
+the other:
+
+| Setting | What it does | Why you need it |
+| --- | --- | --- |
+| **Required reviewers** | The job sits in *Pending* until a reviewer clicks **Approve and deploy**. | This *is* the review. Without it, a push to `main` publishes the live site immediately. |
+| **Deployment branches and tags** → *Selected branches and tags* → `main` | Refuses to deploy from any other branch. | The environment-level twin of the `branches:` filter in the workflow file, and it also blocks a *Run workflow* started from another branch. |
+
+Click path:
+
+1. **Settings → Environments → `production`** (create it if the list is empty).
+2. Under **Deployment protection rules**, tick **Required reviewers**.
+3. Type your GitHub username → **Add**. Up to 6 people or teams; **one** of them
+   approving is enough.
+4. Leave **Prevent self-review** *unticked* on a one-admin repository — it would stop
+   the only admin from approving their own deploy and the run would wait until it
+   failed.
+5. Under **Deployment branches and tags**, choose **Selected branches and tags** →
+   **Add deployment branch or tag rule** → *Ref type*: **Branch** → name pattern
+   `main` → **Add rule**. (The pattern is `fnmatch`, so `main` matches exactly `main`;
+   `release/*` would match any release branch.)
+6. **Save protection rules**.
+7. Push to `main` and open the run: the job shows **Waiting** with a **Review
+   deployments** button. Approve it, and only then do the build steps and the SFTP
+   upload start.
+
+Notes:
+
+- The approval is requested when the run is **queued**, before any step executes, so a
+  deploy you regret costs nothing: reject it (or cancel the run) and zero files were
+  written to the server.
+- Required reviewers and wait timers are only available for **public** repositories on
+  Free/Pro/Team plans. This repository is public, so both work; converting it to private
+  would silently disable the rules *and* the environment secrets.
+- A repository admin can bypass the gate from the run page (**Start all waiting jobs**)
+  while a job is *Pending* — the escape hatch for a 2 a.m. hotfix. The gate stops
+  accidents, not you.
+- Approving also unlocks the environment's secrets: a run cannot read `PROD_CPANEL_*`
+  values scoped to `production` before the rules pass.
+- Optional extra: protect the `main` branch itself (**Settings → Branches → Add branch
+  protection rule**, pattern `main`, *Require a pull request before merging*). Pushing to
+  `main` then has to go through a pull request. It is irrelevant to the deploy gate —
+  only to how commits reach the live branch.
+
+## 4. Create the server `.env` file
 
 This is the only file the pipeline will never touch, so it survives every deploy.
 
 1. cPanel → **MySQL Databases**: create the database and a user, and add the user to the
    database with **ALL PRIVILEGES**. cPanel prefixes names with your account, e.g.
    `tcnikoro_smart_church`.
-2. cPanel → **File Manager** → open the deploy directory (`public_html`).
+2. cPanel → **File Manager** → open the app folder (`public_html/church.yourdomain.com/`).
 3. Using the template at `.env.cpanel.example` in this repo, create a new file named
    exactly `.env` and fill in `APP_KEY`, `APP_URL`, `DB_*`, `MAIL_*` and the Telegram
    values.
 4. Generate the key. cPanel → **Advanced** → **Terminal** (if your host enables it):
 
    ```bash
-   cd ~/public_html
+   cd ~/public_html/church.yourdomain.com
    php artisan key:generate
    ```
 
@@ -200,13 +284,17 @@ changed files.
 
 You can also start a run on demand: **Actions** → *Deploy to cPanel* → **Run workflow**.
 
+> On the **production** workflow a run does not start by itself — it stops in *Pending*
+> until you approve it ([§3e](#3e-gate-production-with-a-required-reviewer)). The dev
+> workflow has no such gate, by design.
+
 ## 6. Run the post-deploy command on the server
 
 The pipeline cannot run PHP on your server, so run these once from
 cPanel → **Advanced** → **Terminal**:
 
 ```bash
-cd ~/public_html
+cd ~/public_html/church.yourdomain.com
 
 php artisan app:post-deploy             # directories, caches, storage link, app:sync-schema
 php artisan app:post-deploy --migrate   # ...plus pending database migrations
@@ -215,8 +303,8 @@ php artisan app:post-deploy --migrate   # ...plus pending database migrations
 `app:post-deploy` is idempotent and safe to re-run after any deploy. It:
 
 1. creates any missing runtime directory (`storage/framework/*`, `storage/logs`,
-   `public/uploads`, `public/display_photo`, `public/gallery_uploads`) — FTP does not
-   create empty directories;
+   `public/uploads`, `public/display_photo`, `public/gallery_uploads`,
+   `public/member_photos`) — FTP does not create empty directories;
 2. clears and rebuilds the config cache;
 3. clears and pre-compiles the Blade views;
 4. creates the `public/storage` symlink when missing;
@@ -232,11 +320,11 @@ php artisan app:post-deploy --migrate   # ...plus pending database migrations
 Add a cron job (cPanel → **Cron Jobs**) that runs once a day:
 
 ```
-php /home/<cpanel-user>/public_html/artisan app:post-deploy
+php /home/<cpanel-user>/public_html/church.yourdomain.com/artisan app:post-deploy
 ```
 
 Adjust the PHP binary if your host pins a version, e.g.
-`/usr/local/bin/ea-php80 /home/<user>/public_html/artisan app:post-deploy`.
+`/usr/local/bin/ea-php80 /home/<user>/public_html/church.yourdomain.com/artisan app:post-deploy`.
 
 ### Scheduled jobs: Welcome Center birthday reminders
 
@@ -246,7 +334,7 @@ milestones. It runs through Laravel's scheduler, so add **one** cron entry
 (cPanel → **Cron Jobs**, every minute):
 
 ```
-* * * * * /usr/local/bin/ea-php80 /home/<cpanel-user>/public_html/artisan schedule:run >> /dev/null 2>&1
+* * * * * /usr/local/bin/ea-php80 /home/<cpanel-user>/public_html/church.yourdomain.com/artisan schedule:run >> /dev/null 2>&1
 ```
 
 That single entry drives every entry in `app/Console/Kernel.php::schedule()` — `birthdays:remind` at
@@ -265,7 +353,7 @@ daily `app:post-deploy` cron: keep both.
 > server:
 >
 > ```
-> 0 6 * * * /usr/local/bin/ea-php80 /home/<cpanel-user>/public_html/artisan birthdays:remind >> /dev/null 2>&1
+> 0 6 * * * /usr/local/bin/ea-php80 /home/<cpanel-user>/public_html/church.yourdomain.com/artisan birthdays:remind >> /dev/null 2>&1
 > ```
 >
 > This works, but it is a dead end: it drives *only* this one command (nothing else you
@@ -301,7 +389,7 @@ nothing is due writes nothing. An empty (or missing) log therefore means *"no ru
 *"broken"*:
 
 ```bash
-cd ~/public_html
+cd ~/public_html/church.yourdomain.com
 
 php artisan schedule:list      # expect 0 7 * * * with Next Due 06:00:00 +00:00 (07:00 Lagos)
 php artisan schedule:run       # "No scheduled commands are ready to run." = the tick works
@@ -311,7 +399,7 @@ To prove the whole chain end to end without waiting for 07:00, nudge the send ti
 minute or two in Lagos time:
 
 ```bash
-cd ~/public_html
+cd ~/public_html/church.yourdomain.com
 
 # .env: BIRTHDAY_SEND_AT="21:47"   (a couple of minutes ahead of Lagos "now")
 php artisan config:clear && php artisan config:cache   # required - post-deploy caches the config
@@ -330,7 +418,7 @@ testing.
 Test it before leaving it to the scheduler:
 
 ```bash
-cd ~/public_html
+cd ~/public_html/church.yourdomain.com
 
 php artisan birthdays:remind --dry-run                  # show what the next run would do
 php artisan birthdays:remind --days=3 --campus=1 --channel=mail --force
@@ -407,7 +495,7 @@ commit deleted. Neither part needs phpMyAdmin or a manual SFTP delete.
 Verify it, or apply it immediately without waiting for the schedule:
 
 ```bash
-cd ~/public_html
+cd ~/public_html/church.yourdomain.com
 
 php artisan app:sync-schema --dry-run   # what would change
 php artisan app:sync-schema             # apply + print both state tables
@@ -445,6 +533,34 @@ Then, if the change included migrations or you want the caches rebuilt, run
 Deploys are serialised per branch (`concurrency`), so two quick pushes queue instead of
 colliding. Only changed files are transferred.
 
+A push reaches **both** targets at once: the dev copy publishes immediately, and the live
+copy waits for your approval ([§3e](#3e-gate-production-with-a-required-reviewer)). The
+dev workflow accepts `main` and `master`; the production workflow accepts **`main`
+only** — ship the live site from `main`.
+
+**Shipping to the live site, end to end.** Nothing else publishes it, so the sequence is:
+
+1. Work on a branch, open a pull request, merge it into `main` (or push straight to
+   `main` if you are working alone — the review gate is what protects the live folder).
+2. The merge starts **both** runs: *Deploy to cPanel* (dev) publishes on its own, while
+   *Deploy to cPanel (production)* stops in **Waiting** before its first step.
+3. Test the change on `dev.lit-grp.com`.
+4. Go to **Actions → the production run → Review deployments → Approve and deploy**, or
+   reject/cancel it if the dev test failed — nothing was uploaded up to that point.
+
+**Optional: rehearse on dev only.** The production workflow is `main`-only, so pushing
+the `main` commit to `master` deploys **dev alone** — no production run is created and
+nothing waits for an approval. Useful for a first push that carries a workflow file:
+
+```powershell
+git push origin main:master     # dev only - watch it publish
+git push origin main            # then the real thing: dev + a pending prod approval
+```
+
+`main:master` only works while `master` is an ancestor of `main` (a fast-forward).
+If the remote `master` has commits `main` does not, the push is rejected — reconcile the
+two branches instead of forcing it.
+
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |
@@ -474,7 +590,8 @@ colliding. Only changed files are transferred.
   exactly the paths a commit deleted, and its protected-prefix list keeps everything
   that only exists on the server (`.env`, `storage/**`, `bootstrap/cache/**`,
   `public/uploads/**`, `public/display_photo/**`, `public/gallery_uploads/**`,
-  `public/storage`, `.well-known/**`) out of reach. A dry run of the same diff is
+  `public/member_photos/**`, `public/storage`, `.well-known/**`) out of reach. A dry run
+  of the same diff is
   `git diff --no-renames --diff-filter=D --name-only <last-deployed-sha> HEAD`.
 - Rotate the cPanel password if it is ever pasted anywhere other than the GitHub secrets
   form. The Telegram bot token currently in your local `.env` should be rotated too, as

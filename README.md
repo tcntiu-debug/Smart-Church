@@ -48,8 +48,12 @@ phpMyAdmin. The full table-by-table reference is in
 
 ## Deployment (GitHub Actions → cPanel)
 
-Every push to `main` or `master` builds the application and publishes it to cPanel
-automatically — no manual uploading.
+Work reaches the live site through `main`: merge a pull request into `main` (or push
+straight to it when you are working alone) and the pipeline builds and publishes — no
+manual uploading. The **dev** copy publishes itself on every push to `main` or `master`,
+so a change can be tested there first; the **production** workflow ships from `main` only
+and stops in *Waiting* for a required reviewer to approve the run before it builds or
+uploads anything.
 
 ```
 git push  ->  GitHub Actions  ->  composer install --no-dev  ->  SFTP/FTPS upload  ->  cPanel
@@ -92,9 +96,9 @@ Add the per-minute `schedule:run` entry in cPanel → **Cron Jobs**.
 
 - `.env` is git-ignored and is **never** uploaded by the pipeline. Create it once on the
   server from `.env.cpanel.example`; it survives every deploy.
-- `public/uploads`, `public/display_photo`, `public/gallery_uploads` and everything under
-  `storage/` are git-ignored because they hold live member data on the server. Deploys
-  never overwrite or delete them.
+- `public/uploads`, `public/display_photo`, `public/gallery_uploads`, `public/member_photos`
+  and everything under `storage/` are git-ignored because they hold live member data on the
+  server. Deploys never overwrite or delete them.
 - `API_TOKEN_KEY` - the secret that signs the mobile app's Bearer tokens - belongs in the
   server-side `.env` only, never in a front end, a screenshot or a ticket. Rotating it signs
   every device out: [`docs/API-TOKENS.md`](docs/API-TOKENS.md).

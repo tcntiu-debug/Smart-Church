@@ -3,6 +3,10 @@ name: Deploy to cPanel
 # ---------------------------------------------------------------------------
 # Push to main/master  ->  build the app  ->  publish to cPanel over SFTP (SSH)
 #
+# BRANCH FILTER: this DEV workflow deliberately accepts main AND master. The
+# production workflow (deploy-cpanel-prod.yml) is main-only, so a push to
+# master can never reach the live folder - see "WHY main ONLY" in that file.
+#
 # WHY SFTP (port 22) AND NOT FTPS?
 #   This server's FTPS passive-mode data ports are filtered/flaky when reached
 #   from GitHub's runners ("Timeout when trying to open data connection to ..."),
@@ -30,7 +34,8 @@ name: Deploy to cPanel
 #   deploy against this commit and removes exactly the paths `git rm` took
 #   out of the tree - never anything that only lives on the server (.env,
 #   storage/app/public member photos, public/uploads, public/display_photo,
-#   public/gallery_uploads, public/storage, bootstrap/cache, .well-known).
+#   public/gallery_uploads, public/member_photos, public/storage,
+#   bootstrap/cache, .well-known).
 # ---------------------------------------------------------------------------
 
 on:
@@ -224,8 +229,8 @@ jobs:
       # successful deployment of this workflow. It is deliberately precise: a
       # blanket `mirror --delete` would also wipe everything that only ever exists
       # on the server (.env, storage/app/public member photos, public/uploads,
-      # public/display_photo, public/gallery_uploads, the public/storage symlink,
-      # bootstrap/cache, .well-known ...).
+      # public/display_photo, public/gallery_uploads, public/member_photos, the
+      # public/storage symlink, bootstrap/cache, .well-known ...).
       - name: Prune files deleted from the repository
         env:
           SSHPASS: ${{ secrets.CPANEL_PASSWORD }}
@@ -254,7 +259,7 @@ jobs:
           echo "Pruning removals between ${BASELINE:0:7} and ${GITHUB_SHA:0:7}"
 
           # Paths that only exist on the server must survive even a mistaken `git rm`.
-          PROTECTED='^(\.env($|\.)|bootstrap/cache/|storage/|public/uploads/|public/display_photo/|public/gallery_uploads/|public/storage$|\.well-known/|vendor/|node_modules/)'
+          PROTECTED='^(\.env($|\.)|bootstrap/cache/|storage/|public/uploads/|public/display_photo/|public/gallery_uploads/|public/member_photos/|public/storage$|\.well-known/|vendor/|node_modules/)'
 
           # Paths the publish step never uploads (its rsync --exclude list), so there
           # is nothing to prune there and no missing-file noise either.

@@ -6,7 +6,7 @@ for this specific deployment. Read this one; use the other only for the deep det
 | Setting | Value for this deployment |
 | --- | --- |
 | GitHub repo | `tcntiu-debug/Smart-Church` |
-| Deploy branch | `main` (the workflow also accepts `master`) |
+| Deploy branch | `main` (dev workflow also accepts `master`; production is `main`-only) |
 | Subdomain | `https://dev.lit-grp.com` |
 | cPanel account (username) | `litgrpco` |
 | App folder on server | `/home/litgrpco/public_html/dev.lit-grp.com` (already exists) |
@@ -267,21 +267,27 @@ PHP_MEMORY_LIMIT=512M
   is fine; the dump only carries tables, not the database name.
 
   **Media/uploads:** this app keeps uploads under `public/` (`public/uploads`,
-  `public/display_photo`, `public/gallery_uploads`), so copy those folders' contents across if
-  the old site had them. A `public/storage` symlink is only needed if the app uses Laravel's
-  `storage/app/public` disk; the deploy does not create it (that needs a shell).
+  `public/display_photo`, `public/gallery_uploads`, `public/member_photos`), so copy those
+  folders' contents across if the old site had them. A `public/storage` symlink is only
+  needed if the app uses Laravel's `storage/app/public` disk; nothing in this codebase
+  calls `Storage::*`, so it is optional here (the deploy does not create it — that needs a
+  shell, and `app:post-deploy` creates it when one is available).
 
 
 ## Step 9 — Trigger the deploy
 
-Your local branch is currently `master`, but this deployment should ship from `main`.
-Run once:
+The local branch is now `main` and it already tracks `origin`, so a plain `git push`
+deploys. If you ever have to do it again from scratch:
 
 ```powershell
 cd c:\xampp\htdocs\Smart-Church
 git branch -M main
 git push -u origin main
 ```
+
+Just remember the split: the **dev** workflow accepts `main` *and* `master` and ships
+unreviewed; the **production** workflow accepts `main` **only** and waits for a reviewer
+(see `CPANEL-DEPLOYMENT.md` §3e).
 
 Then, in GitHub → **Settings** → **Branches**, set the **default branch** to `main`
 (so future `git push` deploys without extra flags).

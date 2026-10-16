@@ -270,7 +270,16 @@ class MemberController extends Controller
             if ($request->hasFile('photo')) {
                 $photo = $request->file('photo');
                 $filename = time() . '_' . $photo->getClientOriginalName();
-                $photo->move(public_path('member_photos'), $filename);
+
+                // member_photos/ is not in the repository (it holds live uploads on the
+                // server), so it is missing on a freshly deployed folder; move() cannot
+                // create the target directory itself. Same guard as ProfileController.
+                $uploadDir = public_path('member_photos');
+                if (!file_exists($uploadDir)) {
+                    mkdir($uploadDir, 0755, true);
+                }
+
+                $photo->move($uploadDir, $filename);
                 $photoPath = 'member_photos/' . $filename;
             }
 

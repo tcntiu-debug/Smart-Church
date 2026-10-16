@@ -121,6 +121,7 @@ class PostDeployCommand extends Command
             'public/uploads',
             'public/display_photo',
             'public/gallery_uploads',
+            'public/member_photos',
         ];
 
         $created = 0;
