@@ -120,6 +120,18 @@ export NEW_DIR=/home/tcnikoro/public_html/smartchurch.tcnikorodu.org
 > | **there** | follow this section exactly as written |
 > | **missing** | `mysqldump` / `mysql` become **phpMyAdmin** *Export* / *Import*, and every `php artisan ...` becomes a temporary **Cron Jobs** entry - see `docs/CPANEL-DEPLOYMENT.md` -> *If cPanel Terminal is not available* and *Scheduled jobs*. The per-minute `schedule:run` heartbeat already fires `app:sync-schema` at `03:20` `Africa/Lagos`, which is the no-shell equivalent of step 8's first command. |
 
+> **The new folder answers with a directory listing until the first deploy lands.**
+> `https://smartchurch.tcnikorodu.org/` currently prints *Index of /* - a `cgi-bin/`
+> folder and the host's `php.ini`, names only. Nothing secret is reachable: the host
+> itself answers `403` to `/.env` and `/php.ini` *even before* the repository's
+> `.htaccess` exists there to deny them, and the `.env` you paste in step 7 never
+> appears in that listing. A listing is just what a document root with no index file
+> looks like. It disappears with step 8's deploy, because the repo's root `.htaccess`
+> sets `Options -Indexes`. So do **not** point traffic at the new host (section 3's
+> **301**) before that deploy has landed, or visitors get the listing instead of the
+> login page.
+
+
 1. **Freeze.** Put the old install into maintenance mode and stop its cron, so
    nothing writes to the old database while it is being copied and so the console
    commands cannot run twice:
@@ -327,17 +339,30 @@ export NEW_DIR=/home/tcnikoro/public_html/smartchurch.tcnikorodu.org
    done
    ```
 
-   Expected: `.env`, `artisan`, `composer.json` -> `403` (the `.htaccess`
-   `FilesMatch` block); `vendor/` -> `404` (it is not inside `public/`);
-   `storage/logs/laravel.log` -> `403`, or `404` if no log exists yet. If any of
-   them returns `200`, **stop the window**: the root `.htaccess` is missing or was
-   replaced, and that same file is what serves the whole site. Restore it from the
-   repo (File Manager -> upload the root `.htaccess`) and re-test before pointing
-   anybody's phone at the new host.
+   Expected - and this is *measured* on `dev.lit-grp.com`, which runs this same
+   code and this same `.htaccess`, not a guess: `.env` -> `403`, `artisan` ->
+   `404`, `composer.json` -> `404`, `vendor/` -> `404`,
+   `storage/logs/laravel.log` -> `403`, or `404` if no log exists yet.
+
+   The two numbers differ for a reason. The root `.htaccess` rewrites *everything*
+   into `public/` first (its line 25) and the `FilesMatch` deny is evaluated after
+   that: a file that really exists (`.env`) still carries its name into `public/`
+   and is denied with `403`, while `artisan` and `composer.json` become
+   `public/artisan` and `public/composer.json`, which do not exist, so Laravel's
+   front controller answers `404`. Both are the correct outcome.
+
+   So the test is **never `200`, and never a directory listing** - not a particular
+   number. If any of them returns `200` or prints an *Index of /* page, **stop the
+   window**: the root `.htaccess` is missing or was replaced, and that same file is
+   what serves the whole site. Restore it from the repo (File Manager -> upload the
+   root `.htaccess`) and re-test before pointing anybody's phone at the new host.
 10. **Switch the traffic.** `smartchurch.tcnikorodu.org` already resolves to this
     server with its document root already on the new folder, so the only live
     change is section 3's **301** on the old host. Then confirm the new site
-    answers `200` on `/login` and on a logged-in page, and that
+    answers `200` on `/` - that *is* the login page (`routes/web.php` binds `GET /`
+    to `showLoginForm` under the name `login`, so `/login` itself answers `404`;
+    the only `/login` route in the app is `POST /api/login`, the phones' endpoint) -
+    and on a logged-in page, and that
     `https://tiu.tcnikorodu.org/...` now redirects to the matching URL on the new
     host.
 

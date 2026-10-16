@@ -512,9 +512,15 @@ older migration can abort a full run — see *Troubleshooting*.)
 
 ## 7. Verify the deployment
 
-- `https://your-domain.com/login` loads (the login page is the `/` route).
-- `https://your-domain.com/.env` returns **403**, `https://your-domain.com/vendor/`
-  returns **404** — proof the `.htaccess` is protecting application code.
+- `https://your-domain.com/` loads the login page. That *is* the login route
+  (`GET /` -> `showLoginForm`, named `login`), so `https://your-domain.com/login`
+  answers **404** — no such web route exists (`POST /api/login` is the phones'
+  endpoint). That 404 is correct behaviour, not a fault.
+- `https://your-domain.com/.env` returns **403**; `/artisan`, `/composer.json` and
+  `/vendor/` return **404**, because the root `.htaccess` rewrites them into
+  `public/` before the `FilesMatch` deny is reached. The rule that matters is
+  *never* `200` and never a directory listing — proof the `.htaccess` is protecting
+  application code.
 - Upload a member photo; it appears under `public/display_photo` on the server.
 - **Actions** → the run shows green with a summary table.
 
