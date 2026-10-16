@@ -6,14 +6,16 @@ use App\Services\GuideArchiveService;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
  * Releasing a first timer without losing the guide's work.
  *
- * Covers the two admin bulk actions on `/weeklist` ("Assign all callers",
- * "Unassign all guides") and the 8-week retention rule, which now copies the
- * follow-up row into `member_tracking_followup_archive` before deleting it, so
+ * Covers the admin bulk actions on `/weeklist` ("Assign all callers" - now inside
+ * the Weekly Call List modal - and "Unassign all guides") and the 8-week
+ * retention rule, which now copies the follow-up row into
+ * `member_tracking_followup_archive` before deleting it, so
  * `/weeklist/guide-history` can still show the last guide and the last comment.
  *
  * Deliberately no RefreshDatabase: the suite runs against the application's real
@@ -236,6 +238,11 @@ class FirstTimerReleaseTest extends TestCase
             ->assertJson(['success' => false, 'message' => 'Access Denied']);
 
         $this->actingAs($member)
+            ->postJson(route('weeklist.assign-guides'), self::WINDOW)
+            ->assertStatus(403)
+            ->assertJson(['success' => false, 'message' => 'Access Denied']);
+
+        $this->actingAs($member)
             ->postJson(route('weeklist.unassign-guides'), self::WINDOW)
             ->assertStatus(403);
 
@@ -258,7 +265,103 @@ class FirstTimerReleaseTest extends TestCase
             ->assertOk()
             ->assertSee('Assign all callers')
             ->assertSee('Unassign all guides')
-            ->assertSee('Guide history');
+            ->assertSee('Guide history')
+            // "Assign all callers" lives inside the Weekly Call List modal now,
+            // next to the callers it is about to hand out.
+            ->assertSee('Hands every first timer above to the caller in its row');
+    }
+
+    /**
+     * "Assign all callers" inside the Weekly Call List modal: one click commits
+     * the whole list as a follow-up assignment. The caller the modal shows for a
+     * row becomes that first timer's guide - the write a drag and drop makes on
+     * /admin-assign-dragdrop for a single card, applied to every row at once.
+     */
+    public function test_the_modal_bulk_assignment_hands_the_whole_list_to_its_callers()
+    {
+        $admin = $this->admin();
+        $gender = $this->genderWithCallers();
+
+        $firstTimerId = $this->createFirstTimer($gender, self::REGISTERED_AT, $admin->campus_id);
+
+        $response = $this->actingAs($admin)->postJson(route('weeklist.assign-guides'), self::WINDOW);
+
+        $response->assertOk()->assertJson(['success' => true, 'assigned' => 1, 'reassigned' => 0, 'skipped' => 0]);
+
+        $followUp = DB::table('member_tracking_followup')->where('first_timer_id', $firstTimerId)->first();
+
+        $this->assertNotNull($followUp, 'The bulk action gave the first timer no guide.');
+        $this->assertSame(1, (int) $followUp->followup_rank, 'The follow-up did not start at week 1.');
+        $this->assertNotNull($followUp->followup_response_new, 'The week 1 tasks were not written.');
+        $this->assertTrue(
+            $this->callers()->pluck('tiu_member_id')->map('intval')->contains((int) $followUp->tiu_member_id),
+            'The guide is not a "' . self::CALLER_SUBGROUP . '" member, so the modal\'s caller was ignored.'
+        );
+        $this->assertSame(
+            strtolower($gender),
+            strtolower(trim((string) DB::table('tiu_member')
+                ->where('tiu_member_id', $followUp->tiu_member_id)
+                ->value('gender'))),
+            'The round-robin crossed the gender lane the modal keeps.'
+        );
+
+        $this->assertSame(
+            'Assigned',
+            DB::table('first_timer')->where('first_timer_id', $firstTimerId)->value('status')
+        );
+
+        // One click again: the same guide, so no second row, no second alert.
+        $this->actingAs($admin)
+            ->postJson(route('weeklist.assign-guides'), self::WINDOW)
+            ->assertOk()
+            ->assertJson(['success' => true, 'assigned' => 0, 'reassigned' => 1, 'notified' => 0]);
+
+        $this->assertSame(
+            1,
+            DB::table('member_tracking_followup')->where('first_timer_id', $firstTimerId)->count(),
+            'The bulk action added a second follow-up row for the same first timer.'
+        );
+        $this->assertSame(
+            'Reassigned',
+            DB::table('first_timer')->where('first_timer_id', $firstTimerId)->value('status')
+        );
+
+        // A caller picked by hand in the modal beats the round-robin: what gets
+        // stored is the caller the modal is showing for that row.
+        if (! Schema::hasTable('caller_assignments')) {
+            return;
+        }
+
+        $guideId = (int) $followUp->tiu_member_id;
+        $manualCallerId = (int) $this->callers()
+            ->pluck('tiu_member_id')
+            ->map('intval')
+            ->first(function ($callerId) use ($guideId) {
+                return $callerId !== $guideId;
+            });
+
+        if (! $manualCallerId) {
+            $this->markTestSkipped('The caller pool holds one member, so no manual pick can differ.');
+        }
+
+        DB::table('caller_assignments')->insert([
+            'first_timer_id'   => $firstTimerId,
+            'caller_member_id' => $manualCallerId,
+            'caller_name'      => 'Manual pick',
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson(route('weeklist.assign-guides'), self::WINDOW)
+            ->assertOk()
+            ->assertJson(['success' => true, 'assigned' => 0, 'reassigned' => 1, 'notified' => 1]);
+
+        $this->assertSame(
+            $manualCallerId,
+            (int) DB::table('member_tracking_followup')->where('first_timer_id', $firstTimerId)->value('tiu_member_id'),
+            'The bulk action ignored the caller the modal was showing for that row.'
+        );
     }
 
     /**

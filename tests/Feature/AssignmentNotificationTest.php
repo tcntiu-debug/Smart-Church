@@ -14,9 +14,10 @@ use Tests\TestCase;
  * on that browser, a system notification through
  * public/assets/js/notifications.js).
  *
- * Item 11: the same happens for a guide - `/admin-assign-dragdrop`, the list form /
- * "Generate pairings" all notify the guide about the first timer(s) they now follow
- * up, and the bell links them to /my-tasks.
+ * Item 11: the same happens for a guide - `/admin-assign-dragdrop`, the list form,
+ * "Generate pairings" and the "Assign all callers" button inside the Weekly Call
+ * List modal all notify the guide about the first timer(s) they now follow up, and
+ * the bell links them to /my-tasks.
  *
  * Deliberately no RefreshDatabase: the suite runs against the application's real
  * connection. Every test writes inside a transaction opened in setUp() and rolled
@@ -429,6 +430,58 @@ class AssignmentNotificationTest extends TestCase
         $this->assertNotNull($row, 'The caller was not told about the first timer they were given.');
         $this->assertSame('/weeklist', $this->notifications->payload($row)['url'] ?? null);
         $this->assertStringContainsString('first timer', $row->title);
+    }
+
+    /**
+     * Item 11 from the call list: "Assign all callers" inside the Weekly Call
+     * List modal hands every first timer the modal shows to the caller in its
+     * row, so that caller is told the way the guide of a dragged card is - once,
+     * with a link to /my-tasks.
+     */
+    public function test_the_modal_bulk_assignment_notifies_the_guide()
+    {
+        $admin = $this->admin();
+        $lane = $this->callerLane();
+
+        $firstTimerId = $this->createFirstTimer($lane[1], $admin->campus_id ?? 1);
+
+        $response = $this->actingAs($admin)->postJson(route('weeklist.assign-guides'), self::WINDOW);
+
+        $response->assertOk()->assertJson(['success' => true]);
+
+        $this->assertGreaterThan(0, (int) $response->json('notified'), (string) $response->json('message'));
+
+        $guideId = (int) DB::table('member_tracking_followup')
+            ->where('first_timer_id', $firstTimerId)
+            ->value('tiu_member_id');
+
+        $this->assertGreaterThan(0, $guideId, 'The bulk assignment gave the first timer no guide.');
+
+        $row = DB::table('app_notifications')
+            ->where('tiu_member_id', $guideId)
+            ->where('type', NotificationService::TYPE_GUIDE_ASSIGNMENT)
+            ->where('body', 'like', '%' . $this->lastCreatedName . '%')
+            ->first();
+
+        $this->assertNotNull($row, 'The guide was not told about the first timer they were given.');
+        $this->assertSame('/my-tasks', $this->notifications->payload($row)['url'] ?? null);
+        $this->assertStringContainsString('first timer', $row->title);
+
+        // The same list again changes nothing for that guide, so nothing is sent.
+        $this->actingAs($admin)
+            ->postJson(route('weeklist.assign-guides'), self::WINDOW)
+            ->assertOk()
+            ->assertJson(['success' => true, 'notified' => 0]);
+
+        $this->assertSame(
+            1,
+            DB::table('app_notifications')
+                ->where('tiu_member_id', $guideId)
+                ->where('type', NotificationService::TYPE_GUIDE_ASSIGNMENT)
+                ->where('body', 'like', '%' . $this->lastCreatedName . '%')
+                ->count(),
+            'The guide was alerted twice about the same first timer.'
+        );
     }
 
     /**

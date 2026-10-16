@@ -269,9 +269,11 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     Route::get('/lead', [LeadViewController::class, 'departmentLead'])->name('lead.department');
     Route::get('/weeklist', [WeekListController::class, 'index'])->name('weeklist.index');
     Route::post('/weeklist/assign-caller', [WeekListController::class, 'saveCallerAssignment'])->name('weeklist.assign-caller');
-    // Admin-only bulk actions (the toolbar on the week list renders them for
-    // Admins / Super Users only, and the controller re-checks the role).
+    // Admin-only bulk actions (rendered for Admins / Super Users only - the
+    // toolbar under the list and the "Assign all callers" button inside the
+    // Weekly Call List modal - and the controller re-checks the role).
     Route::post('/weeklist/assign-callers', [WeekListController::class, 'assignAllCallers'])->name('weeklist.assign-callers');
+    Route::post('/weeklist/assign-guides', [WeekListController::class, 'assignGuides'])->name('weeklist.assign-guides');
     Route::post('/weeklist/unassign-guides', [WeekListController::class, 'unassignAllGuides'])->name('weeklist.unassign-guides');
     Route::get('/weeklist/guide-history', [WeekListController::class, 'guideHistory'])->name('weeklist.guide-history');
     Route::get('/leaddepartment', [LeadViewController::class, 'departmentLead'])->name('lead.department');

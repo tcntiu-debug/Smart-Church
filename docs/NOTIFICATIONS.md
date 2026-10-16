@@ -10,7 +10,7 @@ alert the next time the page asks for it (`/notifications/feed`).
 | Type | Written by | When | Click target |
 |------|------------|------|--------------|
 | `caller_assignment` | `WeekListController::assignAllCallers()` (and `saveCallerAssignment()`) | a caller was handed first timer(s) to call | `/weeklist` |
-| `guide_assignment` | `AdminAssignmentController::ajaxAssign()` / `assign()` / `generatePairings()` | a guide was handed first timer(s) to follow up | `/my-tasks` |
+| `guide_assignment` | `AdminAssignmentController::ajaxAssign()` / `assign()` / `generatePairings()` / `WeekListController::assignGuides()` | a guide was handed first timer(s) to follow up | `/my-tasks` |
 | `birthday_reminder` | `BirthdayReminderService` (the `birthdays:remind` cron) | a birthday digest for the Welcome Center admins | `/birthdays` |
 
 All of them go through `App\Services\NotificationService`:
@@ -77,5 +77,6 @@ logged and skipped rather than breaking the request.
 
 `tests/Feature/AssignmentNotificationTest.php` covers the service (storage, the
 `0`/blank-title guards, the config switches, de-duplication, click targets) and the
-three call sites end to end, including "saving the same caller / guide twice does not
-notify twice".
+call sites end to end - the drag & drop page, the week list's caller list and the
+"Assign all callers" button inside its modal - including "saving the same caller /
+guide twice does not notify twice".

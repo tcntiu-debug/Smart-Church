@@ -115,9 +115,6 @@
                 </button>
 
                 @if($isAdmin)
-                    <button type="button" id="assign-all-callers" class="btn btn-success btn-lg mb-2 ml-2">
-                        <i class="fas fa-users"></i> Assign all callers
-                    </button>
                     <button type="button" id="unassign-all-guides" class="btn btn-warning btn-lg mb-2 ml-2">
                         <i class="fas fa-user-slash"></i> Unassign all guides
                     </button>
@@ -126,7 +123,8 @@
                     </a>
                     <div class="text-muted small mt-2">
                         <i class="fas fa-info-circle"></i>
-                        These three work on every first timer in the list above (Admin / Super User only).
+                        These two work on every first timer in the list above (Admin / Super User only).
+                        "Assign all callers" is inside the call list - open <strong>View Call List</strong> above.
                     </div>
                 @endif
 
@@ -209,6 +207,18 @@
                 @endif
             </div>
             <div class="modal-footer">
+                @if($isAdmin)
+                    <div class="mr-auto text-left">
+                        <button type="button" id="assign-all-callers" class="btn btn-success">
+                            <i class="fas fa-users"></i> Assign all callers
+                        </button>
+                        <div id="assign-guides-status" class="small mt-1"></div>
+                        <div class="text-muted small mt-1">
+                            <i class="fas fa-info-circle"></i>
+                            Hands every first timer above to the caller in its row - the same follow-up a drag and drop makes on the assignment board.
+                        </div>
+                    </div>
+                @endif
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-primary" onclick="printCallList();">Print List</button>
             </div>
@@ -269,16 +279,19 @@
 
     @if($isAdmin)
     // ------------------------------------------------------------------
-    // Admin-only bulk actions: one click for the whole filtered window
-    // (assign every caller / release every guide / open the guide history).
+    // Admin-only bulk actions: one click for the whole filtered window -
+    // hand the call list to its callers (inside the modal), release every
+    // guide, or open the guide history.
     // ------------------------------------------------------------------
-    function runBulkAction(url, confirmText) {
-        var statusEl = $('#bulk-action-status');
+    function runBulkAction(url, confirmText, statusSelector, button) {
+        var statusEl = $(statusSelector || '#bulk-action-status');
+        var buttonEl = button ? $(button) : $();
 
         if (!window.confirm(confirmText)) {
             return;
         }
 
+        buttonEl.prop('disabled', true);
         statusEl.html('<i class="fas fa-spinner fa-spin"></i> Working...');
 
         $.ajax({
@@ -299,27 +312,38 @@
                     // is now stored.
                     window.setTimeout(function () { window.location.reload(); }, 1200);
                 } else {
+                    buttonEl.prop('disabled', false);
                     statusEl.html('<i class="fas fa-exclamation-circle text-danger"></i> ' + ((response && response.message) || 'Action failed'));
                 }
             },
             error: function (xhr) {
+                buttonEl.prop('disabled', false);
                 var msg = (xhr.responseJSON && xhr.responseJSON.message) ? xhr.responseJSON.message : 'Action failed';
                 statusEl.html('<i class="fas fa-exclamation-circle text-danger"></i> ' + msg);
             }
         });
     }
 
+    // The button inside the Weekly Call List modal: one click hands every first
+    // timer the modal is showing to the caller in its row, as the real follow-up
+    // assignment - the same write a drag and drop makes on /admin-assign-dragdrop,
+    // but for the whole list at once.
     $('#assign-all-callers').on('click', function () {
         runBulkAction(
-            '{{ route('weeklist.assign-callers') }}',
-            'Save the caller list for every first timer shown? Existing manual picks are kept.'
+            '{{ route('weeklist.assign-guides') }}',
+            'Hand every first timer in this list to the caller shown in its row? Each one becomes that caller\'s follow-up, exactly as a drag and drop on the assignment board.',
+            '#assign-guides-status',
+            this
         );
     });
 
+    // The toolbar under the list: release the guides of the whole window.
     $('#unassign-all-guides').on('click', function () {
         runBulkAction(
             '{{ route('weeklist.unassign-guides') }}',
-            'Unassign the guide of every first timer shown? Their follow-up notes and comments are kept.'
+            'Unassign the guide of every first timer shown? Their follow-up notes and comments are kept.',
+            '#bulk-action-status',
+            this
         );
     });
     @endif

@@ -57,8 +57,9 @@ class WeekListController extends Controller
             ? "Weekly Prayer List (" . date('M d', strtotime($start_date_filter)) . " - " . date('M d, Y', strtotime($end_date_filter)) . ")"
             : "First Timers from " . date('M d, Y', strtotime($start_date_filter)) . " to " . date('M d, Y', strtotime($end_date_filter));
 
-        // Get the results. The bulk buttons (assign all callers / unassign all
-        // guides) rebuild exactly this window through the same helper.
+        // Get the results. The admin bulk actions (the modal's "Assign all
+        // callers" and the toolbar's "Unassign all guides") rebuild exactly
+        // this window through the same helper.
         $firstTimers = $this->windowRows($request, $start_date_filter, $end_date_filter, $member_role, $userCampusId);
 
         // Get guest types for filter dropdown (also filtered by campus)
@@ -484,6 +485,117 @@ class WeekListController extends Controller
     }
 
     /**
+     * Tell each guide which first timers are now theirs to follow up (item 11).
+     *
+     * The mirror image of notifyCallers(): one alert per guide, the
+     * `guide_assignment` type, and a click that lands on /my-tasks - where the
+     * follow-up tasks this assignment just created are waiting.
+     *
+     * @param  array<int, array<int, string>>  $newForGuide  guide id => first timer names
+     * @param  array<int, string>  $guideNames  guide id => name
+     * @param  array<int, int>  $firstIdForGuide  guide id => the first timer the bell opens
+     * @param  mixed  $campusId
+     * @return int  How many guides were notified
+     */
+    private function notifyGuides(array $newForGuide, array $guideNames, array $firstIdForGuide = [], $campusId = null): int
+    {
+        if ($newForGuide === []) {
+            return 0;
+        }
+
+        $messages = [];
+
+        foreach ($newForGuide as $guideId => $names) {
+            $count = count($names);
+
+            $messages[$guideId] = [
+                'title' => $count === 1
+                    ? 'You have 1 new first timer to follow up'
+                    : "You have {$count} new first timers to follow up",
+                'body'  => $this->notifications->names($names, 3),
+                'data'  => [
+                    'url'            => '/my-tasks',
+                    'guide_name'     => $guideNames[$guideId] ?? null,
+                    'first_timer_id' => $firstIdForGuide[$guideId] ?? null,
+                    'first_timers'   => $names,
+                ],
+            ];
+        }
+
+        return $this->notifications->notifyEach(
+            $messages,
+            NotificationService::TYPE_GUIDE_ASSIGNMENT,
+            $campusId ? (int) $campusId : null
+        );
+    }
+
+    /**
+     * The Week 1 follow-up payload a fresh assignment starts with: the `task`
+     * row the drag & drop board reads (wid = 1, campus filtered), decoded with an
+     * empty log per task.
+     *
+     * '{}' when the row is missing or unusable - what
+     * AdminAssignmentController::ajaxAssign() falls back to as well.
+     */
+    private function weekOneFollowUpJson(): string
+    {
+        $questions = DB::table('task')
+            ->where('wid', 1)
+            ->forCurrentCampus('campus_id', Auth::user()->campus_id ?? 0)
+            ->value('questions');
+
+        if (!$questions) {
+            return '{}';
+        }
+
+        $decoded = json_decode(html_entity_decode($questions, ENT_QUOTES | ENT_HTML5), true);
+
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+            return '{}';
+        }
+
+        foreach ($decoded as &$task) {
+            if (is_array($task)) {
+                $task['logs'] = [];
+            }
+        }
+        unset($task);
+
+        return json_encode(['week1' => $decoded]);
+    }
+
+    /**
+     * Move an existing follow-up row to another guide with the writes
+     * AdminAssignmentController::ajaxAssign() makes for a dropped card: the new
+     * guide, rank 1 and a fresh timestamp, and the Week 1 payload rebuilt only
+     * when the stored one is unusable (the guide's own log has to survive).
+     *
+     * With nothing to rebuild from the guide columns are still written - the
+     * single-card path would leave such a row untouched, which in a bulk run
+     * would silently drop an assignment.
+     *
+     * @param  string  $storedJson  The payload currently on the row
+     * @param  string  $weekOneJson  The rebuilt Week 1 payload ('{}' if unknown)
+     */
+    private function moveFollowUpToGuide(int $firstTimerId, int $guideId, string $storedJson, string $weekOneJson): void
+    {
+        $update = [
+            'tiu_member_id'        => $guideId,
+            'followup_rank'        => 1,
+            'timeStamp_registered' => now(),
+        ];
+
+        if (strlen($storedJson) < 10 && $weekOneJson !== '{}') {
+            // The same "broken payload" guard ajaxAssign() uses.
+            $update['followup_response_new'] = $weekOneJson;
+        }
+
+        DB::table('member_tracking_followup')
+            ->where('first_timer_id', $firstTimerId)
+            ->update($update);
+    }
+
+    /**
      * The display name of a week list row (the query selects `ft.*`, so the row
      * carries first_name / last_name) or of a bare first_timer lookup.
      *
@@ -660,6 +772,147 @@ class WeekListController extends Controller
             Log::error('Bulk caller assignment failed: ' . $e->getMessage());
 
             return response()->json(['success' => false, 'message' => 'Could not save the caller list'], 500);
+        }
+    }
+
+    /**
+     * Admin-only: hand every first timer the modal is showing to the caller in
+     * its own row, the way a card is handed to a guide on the drag & drop board.
+     *
+     * This is the "Assign all callers" button inside the Weekly Call List modal.
+     * The modal already shows who will call each first timer (a manual pick
+     * first, the round-robin otherwise - WeekListController::buildCallerData()),
+     * so one click commits that whole plan as the real follow-up assignment:
+     *
+     *   * the caller in the row becomes `member_tracking_followup.tiu_member_id`,
+     *     with rank 1, a fresh timestamp and the Week 1 tasks a drag & drop would
+     *     have started them with (a broken payload is rebuilt),
+     *   * `first_timer.status` becomes "Assigned" - or "Reassigned" when the row
+     *     already had a guide,
+     *   * every guide who actually gained a first timer gets one
+     *     `guide_assignment` alert pointing at /my-tasks.
+     *
+     * That is AdminAssignmentController::ajaxAssign() applied to the whole window
+     * at once: the same role check, the same window filters, and a guide whose
+     * first timer did not change is not alerted a second time.
+     *
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function assignGuides(Request $request)
+    {
+        $user = Auth::user();
+        $member_role = $user->member_role ?? 'Guest';
+
+        if (!$this->canManageAssignments($member_role)) {
+            return response()->json(['success' => false, 'message' => 'Access Denied'], 403);
+        }
+
+        [$start, $end] = $this->resolveWindow($request);
+        $rows = $this->windowRows($request, $start, $end, $member_role, $user->campus_id ?? 0);
+
+        if ($rows->isEmpty()) {
+            return response()->json(['success' => true, 'assigned' => 0, 'reassigned' => 0, 'skipped' => 0, 'notified' => 0, 'message' => 'No first timers in this window.']);
+        }
+
+        try {
+            // Exactly what the modal is showing: manual pick first, round-robin
+            // for everything else, gender lanes kept.
+            [, $callerNames, $assignments] = $this->buildCallerData($rows->values()->all());
+
+            $firstTimerIds = $rows->pluck('first_timer_id')->map('intval')->filter()->unique()->values()->all();
+
+            // Who holds each row right now, so clicking the button twice neither
+            // re-alerts a guide nor throws away the task log they already filled.
+            $current = DB::table('member_tracking_followup')
+                ->whereIn('first_timer_id', $firstTimerIds)
+                ->get(['first_timer_id', 'tiu_member_id', 'followup_response_new'])
+                ->keyBy('first_timer_id');
+
+            // The Week 1 payload a brand new assignment starts with (one read of
+            // the task row for the whole window, not one per first timer).
+            $weekOneJson = $this->weekOneFollowUpJson();
+
+            $assigned = 0;
+            $reassigned = 0;
+            $skipped = 0;
+
+            // guide id => first timers that are new to that guide, so the alert
+            // only mentions what this click actually changed.
+            $newForGuide = [];
+            $firstIdForGuide = [];
+
+            DB::transaction(function () use ($rows, $assignments, $current, $weekOneJson, &$assigned, &$reassigned, &$skipped, &$newForGuide, &$firstIdForGuide) {
+                foreach ($rows as $row) {
+                    $firstTimerId = (int) $row->first_timer_id;
+                    $guideId = (int) ($assignments[$row->first_timer_id] ?? 0);
+
+                    if ($guideId <= 0) {
+                        // Nobody in this first timer's gender lane (or no callers).
+                        $skipped++;
+
+                        continue;
+                    }
+
+                    $existing = $current->get($row->first_timer_id);
+                    $previousGuideId = $existing ? (int) $existing->tiu_member_id : 0;
+
+                    if ($existing) {
+                        $this->moveFollowUpToGuide($firstTimerId, $guideId, (string) ($existing->followup_response_new ?? ''), $weekOneJson);
+                        $reassigned++;
+                    } else {
+                        DB::table('member_tracking_followup')->insert([
+                            'first_timer_id'        => $firstTimerId,
+                            'tiu_member_id'         => $guideId,
+                            'followup_rank'         => 1,
+                            'timeStamp_registered'  => now(),
+                            'followup_response_new' => $weekOneJson,
+                        ]);
+                        $assigned++;
+                    }
+
+                    DB::table('first_timer')
+                        ->where('first_timer_id', $firstTimerId)
+                        ->update([
+                            'status'             => $existing ? 'Reassigned' : 'Assigned',
+                            'status_change_date' => now(),
+                        ]);
+
+                    if ($previousGuideId !== $guideId) {
+                        $newForGuide[$guideId][] = $this->firstTimerName($row, $firstTimerId);
+                        $firstIdForGuide[$guideId] = $firstIdForGuide[$guideId] ?? $firstTimerId;
+                    }
+                }
+            });
+
+            // Every guide hears about the list they were just handed (item 11).
+            $notified = $this->notifyGuides($newForGuide, $callerNames, $firstIdForGuide, $user->campus_id ?? null);
+
+            $message = "Assigned {$assigned} first timer(s) to their caller.";
+
+            if ($reassigned > 0) {
+                $message .= " {$reassigned} already had a guide and were reassigned.";
+            }
+
+            if ($skipped > 0) {
+                $message .= " {$skipped} first timer(s) had no caller available.";
+            }
+
+            if ($notified > 0) {
+                $message .= " {$notified} guide(s) notified.";
+            }
+
+            return response()->json([
+                'success'    => true,
+                'assigned'   => $assigned,
+                'reassigned' => $reassigned,
+                'skipped'    => $skipped,
+                'notified'   => $notified,
+                'message'    => $message,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Bulk guide assignment from the call list failed: ' . $e->getMessage());
+
+            return response()->json(['success' => false, 'message' => 'Could not assign the callers'], 500);
         }
     }
 

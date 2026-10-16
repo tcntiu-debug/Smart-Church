@@ -14,9 +14,10 @@ use Illuminate\Support\Facades\Schema;
  * table; this service is the entry point for the assignment alerts:
  *
  *   * caller_assignment - a caller was handed first timers to call
- *     (WeekListController: the "View Call List" modal and "Assign all callers")
+ *     (WeekListController: the "View Call List" modal)
  *   * guide_assignment  - a first timer was handed to a guide
- *     (AdminAssignmentController: drag & drop and the list form)
+ *     (AdminAssignmentController: drag & drop and the list form;
+ *      WeekListController::assignGuides(): the modal's "Assign all callers")
  *   * weekly_task       - a guide's next week of tasks was activated
  *     (MyTaskController, when a week is completed)
  *
