@@ -38,6 +38,40 @@
     /* Same reason as `.meta-chip`: style.css paints `bg-light` #878793 (dark
        grey), so soft surfaces get their own token instead. */
     .soft-surface { background: #f2f4fb; }
+
+    /* ---- Bio Details modal ------------------------------------------------
+       The modal used to be a right-aligned table: the address squeezed into a
+       200px cell and every long value wrapped into a ragged column. Values now
+       sit *under* their label in soft tiles, so each one keeps its own line and
+       the card reads the same on desktop and on a phone. */
+    .profile-avatar {
+        flex: 0 0 auto; width: 42px; height: 42px; margin-right: 0.7rem;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 12px; background: linear-gradient(135deg, #4e73df, #224abe);
+        color: #fff; font-weight: 700; font-size: 0.95rem; letter-spacing: 0.5px;
+    }
+    .profile-modal-title { margin-bottom: 0.1rem; }
+    .profile-modal-meta { font-size: 0.78rem; color: #6b7a99; }
+    .profile-modal-id { font-weight: 700; color: #4e73df; }
+    .profile-modal-body { padding: 1rem 1.15rem 0.15rem; }
+    .profile-tile {
+        height: 100%; margin-bottom: 0.85rem; padding: 0.6rem 0.75rem;
+        border-radius: 10px; border: 1px solid #e8ecf9; background: #f7f8fd;
+    }
+    .profile-tile-label {
+        display: block; margin-bottom: 0.15rem;
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.4px;
+        text-transform: uppercase; color: #6b7a99;
+    }
+    .profile-tile-label i { color: #4e73df; margin-right: 0.3rem; }
+    .profile-tile-value { display: block; font-size: 0.9rem; font-weight: 700; color: #26334d; word-break: break-word; }
+    .profile-tile-value a { color: #4e73df; text-decoration: none; }
+    .profile-tile-value a:hover { text-decoration: underline; }
+    .profile-tile-note {
+        display: inline-block; margin-top: 0.25rem; padding: 0.05rem 0.45rem;
+        border-radius: 999px; background: #eef1fb; color: #4e73df;
+        font-size: 0.7rem; font-weight: 700;
+    }
     
     /* Soft Badges */
     .badge-soft-success { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
@@ -127,6 +161,32 @@
     .ms-dark-theme .soft-surface {
         background-color: #323a67;
     }
+    /* Bio Details modal: the tiles are light surfaces on the #252851 modal
+       card, and style.css paints every `.ms-dark-theme span` #fff, so the
+       labels need a `span.` prefix to stay ahead of that rule. */
+    .ms-dark-theme .profile-tile {
+        background-color: #323a67;
+        border-color: #242750;
+    }
+    .ms-dark-theme span.profile-modal-meta {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme span.profile-modal-id {
+        color: #9db2ff;
+    }
+    .ms-dark-theme span.profile-tile-label {
+        color: #b9bcd8;
+    }
+    .ms-dark-theme span.profile-tile-value {
+        color: #ffffff;
+    }
+    .ms-dark-theme .profile-tile-value a {
+        color: #9db2ff;
+    }
+    .ms-dark-theme span.profile-tile-note {
+        background: rgba(157, 178, 255, 0.15);
+        color: #9db2ff;
+    }
     .ms-dark-theme span.badge-soft-success { background-color: #1f3b2a; color: #b7f0c5; border-color: #2c5b40; }
     .ms-dark-theme span.badge-soft-warning { background-color: #3a2f10; color: #ffd97a; border-color: #6b5716; }
     .ms-dark-theme span.badge-soft-danger { background-color: #3d2226; color: #ffc9cf; border-color: #6e3238; }
@@ -196,6 +256,12 @@
         .profile-header .first-timer-subtitle { font-size: 0.75rem; }
         .meta-chip { font-size: 0.72rem; }
         .profile-header-actions .btn { padding: 0.35rem 0.75rem; font-size: 0.78rem; }
+        /* The Bio Details tiles stack on a phone, which makes the modal taller
+           than the viewport: let the body scroll instead of pushing the footer
+           off-canvas. */
+        .profile-modal-body { max-height: 62vh; overflow-y: auto; padding: 0.85rem 0.9rem 0.1rem; }
+        .profile-avatar { width: 38px; height: 38px; margin-right: 0.55rem; font-size: 0.85rem; }
+        .profile-tile { padding: 0.5rem 0.65rem; margin-bottom: 0.6rem; }
     }
 </style>
 
@@ -208,6 +274,23 @@
             ? route('my-tasks.index', array_filter(['guide_id' => $guide_id, 'guide_name' => $viewing_guide_name]))
             : route('my-tasks.index');
         $backLabel = $is_viewing_other ? ($viewing_guide_name ?: 'Guide') . "'s Assignees" : 'My Tasks';
+
+        /* Profile facts shared by the header chips and the Bio Details modal.
+           `first_timer` has no `created_at`: the registration timestamp is a
+           user-entered string in `register_date` ("2026-10-04 11:49:55"), which
+           is why both used to fall back to "N/A". Age ranges are picked from a
+           <select> in the register form, so drop its placeholder options. */
+        $ftFullName = trim(($firstTimer->first_name ?? '') . ' ' . ($firstTimer->last_name ?? ''));
+        $ftRegisterRaw = trim((string) ($firstTimer->register_date ?? ''));
+        $registeredAt = ($ftRegisterRaw !== '' && strtotime($ftRegisterRaw) !== false)
+            ? \Carbon\Carbon::parse($ftRegisterRaw)
+            : null;
+        $ftPhone = trim((string) ($firstTimer->phone_number ?? ''));
+        $ftAge = trim((string) ($firstTimer->age ?? ''));
+        if ($ftAge === '' || in_array(strtolower($ftAge), ['select', 'n/a', 'none', '-'], true)) {
+            $ftAge = null;
+        }
+        $ftInitials = strtoupper(mb_substr($firstTimer->first_name ?? '', 0, 1) . mb_substr($firstTimer->last_name ?? '', 0, 1));
     @endphp
 
     {{-- Header Section --}}
@@ -224,8 +307,11 @@
                 <div class="mb-1">
                     <span class="meta-chip"><i class="fa fa-phone"></i> {{ $firstTimer->phone_number ?? 'No Phone' }}</span>
                     <span class="meta-chip"><i class="fa fa-user-tag"></i> {{ $firstTimer->attendant_type ?? 'First Timer' }}</span>
-                    @if(!empty($firstTimer->created_at))
-                        <span class="meta-chip"><i class="fa fa-calendar-check"></i> Joined {{ \Carbon\Carbon::parse($firstTimer->created_at)->format('M d, Y') }}</span>
+                    @if($registeredAt)
+                        <span class="meta-chip"><i class="fa fa-calendar-check"></i> Joined {{ $registeredAt->format('M d, Y') }}</span>
+                    @endif
+                    @if($ftAge)
+                        <span class="meta-chip"><i class="fa fa-birthday-cake"></i> {{ $ftAge }}</span>
                     @endif
                 </div>
                 @if($is_viewing_other)
@@ -549,34 +635,89 @@
     </div>
 </div>
 
-<!-- BIO DETAILS MODAL -->
-<div class="modal fade" id="detailsModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
+{{-- BIO DETAILS MODAL --}}
+<div class="modal fade" id="detailsModal" tabindex="-1" role="dialog" aria-labelledby="detailsModalLabel">
+    <div class="modal-dialog modal-dialog-centered" role="document">
         <div class="modal-content border-0 shadow-lg">
             <div class="modal-header soft-surface border-0">
-                <h5 class="modal-title fw-bold text-dark">First Timer Profile</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
+                <div class="d-flex align-items-center w-100">
+                    <span class="profile-avatar" aria-hidden="true">{{ $ftInitials ?: 'FT' }}</span>
+                    <div class="pr-2">
+                        <h5 class="modal-title fw-bold text-dark profile-modal-title" id="detailsModalLabel">First Timer Profile</h5>
+                        <span class="profile-modal-meta">First Timer ID <span class="profile-modal-id">#{{ $firstTimer->first_timer_id ?? 'N/A' }}</span></span>
+                    </div>
+                    <button type="button" class="close ml-auto pl-2" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
             </div>
-            <div class="modal-body p-0">
-                <table class="table mb-0">
-                    <tbody class="small">
-                        <tr><td class="text-muted pl-4 py-3">Full Name</td><td class="fw-bold pr-4 py-3 text-right">{{ ($firstTimer->first_name ?? '') . ' ' . ($firstTimer->last_name ?? '') }}</td></tr>
-                        <tr><td class="text-muted pl-4 py-3">Gender</td><td class="fw-bold pr-4 py-3 text-right">{{ $firstTimer->gender ?? 'N/A' }}</td></tr>
-                        <tr><td class="text-muted pl-4 py-3">Occupation</td><td class="fw-bold pr-4 py-3 text-right">{{ $firstTimer->occupation ?? 'N/A' }}</td></tr>
-                        <tr><td class="text-muted pl-4 py-3">Address</td><td class="fw-bold pr-4 py-3 text-right" style="max-width: 200px; white-space: normal;">{{ $firstTimer->address ?? 'N/A' }}</td></tr>
-                        <tr>
-                            <td class="text-muted pl-4 py-3 border-0">Registered On</td>
-                            <td class="fw-bold pr-4 py-3 text-right text-primary border-0">
-                                {{ isset($firstTimer->created_at) ? \Carbon\Carbon::parse($firstTimer->created_at)->format('M d, Y') : 'N/A' }}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="modal-body profile-modal-body">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-user"></i>Full Name</span>
+                            <span class="profile-tile-value">{{ $ftFullName !== '' ? $ftFullName : 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-venus-mars"></i>Gender</span>
+                            <span class="profile-tile-value">{{ $firstTimer->gender ?? 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-birthday-cake"></i>Age Range</span>
+                            <span class="profile-tile-value">{{ $ftAge ?: 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-user-tag"></i>Guest Type</span>
+                            <span class="profile-tile-value">{{ $firstTimer->attendant_type ?? 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-briefcase"></i>Occupation</span>
+                            <span class="profile-tile-value">{{ $firstTimer->occupation ?? 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-phone"></i>Phone Number</span>
+                            <span class="profile-tile-value">@if($ftPhone !== '')<a href="tel:{{ $ftPhone }}">{{ $ftPhone }}</a>@else N/A @endif</span>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-map-marker"></i>Address</span>
+                            <span class="profile-tile-value">{{ trim((string) ($firstTimer->address ?? '')) !== '' ? $firstTimer->address : 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-calendar-check"></i>Registered On</span>
+                            <span class="profile-tile-value">@if($registeredAt){{ $registeredAt->format('M d, Y h:i A') }}@elseif($ftRegisterRaw !== ''){{ $ftRegisterRaw }}@else N/A @endif</span>
+                            @if($registeredAt)
+                                <span class="profile-tile-note"><i class="fa fa-clock"></i> {{ $registeredAt->diffForHumans() }}</span>
+                            @endif
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer border-0 soft-surface">
-                <button type="button" class="btn btn-secondary px-4" data-dismiss="modal">Close</button>
+                <div class="d-flex flex-wrap mr-auto">
+                    @if($ftPhone !== '')
+                        <a href="tel:{{ $ftPhone }}" class="btn btn-outline-primary btn-sm mr-2 mb-1">
+                            <i class="fa fa-phone mr-1"></i> Call
+                        </a>
+                        <a href="https://wa.me/234{{ ltrim($ftPhone, '0') }}" target="_blank" rel="noopener" class="btn btn-whatsapp btn-sm mb-1">
+                            <i class="fab fa-whatsapp mr-1"></i> WhatsApp
+                        </a>
+                    @endif
+                </div>
+                <button type="button" class="btn btn-secondary px-4 mb-1" data-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
