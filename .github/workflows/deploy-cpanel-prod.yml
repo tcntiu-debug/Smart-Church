@@ -29,7 +29,11 @@ name: Deploy to cPanel (production)
 # variables, so a mistake in one target cannot overwrite the other.
 #
 # Required repository secrets  (Settings > Secrets and variables > Actions):
-#   PROD_CPANEL_HOST      SSH hostname, e.g. ftp.lit-grp.com or your domain
+#   PROD_CPANEL_HOST      SSH hostname of THIS account's server - ftp.tcnikorodu.org.
+#                         Do NOT reuse the dev value: the dev account (lit-grp.com) is on
+#                         another server, and the bare domain has no SSH at all. A wrong
+#                         host fails as "port 22: Connection timed out" after every build
+#                         step has already passed. cPanel > SSH Access confirms both.
 #   PROD_CPANEL_USER      cPanel username (e.g. tcnikoro)
 #   PROD_CPANEL_PASSWORD  matching password (now used for the SSH login)
 #

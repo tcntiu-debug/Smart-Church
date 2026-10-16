@@ -483,11 +483,26 @@ Add on GitHub -> **Settings -> Secrets and variables -> Actions**:
 
 | Kind | Name | Value |
 |---|---|---|
-| Secret | `PROD_CPANEL_HOST` | the same SSH hostname the dev workflow uses |
+| Secret | `PROD_CPANEL_HOST` | the **production** account's own cPanel hostname, `ftp.tcnikorodu.org` — not the dev one (see the warning under this table) |
 | Secret | `PROD_CPANEL_USER` | `tcnikoro` |
 | Secret | `PROD_CPANEL_PASSWORD` | the same password |
 | Variable | `PROD_CPANEL_REMOTE_DIR` | `public_html/smartchurch.tcnikorodu.org/` |
 | Variable | `PROD_CPANEL_SSH_PORT` | `22` (optional) |
+
+> **`PROD_CPANEL_HOST` is the one value you must not copy from dev.** The dev account and
+> the production account live on **different servers** of the same host. Dev answers as
+> `lit-grp.com` / `ftp.lit-grp.com` -> `147.124.220.162`; the account that owns
+> `public_html/smartchurch.tcnikorodu.org/` answers as `ftp.tcnikorodu.org` ->
+> `147.124.220.188` (reverse DNS `emerald3.doveserver.com`), and that is the value this
+> secret needs. The bare domain is a trap: `tcnikorodu.org` resolves to `216.198.79.1`, a
+> different platform that has no SSH, so a deploy aimed there dies with
+> `connect to host ... port 22: Connection timed out` — *after* all eleven build steps have
+> already passed, which makes it look like a password problem when it is a wrong address.
+> Port `2222` is closed on the production server; only `22` answers. cPanel -> **SSH Access**
+> (on the production account) prints both, and
+> `Test-NetConnection ftp.tcnikorodu.org -Port 22` confirms it from Windows. Full diagnosis
+> table: `docs/CPANEL-DEPLOYMENT.md` -> *Troubleshooting* -> *SFTP publish times out on
+> port 22*.
 
 There is deliberately **no `PROD_CPANEL_PROTOCOL`**, and no `CPANEL_PROTOCOL` in the
 dev repository either: both workflows are hardcoded to SFTP on their `*_SSH_PORT`
@@ -500,14 +515,15 @@ Exact click path: **Settings -> Secrets and variables -> Actions**, then the
 **Secrets** tab -> **New repository secret** (three times), then the **Variables**
 tab for the last two. Names are case-sensitive, and secret values are **write-only**
 once saved - GitHub never shows them again (only *Update* / *Remove*). If you no
-longer know the hostname the dev target uses, read it from cPanel's right sidebar or
-confirm it with the pre-flight script below - do not guess it.
+longer know the hostname the production account uses, read it from cPanel -> **SSH Access**
+while logged into that account (the same hostname is in the right sidebar of its cPanel
+home page), or confirm it with the pre-flight script below - do not guess it.
 
 With the `gh` CLI instead (repository scope; add `--env production` to any line to
 scope it to the environment instead):
 
 ```powershell
-gh secret set PROD_CPANEL_HOST     --body "<the host the dev target already uses>"
+gh secret set PROD_CPANEL_HOST     --body "ftp.tcnikorodu.org"
 gh secret set PROD_CPANEL_USER     --body "tcnikoro"
 gh secret set PROD_CPANEL_PASSWORD --body "<cPanel account password>"
 gh variable set PROD_CPANEL_REMOTE_DIR --body "public_html/smartchurch.tcnikorodu.org/"

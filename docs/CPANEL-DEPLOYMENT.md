@@ -576,6 +576,7 @@ two branches instead of forcing it.
 | Everything uploads on every single run | The state file `.ftp-deploy-sync-state.json` is not surviving between runs. Harmless — just slower. |
 | `530 Login authentication failed` | Wrong password, or the FTP account was created for a different directory. Change the password and re-add the secret. |
 | `getaddrinfo ENOTFOUND` / timeout | Wrong `CPANEL_HOST`, or the host blocks FTP. Try `sftp` (port 22) via the variables. |
+| *Publish to cPanel (SFTP)* → `connect to host ... port 22: Connection timed out` | A **connect** timeout, not a login failure: the host or port in the `PROD_CPANEL_*` values is wrong, so the connection never reaches the server. The live folder is untouched (nothing is uploaded before the connection opens). See *SFTP publish times out on port 22* below. |
 | TLS/certificate errors | Keep `security: loose` (already set) or switch to `sftp`. |
 | Deploy succeeded but the site shows an old page | Run `php artisan app:post-deploy` — `config:cache`/`view:cache` are stale. |
 | `Base table or view already exists` while migrating | The legacy database was seeded before the `migrations` table was kept in step, so an old migration aborts the run. Migrate the file you actually need with `--path` (see *Scheduled jobs*) — `birthdays:remind` also self-provisions its own tables. |
@@ -586,6 +587,37 @@ two branches instead of forcing it.
 | 500 error, blank page | Set `APP_DEBUG=true` temporarily in the server `.env`, load the page, read the message, then set it back to `false`. |
 | Assets missing (CSS/JS) | The `public/assets` and `public/vendors` folders were not uploaded. Check the *Publish to cPanel* step log for skipped files. |
 | Site redirects in a loop | A second copy of the root `.htaccess` or a conflicting rewrite rule exists in `public_html`. |
+
+### SFTP publish times out on port 22
+
+Production run `38922972663` (2026-10-16) failed exactly this way: steps 1–11 green —
+including *Validate deployment secrets*, so the names and values were all present and
+non-empty — and then step 12 died with
+
+```
+mkdir: Fatal error: max-retries exceeded (connect to host *** port 22: Connection timed out)
+mirror: Fatal error: max-retries exceeded (connect to host *** port 22: Connection timed out)
+```
+
+Nothing was uploaded (the connection is opened before the first file is transferred, and the
+prune step is skipped), so the live folder stays exactly as it was. Measured the same day:
+
+| Target | port 22 |
+| --- | --- |
+| `ftp.tcnikorodu.org` = `147.124.220.188`, reverse DNS `emerald3.doveserver.com` — **the production server** | **open**, offers `publickey,password` → this is the hostname `PROD_CPANEL_HOST` must hold |
+| `lit-grp.com` / `ftp.lit-grp.com` = `147.124.220.162` — the **dev** account's server | open, but it is a *different* machine: the production account does not exist there |
+| `tcnikorodu.org` (bare domain) = `216.198.79.1` | **times out** — the apex is served by another platform, not by cPanel |
+| port `2222` on the production server | **closed** — only `22` answers (`21` and `2083` are open, but SFTP must use 22) |
+
+Verify the pair from Windows before you re-run — the port answer must be `True`:
+
+```powershell
+Test-NetConnection ftp.tcnikorodu.org -Port 22
+```
+
+cPanel → **SSH Access** (on the production account) prints the same hostname and port. The
+secrets are read when the job **starts**, so a run still sitting in *Waiting* picks up the
+corrected values — save them, then approve; there is no need to re-run anything.
 
 ## Security notes
 
