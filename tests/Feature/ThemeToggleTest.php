@@ -78,6 +78,58 @@ class ThemeToggleTest extends TestCase
     }
 
     /**
+     * The public registration page (/mregister) is sent out as a link, so it is
+     * opened by people who have no account at all: it renders in the bare,
+     * logged-out shell (layouts/auth) - no main menu, no welcome name, no
+     * display-mode switch, no notification bell - and it loads without a login.
+     */
+    public function test_public_registration_page_renders_without_the_app_chrome()
+    {
+        $response = $this->get('/mregister');
+
+        $response->assertStatus(200);
+        $response->assertSee('ms-logged-out', false);
+
+        // The form itself is there, wired to the public endpoint, with the
+        // script that submits it (it lives in @push('scripts')).
+        $response->assertSee('id="member-register-form"', false);
+        $response->assertSee(route('member.public.store'), false);
+        $response->assertSee('function registerMember()', false);
+
+        // None of the signed-in chrome.
+        $response->assertDontSee('ms-aside', false);
+        $response->assertDontSee('ms-navbar', false);
+        $response->assertDontSee('Welcome', false);
+        $response->assertDontSee('data-theme-toggle', false);
+        $response->assertDontSee('theme-toggle.css', false);
+        $response->assertDontSee('notifications.js', false);
+        $response->assertDontSee('notifications.feed', false);
+
+        // A page nobody is signed in on carries its own copies instead.
+        $response->assertSee('assets/css/sweetalert2.min.css', false);
+        $response->assertSee('assets/js/sweetalert2.min.js', false);
+        $response->assertSee('assets/js/jquery-3.3.1.min.js', false);
+    }
+
+    /**
+     * The guest shell honours a stored dark choice as well: it is rendered with
+     * the HTML so the public page never flashes white for those who picked dark
+     * inside the app - even though there is no switch on the page itself.
+     */
+    public function test_public_registration_page_follows_a_stored_dark_choice()
+    {
+        $response = $this->withUnencryptedCookie('tiu_theme', 'dark')->get('/mregister');
+
+        $response->assertStatus(200);
+        $response->assertSee('class="ms-body ms-primary-theme ms-logged-out ms-dark-theme"', false);
+        $response->assertDontSee('data-theme-toggle', false);
+
+        // `.text-muted` is #6c757d from Bootstrap with `!important`, so the bare
+        // shell ships the dark twin that keeps the page's hints readable.
+        $response->assertSee('.ms-dark-theme .text-muted', false);
+    }
+
+    /**
      * The dashboard paints its own light palette (white tiles, white list rows).
      * style.css turns every link and span into #fff inside the dark theme, so the
      * page must ship dark counterparts or its labels end up white on white.

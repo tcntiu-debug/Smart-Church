@@ -22,7 +22,7 @@ login activity only (see `docs/Database-Architecture-Summary.md`).
 | `tiu_theme` cookie | The single stored choice: `dark` or `light`. Written by JavaScript, one year, `SameSite=Lax` (+`Secure` on HTTPS). Absent until the user switches, because light is the default. |
 | `app/Http/Middleware/EncryptCookies.php` | Whitelists `tiu_theme` (`$except`), because Laravel would otherwise discard the plain-text cookie written by JavaScript. |
 | `resources/views/partials/theme-toggle.blade.php` | The switch markup. Variants: `navbar`, `sidebar`, `floating`, `button`. |
-| `public/assets/js/theme.js` | Owns the `<body>` class: reads the cookie, follows `prefers-color-scheme` until the user chooses, swaps on click, keeps `aria-pressed`/`title` in sync. Exposes `window.TiuTheme`. |
+| `public/assets/js/theme.js` | Owns the `<body>` class: reads the cookie (light is the default), swaps on click, keeps `aria-pressed`/`title` in sync. Exposes `window.TiuTheme`. |
 | `public/assets/css/theme-toggle.css` | Styles the switch and swaps the sun/moon icon and label. |
 
 Resolution order in `theme.js`: stored cookie → light. There is no inline
@@ -40,6 +40,12 @@ Server side the layouts simply render the class, e.g.
 The logged-out screens (`auth/login`, `layouts/auth`) deliberately have **no**
 switch: they always follow the default palette unless the browser carries a
 `tiu_theme=dark` cookie from a previous signed-in session.
+
+`layouts/auth` is also the shell the public registration page (`/mregister`,
+`member/public-register.blade.php`) is served in. It is a link people forward to
+non-members, so that shell carries no navigation, no welcome name and no
+notification bell - the visitor sees the form and nothing else, in the palette
+their cookie asks for (it ships the `.text-muted` dark twin its hints need).
 
 ## Adding the switch to another view
 

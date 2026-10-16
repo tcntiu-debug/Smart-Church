@@ -1,9 +1,21 @@
-@extends('layouts.app')
+{{--
+    Public membership registration - the page that is sent out as a link
+    (/mregister). It is opened by people who have no account yet, so it must not
+    carry any of the signed-in chrome: no sidebar, no welcome name, no theme
+    switch, no notification bell. layouts/auth is that bare, logged-out shell
+    (it only honours the visitor's saved theme cookie, there is nothing to
+    click), and the route itself needs no login - see routes/web.php.
+--}}
+@extends('layouts.auth')
 
 @section('content')
-<div class="container-fluid">
+<div class="container">
     <div class="row justify-content-center">
         <div class="col-md-8">
+            <div class="text-center mb-4">
+                <h4 class="mb-1">TCN Ikorodu</h4>
+                <p class="text-muted mb-0">Member Registration</p>
+            </div>
             <div class="card">
                 <div class="card-header">
                     <h6>Create Account</h6>
@@ -79,19 +91,6 @@
                             </div>
                         </div>
 
-                        <!-- Campus Section -->
-                        <div class="row">
-                            <div class="col-md-12 mb-3">
-                                <label for="campus">Campus <span class="text-danger">*</span></label>
-                                <select id="campus" name="campus_id" class="form-control" required>
-                                    <option value="">-- Select Your Campus --</option>
-                                    @foreach($campuses ?? [] as $cmp)
-                                        <option value="{{ $cmp->cid }}">{{ $cmp->cname }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        </div>
-
                         <!-- Church Type - Single instance -->
                         <div class="row">
                             <div class="col-md-12 mb-3">
@@ -142,8 +141,8 @@
 
 @push('scripts')
 <script>
-// No need to load jQuery again - it's already in the layout
-// SweetAlert2 is now loaded in the layout
+// jQuery, Bootstrap and SweetAlert2 come from the guest layout (layouts/auth):
+// this page is opened straight from /mregister, with no app chrome around it.
 
 $(document).ready(function() {
     console.log('Document ready - jQuery is working!');
@@ -190,7 +189,6 @@ function registerMember() {
     var email = $("#email").val().trim();
     var gender = $("#gender").val();
     var residentialAddress = $("#residential_address").val().trim();
-    var campusId = $("#campus").val();
     var churchTypeId = $("#church_type").val();
     var churchTypeName = $("#church_type").find('option:selected').text();
     var communityId = $("#community").val();
@@ -201,15 +199,14 @@ function registerMember() {
     var parentGuardianRelationship = $("#parent_guardian_relationship").val().trim();
 
     // Basic Validation
-    if (!firstName || !lastName || !gender || !residentialAddress || !churchTypeId || !communityId || !campusId) {
+    if (!firstName || !lastName || !gender || !residentialAddress || !churchTypeId || !communityId) {
         console.error('Validation Failed: Missing required fields', {
             firstName: !!firstName,
             lastName: !!lastName,
             gender: !!gender,
             residentialAddress: !!residentialAddress,
             churchTypeId: !!churchTypeId,
-            communityId: !!communityId,
-            campusId: !!campusId
+            communityId: !!communityId
         });
         Swal.fire('Error', 'Please fill out all required fields.', 'error');
         return;
@@ -271,7 +268,6 @@ function registerMember() {
         email: email,
         gender: gender,
         residential_address: residentialAddress,
-        campus_id: campusId,
         church_type_id: churchTypeId,
         community_id: communityId === 'Other' ? null : communityId,
         community_other: communityOther,
@@ -284,7 +280,7 @@ function registerMember() {
     };
     
     console.log('Sending data:', postData);
-    console.log('Request URL:', "{{ route('member.store') }}");
+    console.log('Request URL:', "{{ route('member.public.store') }}");
     
     $.ajax({
         type: "POST",
@@ -303,7 +299,7 @@ function registerMember() {
                     showConfirmButton: false
                 }).then(() => {
                     $('#member-register-form')[0].reset();
-                    $('#church_type, #community, #campus, #gender').val('');
+                    $('#church_type, #community, #gender').val('');
                     $('#other_community_div').hide();
                     $('#parent_guardian_section').hide();
                 });
@@ -322,7 +318,7 @@ function registerMember() {
             console.error('Response JSON:', xhr.responseJSON);
             
             // Log request URL for debugging
-            console.error('Request URL:', "{{ route('member.store') }}");
+            console.error('Request URL:', "{{ route('member.public.store') }}");
             
             // Log all response headers if available
             try {
@@ -339,7 +335,7 @@ function registerMember() {
             if (xhr.status === 0) {
                 detailedError = "Network error - possible CORS issue or server not reachable. Check if the server is running and CORS headers are configured.";
             } else if (xhr.status === 404) {
-                detailedError = "Endpoint not found. Check if route 'member.store' exists and URL is correct.";
+                detailedError = "Endpoint not found. Check if route 'member.public.store' exists and URL is correct.";
             } else if (xhr.status === 500) {
                 detailedError = "Server internal error. Check Laravel logs (storage/logs/laravel.log) for details.";
             } else if (xhr.status === 419) {
