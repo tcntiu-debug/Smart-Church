@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------------------
+# Legacy TIU host (tiu.tcnikorodu.org) -> Smart Church.
+#
+# Upload this next to index.html in the document root of the legacy host.
+# Back up the file that is already there first (`mv .htaccess .htaccess.bak`);
+# the old app's PHP files stay on disk but are no longer served.
+#
+# With this in place the redirect is a real HTTP 301, so old bookmarks,
+# search-engine results and links in WhatsApp/e-mail all land on the new site -
+# index.html is then only the fallback when the rewrite engine is unavailable.
+# ---------------------------------------------------------------------------
+
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Never trap the AutoSSL / Let's Encrypt challenge, or the certificate
+    # renewal for this host starts failing the moment the redirect goes live.
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+
+    # Everything else - "/", /index.php, /dashboard.php, old member links and
+    # asset paths alike - goes to the new home page. Paths are not carried over
+    # because the two applications do not share route names.
+    RewriteRule ^ https://smartchurch.tcnikorodu.org/ [R=301,L]
+</IfModule>
