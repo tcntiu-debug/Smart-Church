@@ -43,6 +43,16 @@ Route::post('/', [CustomAuthController::class, 'login'])->name('login.post');
 Route::post('/logout', [CustomAuthController::class, 'logout'])->name('logout');
 Route::post('/password/email', [App\Http\Controllers\Auth\ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email');
 
+// The rest of the password reset flow. "password.email" only *sends* the mail:
+// the link inside it is built with route('password.reset'), so without the
+// three routes below the notification throws RouteNotFoundException and the
+// "Forgot Password" modal on the login page fails instead of mailing a link.
+// The views these render already exist (resources/views/auth/passwords/email.blade.php
+// and reset.blade.php) and so does ResetPasswordController.
+Route::get('/password/reset', [App\Http\Controllers\Auth\ForgotPasswordController::class, 'showLinkRequestForm'])->name('password.request');
+Route::get('/password/reset/{token}', [App\Http\Controllers\Auth\ResetPasswordController::class, 'showResetForm'])->name('password.reset');
+Route::post('/password/reset', [App\Http\Controllers\Auth\ResetPasswordController::class, 'reset'])->name('password.update');
+
 // Public member registration (NO LOGIN REQUIRED)
 Route::get('/register', [MemberController::class, 'publicRegister'])->name('member.public-register');
 Route::post('/register', [MemberController::class, 'publicStore'])->name('member.public-store');
@@ -359,10 +369,14 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
 
     // Polled by the layout (resources/views/layouts/app.blade.php) so an open page
-    // can raise a browser notification for a caller / guide alert.
+    // can raise a browser notification for a caller / guide alert, and read by the
+    // bell's modal to fill its list (`?limit=` asks for more than the poll needs).
     Route::get('/notifications/feed', [NotificationController::class, 'feed'])->name('notifications.feed');
+
+    // Reading an alert clears it: the modal and the page only ever list what still
+    // needs attention, so both actions are POSTs that delete the row(s).
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
-    Route::get('/notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
 
     // Touchpoint
     Route::get('/mtouchpoint', [TouchpointController::class, 'index'])->name('touchpoint');

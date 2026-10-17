@@ -1,15 +1,22 @@
 @extends('layouts.app')
 
 @section('content')
+{{--
+    The notification centre, as a page. The bell opens the same list in a modal
+    (partials/notification-modal), so this page is both the no-JavaScript fallback
+    and the place where browser alerts are switched on.
+
+    Marking an alert read clears it (NotificationController::markRead), therefore
+    the list only ever holds what still needs attention - which is also why the
+    forms below are POSTs. See docs/NOTIFICATIONS.md.
+--}}
 <div class="row">
     <div class="col-12">
         <div class="ms-panel">
             <div class="ms-panel-header d-flex flex-wrap align-items-center justify-content-between">
                 <h6 class="mb-0">
                     <i class="fas fa-bell"></i> Notifications
-                    @if ($unread > 0)
-                        <span class="badge badge-danger ml-2">{{ $unread }} new</span>
-                    @endif
+                    <span class="notif-panel-count" @if ($unread <= 0) hidden @endif>{{ $unread }} unread</span>
                 </h6>
 
                 <div class="d-flex flex-wrap align-items-center" style="gap:8px;">
@@ -26,73 +33,64 @@
                     @if ($unread > 0)
                         <form action="{{ route('notifications.read-all') }}" method="POST" class="mb-0">
                             @csrf
-                            <button type="submit" class="btn btn-sm btn-primary">Mark all as read</button>
+                            <button type="submit" class="btn btn-sm btn-primary">
+                                <i class="fas fa-check-double"></i> Mark all as read
+                            </button>
                         </form>
                     @endif
                 </div>
             </div>
 
             <div class="ms-panel-body">
-                @forelse ($notifications as $notification)
-                    @php
-                        // Where this notification leads: what the writer stored, or
-                        // the type's default (config/notifications.php).
-                        $payload = is_string($notification->data ?? null)
-                            ? (json_decode($notification->data, true) ?: [])
-                            : (array) ($notification->data ?? []);
-
-                        $icons = [
-                            'birthday_reminder' => '🎂',
-                            'caller_assignment' => '📞',
-                            'guide_assignment'  => '🤝',
-                        ];
-
-                        $target = $payload['url'] ?? config('notifications.urls.' . $notification->type);
-                        $targetLabel = [
-                            'caller_assignment' => 'Open call list',
-                            'guide_assignment'  => 'Open my tasks',
-                        ][$notification->type] ?? 'Open';
-                    @endphp
-
-                    <div class="d-flex flex-wrap align-items-start border-bottom py-3 {{ $notification->read_at ? '' : 'bg-light' }}"
-                         style="gap:12px;">
-                        <div class="mr-2" style="font-size:22px;line-height:1;">
-                            {{ $icons[$notification->type] ?? '🔔' }}
-                        </div>
-
-                        <div class="flex-grow-1" style="min-width:220px;">
-                            <div class="d-flex flex-wrap align-items-center">
-                                <strong>{{ $notification->title }}</strong>
-                                @if (empty($notification->read_at))
-                                    <span class="badge badge-primary ml-2">New</span>
-                                @endif
-                            </div>
-
-                            @if ($notification->body)
-                                <div class="text-muted mt-1" style="white-space:pre-line;font-size:13px;">{{ $notification->body }}</div>
-                            @endif
-
-                            <div class="text-muted mt-1" style="font-size:12px;">
-                                {{ \Carbon\Carbon::parse($notification->created_at)->format('D, d M Y g:i A') }}
-                            </div>
-                        </div>
-
-                        <div class="text-right">
-                            @if ($notification->type === 'birthday_reminder')
-                                <a href="{{ url('/birthdays') }}" class="btn btn-sm btn-outline-primary">View birthdays</a>
-                            @elseif ($target)
-                                <a href="{{ url($target) }}" class="btn btn-sm btn-outline-primary">{{ $targetLabel }}</a>
-                            @endif
-
-                            @if (empty($notification->read_at))
-                                <a href="{{ route('notifications.read', $notification->id) }}"
-                                   class="btn btn-sm btn-outline-secondary">Mark read</a>
-                            @endif
-                        </div>
+                @if ($notifications->isEmpty())
+                    <div class="notif-empty">
+                        <i class="fas fa-check-circle"></i>
+                        <p class="notif-empty-title">You are all caught up.</p>
+                        <p class="notif-empty-note">New caller and guide assignments appear here.</p>
                     </div>
-                @empty
-                    <p class="text-muted mb-0 py-3">You have no notifications yet.</p>
-                @endforelse
+                @else
+                    <ul class="notif-list">
+                        @foreach ($notifications as $notification)
+                            <li class="notif-item">
+                                <span class="notif-icon notif-icon-{{ $notification['tone'] }}">
+                                    <i class="fas {{ $notification['icon'] }}"></i>
+                                </span>
+
+                                <div class="notif-main">
+                                    <div class="notif-title">{{ $notification['title'] }}</div>
+
+                                    @if ($notification['body'])
+                                        <p class="notif-body">{{ $notification['body'] }}</p>
+                                    @endif
+
+                                    <div class="notif-meta">
+                                        <span class="notif-ago">{{ $notification['ago'] }}</span>
+                                        @if ($notification['created_at_exact'])
+                                            <span class="notif-exact" title="{{ $notification['created_at'] }}"> &middot; {{ $notification['created_at_exact'] }}</span>
+                                        @endif
+                                    </div>
+                                </div>
+
+                                <div class="notif-actions">
+                                    @if ($notification['url'])
+                                        <a href="{{ $notification['url'] }}" class="btn btn-sm btn-outline-primary">
+                                            {{ $notification['action_label'] }}
+                                        </a>
+                                    @endif
+
+                                    <form action="{{ route('notifications.read', $notification['id']) }}" method="POST" class="mb-0">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                                title="Mark read and remove this alert"
+                                                aria-label="Mark read and remove this alert">
+                                            <i class="fas fa-check"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
             </div>
         </div>
     </div>

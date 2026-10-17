@@ -399,6 +399,81 @@ class AssignmentNotificationTest extends TestCase
     }
 
     /**
+     * The bell reveals the list on the page the member is already on: the panel
+     * ships with layouts/app on every authenticated page, docked to the right edge,
+     * carrying the hooks public/assets/js/notifications.js fills from
+     * /notifications/feed and the "mark all" button that clears it.
+     */
+    public function test_every_page_ships_the_bell_panel_that_lists_the_alerts()
+    {
+        $member = $this->memberQuery()->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member with a complete profile available.');
+        }
+
+        $response = $this->actingAs($member)->get('/home');
+
+        $response->assertOk();
+
+        // The bell carries the badge and points at the panel instead of navigating.
+        $response->assertSee('class="ms-notif-bell ml-auto"', false);
+        $response->assertSee('data-target="#notificationsModal"', false);
+        $response->assertSee('id="notifBadge"', false);
+
+        // The panel itself: the loading, empty and list hooks, plus "mark all".
+        $response->assertSee('id="notificationsModal"', false);
+        $response->assertSee('class="modal-dialog notif-dialog"', false);
+        $response->assertSee('id="notifModalList"', false);
+        $response->assertSee('id="notifModalLoading"', false);
+        $response->assertSee('id="notifModalEmpty"', false);
+        $response->assertSee('id="notifModalCount"', false);
+        $response->assertSee('id="notifMarkAll"', false);
+
+        // ...filled from the feed, by the script the layout loads.
+        $response->assertSee(route('notifications.feed'), false);
+        $response->assertSee('assets/js/notifications.js');
+
+        // Docked to the right edge and sliding in from it, not centred on the page.
+        $response->assertSee('#notificationsModal .notif-dialog', false);
+        $response->assertSee('#notificationsModal.show .notif-dialog', false);
+        $response->assertSee('transform: translateX(100%);', false);
+    }
+
+    /**
+     * The panel is rendered *below* the script that fills it (layouts/app.blade.php
+     * loads notifications.js, then includes the panel), so the script must not read
+     * the panel's nodes while it is being parsed. Doing that left `canRenderPanel`
+     * false, and the bell then opened a panel whose only content was
+     * "Loading your alerts..." - the feed was never read, so the list never arrived.
+     *
+     * A static check of the asset, the way ThemeToggleTest checks theme.js.
+     */
+    public function test_the_bell_script_waits_for_the_document_before_it_reads_the_panel()
+    {
+        $script = file_get_contents(public_path('assets/js/notifications.js'));
+
+        // The nodes are resolved once the page is ready...
+        $this->assertStringContainsString('function locate()', $script);
+        $this->assertStringContainsString('locate();', $script);
+        $this->assertStringContainsString('canRenderPanel = !!(panel && list);', $script);
+
+        // ...and never at parse time: a statement of the IIFE's body is indented four
+        // spaces, the same lookup inside one of its functions is indented further.
+        preg_match_all('/^ {4}var \w+ = document\.(?:getElementById|querySelector)\(/m', $script, $parseTimeLookups);
+
+        $this->assertSame(
+            [],
+            $parseTimeLookups[0],
+            'notifications.js must not resolve the bell / the panel before the document is parsed.'
+        );
+
+        // The list is read off Bootstrap's own open event, so the bell alone is
+        // enough - there is no second button to press before the alerts appear.
+        $this->assertStringContainsString("on('show.bs.modal', loadPanel)", $script);
+    }
+
+    /**
      * Item 5(b) end to end: "Assign all callers" on the week list tells the caller
      * who was handed the first timer.
      */
@@ -560,4 +635,122 @@ class AssignmentNotificationTest extends TestCase
             ->assertOk()
             ->assertJson(['status' => 'success', 'notified' => false]);
     }
+
+    /**
+     * Reading an alert clears it: "read" and "gone from the list" are one act, so
+     * the bell's modal can slide the row out and the badge can drop.
+     */
+    public function test_marking_an_alert_read_clears_it()
+    {
+        $reader = $this->memberQuery()->first();
+
+        if (! $reader) {
+            $this->markTestSkipped('No member with a complete profile available.');
+        }
+
+        $readerId = (int) $reader->tiu_member_id;
+
+        $this->notifications->notify(
+            $readerId,
+            NotificationService::TYPE_WEEKLY_TASK,
+            'Read me once',
+            'Notify Testcase'
+        );
+
+        $row = DB::table('app_notifications')
+            ->where('tiu_member_id', $readerId)
+            ->where('title', 'Read me once')
+            ->first();
+
+        $this->assertNotNull($row, 'The alert under test was not written.');
+
+        $this->actingAs($reader)
+            ->postJson(route('notifications.read', $row->id))
+            ->assertOk()
+            ->assertJson(['deleted' => 1]);
+
+        $this->assertSame(
+            0,
+            DB::table('app_notifications')->where('id', $row->id)->count(),
+            'Reading an alert must clear the row.'
+        );
+
+        // ...and the feed the bell's modal reads no longer carries it.
+        $alerts = collect(
+            $this->actingAs($reader)->getJson(route('notifications.feed'))->json('notifications')
+        );
+
+        $this->assertFalse($alerts->contains('title', 'Read me once'));
+
+        // Pressing it a second time (a stale panel, two open tabs) is harmless.
+        $this->actingAs($reader)
+            ->postJson(route('notifications.read', $row->id))
+            ->assertOk()
+            ->assertJson(['deleted' => 0]);
+    }
+
+    /**
+     * "Mark all as read" empties the member's list in one request, which is what
+     * the modal's footer button and the page's form both do.
+     */
+    public function test_mark_all_as_read_clears_every_unread_alert()
+    {
+        $reader = $this->memberQuery()->first();
+
+        if (! $reader) {
+            $this->markTestSkipped('No member with a complete profile available.');
+        }
+
+        $readerId = (int) $reader->tiu_member_id;
+
+        $this->notifications->notify($readerId, NotificationService::TYPE_GUIDE_ASSIGNMENT, 'Clear me');
+        $this->notifications->notify($readerId, NotificationService::TYPE_CALLER_ASSIGNMENT, 'Clear me too');
+
+        $this->actingAs($reader)
+            ->postJson(route('notifications.read-all'))
+            ->assertOk()
+            ->assertJson(['unread' => 0]);
+
+        $this->assertSame(
+            0,
+            DB::table('app_notifications')->where('tiu_member_id', $readerId)->whereNull('read_at')->count(),
+            'Marking all as read must leave nothing unread.'
+        );
+    }
+
+    /**
+     * The page behind the bell is the no-JavaScript fallback: it clears a row with
+     * a plain POST form, not with the GET link it used to carry.
+     */
+    public function test_the_notification_page_clears_a_row_with_a_post_form()
+    {
+        $reader = $this->memberQuery()->first();
+
+        if (! $reader) {
+            $this->markTestSkipped('No member with a complete profile available.');
+        }
+
+        $readerId = (int) $reader->tiu_member_id;
+
+        $this->notifications->notify(
+            $readerId,
+            NotificationService::TYPE_GUIDE_ASSIGNMENT,
+            'A guide needs following up',
+            'Notify Testcase'
+        );
+
+        $row = DB::table('app_notifications')
+            ->where('tiu_member_id', $readerId)
+            ->where('title', 'A guide needs following up')
+            ->first();
+
+        $response = $this->actingAs($reader)->get(route('notifications.index'));
+
+        $response->assertOk()
+            ->assertSee('A guide needs following up')
+            ->assertSee('Open my tasks')
+            ->assertSee('action="' . route('notifications.read', $row->id) . '"', false)
+            ->assertSee('method="POST"', false);
+    }
+
 }

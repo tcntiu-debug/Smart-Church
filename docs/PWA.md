@@ -32,9 +32,10 @@ involved.
 ## Requirements
 
 1. **HTTPS.** Service workers and install prompts do not exist on plain HTTP.
-   `http://localhost:8000` counts as secure for local testing, the production site
-   (`https://tiu.tcnikorodu.org`) is fine, a LAN IP such as
-   `http://192.168.x.x:8000` is **not**.
+   `http://localhost:8000` counts as secure for local testing, the live site
+   (`https://smartchurch.tcnikorodu.org`, and `https://tiu.tcnikorodu.org` while
+   its 301 redirect is still in place - see `docs/MIGRATION-smartchurch.md`) is
+   fine, a LAN IP such as `http://192.168.x.x:8000` is **not**.
 2. The document has to be served from the same origin as the manifest and the
    worker (`/manifest.webmanifest`, `/service-worker.js`), which is why both live
    in `public/`.
