@@ -251,10 +251,22 @@ function New-ColumnDefinition {
         $definition += ' DEFAULT NULL'
     } elseif ($null -ne $Column.Default) {
         $default = $Column.Default
+
+        # MariaDB returns a string default already wrapped in quotes ('pending'),
+        # MySQL returns it bare. Strip one layer first: the DEFAULT clause below
+        # quotes the value again, so without this the column ends up defaulting
+        # to the literal text 'pending' - quotes included. An empty default ('')
+        # survives the strip unchanged, which is why only one column was hit.
+        $wasQuoted = $default.Length -ge 2 -and $default.StartsWith("'") -and $default.EndsWith("'")
+
+        if ($wasQuoted) {
+            $default = $default.Substring(1, $default.Length - 2).Replace("''", "'")
+        }
+
         $isNumber = $default -match '^-?\d+(\.\d+)?$'
         $isFunction = $default -match '\)$' -or $default -match '^(CURRENT_TIMESTAMP|CURRENT_DATE|CURRENT_TIME|NULL)$'
 
-        if ($isNumber -or $isFunction) {
+        if (!$wasQuoted -and ($isNumber -or $isFunction)) {
             $definition += " DEFAULT $default"
         } else {
             $definition += " DEFAULT '$(ConvertTo-SqlLiteral $default)'"

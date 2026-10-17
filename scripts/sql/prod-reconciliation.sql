@@ -262,7 +262,7 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 -- ADD airtime_history.status
 SET @sql := IF(EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'airtime_history' AND COLUMN_NAME = 'status'),
   'DO 0',
-  'ALTER TABLE `airtime_history` ADD COLUMN `status` varchar(50) NOT NULL DEFAULT ''''''pending'''''';');
+  'ALTER TABLE `airtime_history` ADD COLUMN `status` varchar(50) NOT NULL DEFAULT ''pending'';');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ADD airtime_history.created_at

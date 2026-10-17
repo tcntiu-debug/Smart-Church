@@ -1,0 +1,95 @@
+php_value upload_max_filesize 32M
+php_value post_max_size 64M
+php_value max_execution_time 300
+php_value max_input_time 300
+RewriteEngine On
+# --- Smart-Church migration freeze, 2026-10-16 (MIGRATION-smartchurch.md section 2 step 1) ---
+# 503 gate for the prod DB cut-over: no request in this folder reaches PHP while the
+# old database is dumped, and both legacy cron URLs stop firing with it. Delete this
+# block (through the "end" marker) to unfreeze. /maintenance.html must exist beside
+# this file; scripts/maintenance.html in the repository is that page.
+# The RewriteCond keeps the error document reachable - without it the 503 would be
+# rewritten again and the request would loop.
+RewriteCond %{REQUEST_URI} !^/maintenance\.html$
+RewriteRule ^ - [R=503,L]
+ErrorDocument 503 /maintenance.html
+# --- end Smart-Church migration freeze ---
+
+# User Facing URLs
+RewriteRule ^photos$ manage_gallery.php [L] 
+RewriteRule ^profile$ user-profile.php [L] 
+RewriteRule ^mytask$ my-inbox.php [L] 
+RewriteRule ^weeklist$ week-list.php [L] 
+RewriteRule ^mtouchpoint$ my-touchpoint.php [L] 
+RewriteRule ^gift-log$ gift_log.php [L]
+RewriteRule ^invite$ invite-reminder.php [L]
+RewriteRule ^bus-route$ bus_route_register.php [L]
+RewriteRule ^gallery$ first-timer-gallery.php [L]
+
+# Tracking & Integration URLs
+RewriteRule ^dash-board$ dashboard.php [L] 
+RewriteRule ^ft-register$ first-timer-register.php [L] 
+RewriteRule ^aoverview$ admin-overview.php [L] 
+RewriteRule ^notice$ notice-board.php [L]
+
+# Admin Console URLs
+RewriteRule ^fview$ first-timer-view.php [L] 
+RewriteRule ^fviewupdate$ first-timer-update.php [L] 
+RewriteRule ^mview$ member-view.php [L] 
+RewriteRule ^fthangout$ first-timer-hangout.php [L] 
+RewriteRule ^gift-report$ gift_report.php [L]
+RewriteRule ^mregister$ member-register-others.php [L] 
+RewriteRule ^whatapplist$ whatapp.php [L]
+RewriteRule ^birthdays$ member-birthday.php [L]
+
+# Admin FOF URLs
+RewriteRule ^admin-fof-register$ fof_register.php [L]
+RewriteRule ^admin-fof-attendance$ fof_mark_attendance.php [L]
+RewriteRule ^admin-fof-view-attendance$ fof_view_attendance.php [L]
+RewriteRule ^admin-fof-members$ fof_members.php [L]
+
+# Admin transport URLs
+RewriteRule ^transport-register$ transport_register.php [L]
+RewriteRule ^transport-attendance$ transport_mark_attendance.php [L]
+RewriteRule ^transport-view-attendance$ transport_view_attendance.php [L]
+
+# Lead View
+RewriteRule ^leaddepartment$ department-lead-view.php [L] 
+RewriteRule ^leadchurchtype$ churchtype-lead-view.php [L] 
+RewriteRule ^ftlead$ first-timer-lead-view.php [L] 
+
+# Reports & Analytics URLs
+RewriteRule ^report-barcharts$ barcharts.php [L]
+RewriteRule ^report-piecharts$ piecharts.php [L]
+RewriteRule ^department-view$ view_members_by_dept.php [L]
+RewriteRule ^map-view$ map.php [L]
+RewriteRule ^route-view$ route_map.php [L]
+
+# Settings & Config URLs
+RewriteRule ^setting$ settings.php [L] 
+RewriteRule ^etask$ enter-task.php [L] 
+RewriteRule ^group$ subgroup.php [L] 
+RewriteRule ^config-departments$ manage_departments.php [L]
+RewriteRule ^config-community$ add_community.php [L]
+RewriteRule ^config-bus-route$ bus_route_admin.php [L]
+
+# System & Policy URLs
+RewriteRule ^signout$ logout.php [L] 
+RewriteRule ^policy$ privacy-policy.php [L] 
+RewriteRule ^datapolicy$ privacy-policy2.php [L]
+RewriteRule ^home$ index.php [L] 
+RewriteRule ^home-dashboard$ home-dashboard.php [L] 
+RewriteRule ^prayer-suggestions$ prayer-suggestions.php [L] 
+
+# General
+RewriteRule ^validate_page$ process_script.php [L]
+RewriteRule ^assign$ admin-assign.php [L] 
+RewriteRule ^chat$ tiu_chat.php [L]
+RewriteRule ^reminder$ pending_tasks.php [L]
+
+# php -- BEGIN cPanel-generated handler, do not edit
+# Set the "ea-php83" package as the default "PHP" programming language.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php83 .php .php8 .phtml
+</IfModule>
+# php -- END cPanel-generated handler, do not edit

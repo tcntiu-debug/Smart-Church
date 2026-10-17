@@ -92,6 +92,14 @@ the same dump - is the rehearsal, and it is where every number above was measure
    `app:sync-schema`'s job, and `tiu_member.campus_id` (NOT NULL in production,
    fixed by `2026_10_14_000002_make_campus_id_nullable`) is the one that proves it.
    A rehearsal that stops after the reconciliation still shows `NO` for it.
+
+   A fourth step goes between the reconciliation and `app:sync-schema`:
+   `scripts/sql/prod-post-import-fixes.sql` (section 6). It repairs what the
+   reconciliation cannot reach, because they are columns the dump already has - and
+   a rehearsal that skips it proves the wrong thing: `sub_group.department_name` is
+   NOT NULL without a default while `SubGroupController::create()` never writes it,
+   so creating a subgroup fails on the server and works locally.
+
 4. Add the second deploy target (section 7), then **run it once** (GitHub ->
    **Actions** -> *Deploy to cPanel (production)* -> *Run workflow*): it creates
    `public_html/smartchurch.tcnikorodu.org/` and fills it with a build, without
@@ -140,11 +148,96 @@ export NEW_DIR=/home/tcnikoro/public_html/smartchurch.tcnikorodu.org
    cd "$OLD_DIR"
    php artisan down
    crontab -l > ~/cron-backup.txt      # keep a copy before editing
-   crontab -e                          # delete the line running `php artisan schedule:run`
+   crontab -e                          # delete EVERY entry that can write to the old DB (see below)
    ```
 
+   **Check `artisan` before you run that.** On this account the old folder is the flat-PHP
+   app (no `artisan`, no `composer.json`, no `bootstrap/`, no `storage/framework/` - the
+   cron URLs below land on plain `.php` files at the folder root, not on a Laravel front
+   controller), so `php artisan down` cannot run there and "maintenance mode" has to be
+   done the web-server way: a 503 rule at the top of the old folder's `.htaccess`
+   (`RewriteRule ^ - [R=503,L]`, after the existing `RewriteEngine On` and leaving the
+   cPanel handler block alone). **Not** cPanel's *Suspend*: both folders live in this one
+   account (section 1), so suspending it takes the new site down with the old one.
+   That gate pays for itself twice: it also neutralises the two `wget` cron URLs,
+   because the request never reaches PHP. Verify in a browser before the dump - the
+   old site *and* both cron URLs must answer 503. Want a friendly page instead of
+   Apache's bare 503? Upload this repo's `scripts/maintenance.html` to the old
+   document root, then add `ErrorDocument 503 /maintenance.html` **and** guard the rule
+   with `RewriteCond %{REQUEST_URI} !^/maintenance\.html$` - without that guard the
+   error document is itself rewritten and the request loops. That page is
+   self-contained on purpose (CSS, icon and even the fonts are inline):
+   `/maintenance.html` is the only URL in the folder that still answers 200, so a
+   linked `assets/css/style.css`, `favicon.ico` or Google font would arrive as a 503
+   of its own and the page would render bare. If `artisan` does exist
+   in `$OLD_DIR`, run `php artisan down` as
+   written above and keep the 503 rule as belt and braces.
+   Both halves of this recipe were exercised locally on Apache 2.4.58 before being
+   written down: every path - `/`, `/index.php` and a legacy `.php` cron URL -
+   answered 503 while serving the maintenance page, the maintenance page itself
+   answered 200, and removing the `RewriteCond` turned that 200 into a 503
+   carrying Apache's "Additionally, ... ErrorDocument" note instead of the page.
+
+   > **If cPanel will not let you edit that `.htaccess`.** Diagnose before working
+   > around, because two unrelated faults look the same: *invisible* means File Manager
+   > -> **Settings** -> tick **Show Hidden Files (dotfiles)**; *read-only* means
+   > right-click -> **Change Permissions** -> `644` (the folder wants `755`). If neither
+   > helps, the host has locked the file and only the host can release it - so reach the
+   > same result without the editor:
+   >
+   > - **SFTP**, the protocol the pipeline already uses. FileZilla -> host
+   >   `ftp.tcnikorodu.org`, port `22`, user `tcnikoro`, folder
+   >   `public_html/tiu.tcnikorodu.org/`. Download `.htaccess`; that copy is both the
+   >   pre-freeze backup (`~/migration/htaccess-pre-freeze-<date>.txt`, beside the dump)
+   >   and the file you edit in VS Code or Notepad++ before dragging it back. No cPanel
+   >   editor in the path, and the download is the check of what the server holds.
+   > - **Upload, do not Edit.** `scripts/tiu-htaccess-frozen.txt` is that file with the
+   >   gate already in place: apart from the new block every line is byte-identical to
+   >   the copy in `$OLD_DIR`, trailing spaces included (95 lines, CRLF, 3,996 bytes).
+   >   File Manager -> **Upload** into the old folder -> rename to `.htaccess` ->
+   >   overwrite. Look at the server's own copy first (right-click -> **View**, or
+   >   **Download**): line 5 must be `RewriteEngine On` and the size about 3.3 KB. If it
+   >   differs, type the block in by hand - an upload would revert whatever else changed
+   >   on the server since that copy was taken.
+   > - **The file cannot be touched at all** (not even downloaded). The gate is the
+   >   friendly part, not the load-bearing one: the cron table is a separate subsystem,
+   >   so deleting the two `wget` lines in cPanel -> **Cron Jobs** removes the destructive
+   >   jobs without writing a byte to the folder - and that is the half that cannot be
+   >   undone. Do that, open a ticket for `.htaccess`, and take the phpMyAdmin export
+   >   anyway: it snapshots each table consistently, so the dump stays usable even if a
+   >   member writes during it. Never skip the cron deletion because the gate failed.
+   >
+   > Either of the first two routes is finished by the same test: `/`, `/home` and both
+   > cron URLs answer 503 while `/maintenance.html` answers 200.
+
+   No shell account (this one): use cPanel -> **Cron Jobs** instead of `crontab -e`.
+   Back up the table first - select every row, copy it into a file, download it - so
+   the old entries can be rebuilt line for line if anything here is misread.
+   **On this account the entry was never `schedule:run`.** The old folder's cron table
+   held two legacy script URLs, both public and unauthenticated - anybody who requests
+   one runs a database job:
+
+   | Entry | Target | What it does to the old database |
+   |---|---|---|
+   | `0 0 * * 0` | `https://tiu.tcnikorodu.org/cron_job_drop.php` | the pre-Laravel auto-unassign: for every `member_tracking_followup` row that has a guide, `DELETE` the row and set `first_timer.status = 'Unassigned'` once the first timer is **13+ weeks** in - **with no archive**, so the guide's last comment and task log that the new app preserves are thrown away |
+   | `0 0 * * *` | `https://tiu.tcnikorodu.org/process_files/cron_process3.php` | the pre-Laravel "week N+1" engine: when every task of the current week is `Approved` or `Skipped`, appends the next week's questions to `followup_response_new` and Telegram-nudges the guide |
+
+   Both are standalone `mysqli` scripts living in the old folder, so `php artisan down`,
+   `PreventRequestsDuringMaintenance` and any `->skip()` do **not** stop them - only the
+   cron line (or renaming the file) does. That is exactly why this step matters: they
+   write `member_tracking_followup`, the table the dump is trying to freeze. Nothing is
+   lost by deleting the lines - the new app already owns both jobs, as
+   `firsttimers:auto-unassign` weekly on Mondays at `04:10` (through
+   `GuideArchiveService`, which archives the follow-up first) and the week advance
+   inside `MyTaskController` when the guide's own approval arrives. The one deliberate
+   loss is the Telegram nudge: `member_telegram` is read by nothing in the new code
+   (section 9) and guides are notified in-app instead - if the Welcome Center wants the
+   Telegram nudge back, that is a new-app change, not a reason to keep the old line.
+   Delete the cron **lines**, not the scripts: leave the files on disk so any of this
+   can be re-read during the window.
+
    The scheduled work that must not double-run:
-   `birthdays:remind` (daily 07:00) and `firsttimers:auto-unassign` (daily 01:00).
+   `birthdays:remind` (daily 07:00) and `firsttimers:auto-unassign` (weekly, Monday 04:10).
 2. **Dump the old database** (schema + data, single transaction, routines too):
 
    ```bash
@@ -155,6 +248,14 @@ export NEW_DIR=/home/tcnikoro/public_html/smartchurch.tcnikorodu.org
 
    Save the `.sql` in `~/migration/` **and** download a copy to your PC. This file
    is the archive as well as the import: it is never deleted.
+
+   > **A faster route, once the dump is on your PC.** Steps 3-5 and 8 all act on
+   > the imported copy, so they can be run locally against a scratch database and
+   > the finished database exported as one import-ready file (section 6, *Building
+   > the import file locally*). Importing that file into the empty database leaves
+   > `app:sync-schema` with nothing to do - it reports every migration "already
+   > applied earlier" - and the rest of this section becomes verification only.
+
 3. **Import it into the new database** (cPanel -> phpMyAdmin or the shell):
 
    ```bash
@@ -173,6 +274,12 @@ export NEW_DIR=/home/tcnikoro/public_html/smartchurch.tcnikorodu.org
    phpMyAdmin on the new database -> SQL tab -> paste `prod-reconciliation.sql`
    -> Go. It is additive and idempotent: every statement is wrapped in an
    `information_schema` guard, so re-running it changes nothing.
+
+   Then paste `scripts/sql/prod-post-import-fixes.sql` in the same way. It repairs
+   what the reconciliation cannot reach (section 6): without it the new
+   site comes up with an `airtime_history.status` that renders as `'pending'` with
+   the quotes, and creating a subgroup fails with error 1364.
+
 5. **Archive what step 8 will drop, before it drops it.** `php artisan
    app:sync-schema` retires the Transport / FOF modules by dropping their six
    tables, so this export is what keeps that step reversible. It also takes
@@ -208,6 +315,51 @@ export NEW_DIR=/home/tcnikoro/public_html/smartchurch.tcnikorodu.org
    *is* the whole photo migration. `public/member_photos/` is the fourth one: the *add
    member* form (`MemberController`) writes there and reads it back through the same
    column, and it is created on demand if it is missing.
+   **Skipping this step is silent.** The rows import, login works, and every profile
+   renders `<img src="https://smartchurch.tcnikorodu.org/display_photo/user_561_....jpeg">`
+   against a path that 404s - the picture is the one part of a member that does not
+   live in MySQL. Check one known file rather than eyeballing the site:
+
+   ```bash
+   curl -sI https://smartchurch.tcnikorodu.org/display_photo/user_561_6abebf00ee1ea5.05102561.jpeg
+   # 200 + image/jpeg = copied    404 = not copied
+   ```
+
+   The database holds 194 such paths and they land in three folders: 172 members in
+   `display_photo/`, the eight admin gallery images in `gallery_uploads/`, and twelve
+   documents plus one photo in `uploads/` - 190.8 MB together. The old `display_photo/`
+   also holds images nothing points at any more, so copying the whole folder carries
+   extra files: slower, not wrong.
+
+   Both hostnames normally sit on **one cPanel account** - `tiu.tcnikorodu.org` and
+   `smartchurch.tcnikorodu.org` resolve to the same IP - so File Manager's **Copy**
+   works server side and nothing crosses the network: source
+   `$OLD_DIR/public/display_photo`, destination `$NEW_DIR/public/`, then the same for
+   `gallery_uploads` and `uploads`. On separate accounts, upload
+   `smartchurch-media-<date>.zip` into `public/` and **Extract** it; the archive holds
+   those three folders and nothing else, so extracting it over `public/` cannot
+   overwrite code.
+
+   To build that zip, or to keep an offline copy of the photo archive before the old
+   folder goes away, run
+
+   ```powershell
+   .\scripts\fetch-legacy-media.ps1            # -> C:\xampp\migration\media-originals
+   ```
+
+   It reads the three columns named above, downloads each referenced file from
+   `-BaseUrl` (the legacy site by default), keeps the relative path, and resumes:
+   a file already on disk is skipped, and `-Only` / `-Skip` / `-First` split a long
+   run into parallel slices. The final report is the audit - 193 of 194 files, the
+   exception being a reference that is dead on the old host too:
+   `display_photo/user_1_69ff2efac60172.56504846.png`. No copy step can fix that one;
+   member 1 shows a broken avatar until someone uploads a photo again, or the column
+   is cleared so the placeholder returns:
+   `UPDATE tiu_member SET picture_part = NULL WHERE tiu_member_id = 1;`
+
+   `first_timer_gallery` also holds file names, but bare ones with no folder
+   (`First_timer_Adeola_20250406104409.jpg`). Nothing in the deployed code reads that
+   table - it is archived in step 5 - so no file is fetched for those six rows.
 7. **Create the new `.env`** (File Manager -> new folder -> `.env`):
 
    ```
@@ -388,7 +540,17 @@ The app must be served from `https://smartchurch.tcnikorodu.org` while
    RewriteRule ^(.*)$ https://smartchurch.tcnikorodu.org/$1 [R=301,L]
    ```
 
-   A 301 (not 302) is what makes the installed PWAs update their start URL. The
+   **Check the reset flow before you flip this.** Until now the only working
+   "Forgot Password" was the old app's, and its link is hardcoded to the old host:
+   `Process_script_ajax.php` mails
+   `https://tiu.tcnikorodu.org/reset-password.php?reset-token=...`, so after this 301
+   those links land on the new host, which serves no such route. The new app's own
+   flow is wired now (`password.request`, `password.reset`, `password.update` in
+   `routes/web.php`, rendering the `auth.passwords.*` views that already existed),
+   so exercise it once from `/` before the flip. Do **not** port the old scheme
+   forward: its token is `openssl_encrypt(email, 'AES-128-ECB', 'password')` -
+   forgeable by anybody who knows a member's e-mail, and it never expires. A 301
+   (not 302) is what makes the installed PWAs update their start URL. The
    Android/iOS apps rebuilt against the new host need nothing.
 3. Add `https://smartchurch.tcnikorodu.org` to the CORS / Sanctum allowed
    origins (`config/cors.php`, `config/sanctum.php`) if they list a host.
@@ -408,7 +570,7 @@ campus columns - and it runs in the **new** database, after the archive in secti
 |---|---|---|
 | New site 500s / pages error | Remove the 301, put old folder back online (`php artisan up`), restore its cron | ~5 min |
 | New database looks wrong | Re-import `~/migration/smartchurch-<date>.sql` into a scratch database and diff with `scripts/sql/verify-new-db.sql`; the old database was never written to | ~20 min |
-| Users report missing photos | Re-copy `public/display_photo/`, `public/gallery_uploads/`, `public/uploads/`, `public/member_photos/`, `storage/app/public/` and the `public/storage` symlink | ~15 min |
+| Users report missing photos | Step 6 was skipped or partial. Copy `public/display_photo/`, `public/gallery_uploads/`, `public/uploads/` from the old folder (same server: File Manager **Copy**; otherwise extract `smartchurch-media-<date>.zip`), then `curl -sI` one known file. `.\scripts\fetch-legacy-media.ps1` rebuilds the set offline | ~15 min |
 | Mobile app cannot log in | Confirm `API_TOKEN_KEY` and `APP_KEY` match the old values byte for byte | ~5 min |
 | Deploy broke the new folder | Re-run the prod workflow from the previous commit; the old folder is untouched by it | ~10 min |
 
@@ -423,7 +585,7 @@ old folder is what keeps the copy honest.
 - [ ] Rehearsal on `sc_prod_check` passed: all of `verify-new-db.sql` clean (12 tables + 22 columns present, every `campus_id` `YES`, the six Transport / FOF tables `gone`, eight migrations `recorded`).
 - [ ] Second deploy target added and a prod deploy has run into the new folder.
 - [ ] `APP_KEY` and `API_TOKEN_KEY` copied byte for byte; `SINGLE_CAMPUS=true`.
-- [ ] Old site in maintenance mode, old `schedule:run` cron removed, `crontab` backed up.
+- [ ] Old site in maintenance mode, **every** old-app cron entry removed (on this account that is two legacy HTTP scripts, not `schedule:run` - see section 2 step 1), `crontab` backed up.
 - [ ] Dump taken (`~/migration/smartchurch-<date>.sql`) and downloaded to your PC.
 - [ ] Dump imported into the new database; reconciliation applied; `php artisan app:sync-schema` ran clean.
 - [ ] The 14 dump-only tables exported (`legacy-tables-<date>.sql`) **before** `app:sync-schema` dropped six of them.
@@ -471,6 +633,63 @@ One thing the file cannot do is change a column both databases have and disagree
 about. `tiu_member.campus_id` is exactly that (NOT NULL in production, nullable in
 the code's schema), and it is fixed by `php artisan app:sync-schema` applying
 `2026_10_14_000002_make_campus_id_nullable` - not by this file.
+
+### The columns the reconciliation cannot reach
+
+`scripts/sql/prod-post-import-fixes.sql` is the companion file: applied straight
+after the reconciliation, before `app:sync-schema`. It exists because "add what is
+missing" cannot repair a column both databases already have. What it fixes:
+
+| Fix | Why |
+|---|---|
+| `airtime_history.status` default | this file used to create it as `DEFAULT '''pending'''`, because MariaDB reports a string default already quoted (`'pending'`) and the generator wrapped it again. The five rows that existed took that default, so the Credit History table showed `'pending'` - quotes included. The generator (`scripts/build-prod-reconciliation.ps1`) now strips the quotes first; the repair file fixes the default and the rows |
+| `caller_assignments.caller_name` `varchar(100)` -> `varchar(150) NULL` | `saveCallerAssignment()` writes `trim(first_name + ' ' + last_name)` |
+| UNIQUE on `caller_assignments.first_timer_id` | the dump has a plain KEY; the code writes with `updateOrInsert(['first_timer_id' => ...])`, which is only race-safe when the key is unique. Guarded: skipped if duplicates exist |
+| `sub_group.department_name`, `first_timers_updates.house_felloship` get a default | both are NOT NULL without one, and the code never writes them - error 1364 under strict `sql_mode` (section 9) |
+| three `airtime_history` indexes | the code schema has them, the dump does not |
+
+Like the reconciliation it is guarded and idempotent, so running it twice changes
+nothing. Unlike the reconciliation it must run *after* it.
+
+### Building the import file locally
+
+Everything the window does to the database - reconcile, repair, record the
+migrations - can be done on a PC against a copy of the dump, and the finished
+database exported as one import-ready file. That turns section 2 steps 3-5 and 8
+into a single phpMyAdmin import, with no upload limit and no shell needed:
+
+```powershell
+$dump  = 'C:\xampp\htdocs\legacy-smart-church-files\tcnikoro_smart_church.sql'
+$mysql = 'C:\xampp\mysql\bin\mysql.exe'
+
+# a scratch database - never the development one, see the warning below
+& $mysql -u root -e "DROP DATABASE IF EXISTS sc_prod_export; CREATE DATABASE sc_prod_export CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+& $mysql -u root --default-character-set=utf8mb4 sc_prod_export -e "source $($dump -replace '\\', '/')"
+& $mysql -u root --default-character-set=utf8mb4 sc_prod_export -e "source C:/xampp/htdocs/Smart-Church/scripts/sql/prod-reconciliation.sql"
+& $mysql -u root --default-character-set=utf8mb4 sc_prod_export -e "source C:/xampp/htdocs/Smart-Church/scripts/sql/prod-post-import-fixes.sql"
+
+# the schema half, exactly as section 2 step 8 runs it on the server
+$env:DB_DATABASE='sc_prod_export'; php artisan app:sync-schema; Remove-Item Env:DB_DATABASE
+
+# then the export: no CREATE DATABASE, no USE, foreign keys off while it loads
+& C:\xampp\mysql\bin\mysqldump.exe -u root --default-character-set=utf8mb4 `
+  --single-transaction --routines --triggers --skip-add-locks --skip-comments `
+  --result-file=C:\xampp\migration\smartchurch-<date>.sql sc_prod_export
+```
+
+Wrap the result between `SET FOREIGN_KEY_CHECKS = 0;` and `= 1;`: the tables load
+in name order, not parent order. Then prove it before shipping - import the file
+into a second empty database, compare every table's row count with the source, and
+run `app:sync-schema --dry-run` against it; every migration must say "already
+applied earlier". A file that passes both checks needs nothing further done to the
+database on the server.
+
+> **Do not export the local development database.** It is not a copy of
+> production: the eight legacy tables are missing entirely (604 rows - `messages`
+> alone is 560) and the shared tables have drifted (468 members against 469, 971
+> first timers against 991, 193 policy rows against 217). Importing it would
+> replace live records with stale ones. The build starts from the dump, always.
+
 
 ## 7. The second deploy target
 
@@ -630,6 +849,18 @@ this is where they are accounted for.
 both databases. Note also what the reconciliation does with the tables and
 columns both sides have: it only ever adds or renames, never deletes.
 
+The columns are the same story, and they matter more than they look. Five exist
+only in production - `airtime_history.network`, `caller_assignments.assigned_at`
+and `assigned_by`, `first_timers_updates.house_felloship`,
+`sub_group.department_name` - and the reconciliation keeps them, because the
+legacy screens still read them. Two of those five are NOT NULL without a default,
+which on the server (strict `sql_mode`) means an insert that does not name them
+fails with error 1364. `SubGroupController::create()` writes only `department_id`,
+`sub_group_name` and `campus_id`, so creating a subgroup would work locally and
+fail in production. `scripts/sql/prod-post-import-fixes.sql` (sections 3 and 4 of
+that file) gives both a default.
+
+
 Dropping one of those seven orphans is a separate, later, deliberate change: one
 migration, one table, after the cut-over has been stable for a while and only
 once the export from section 2 step 5 has been read back. This runbook does not
@@ -650,11 +881,11 @@ drop them.
 2. Re-add the cron on the new folder (and only there):
 
    ```
-   0 7 * * * cd /home/tcnikoro/public_html/smartchurch.tcnikorodu.org && php artisan schedule:run >> /dev/null 2>&1
+   * * * * * /usr/local/bin/ea-php80 /home/tcnikoro/public_html/smartchurch.tcnikorodu.org/artisan schedule:run >> /dev/null 2>&1
    ```
 
-   Confirm with `php artisan schedule:list` that `birthdays:remind` and
-   `firsttimers:auto-unassign` resolve, then leave the old folder's cron deleted.
+   **Every minute, not once a day.** The tick only fires an event whose own due time matches, so a daily `07:00` tick would silently skip `app:sync-schema` (`03:20`) and `firsttimers:auto-unassign` (Mondays `04:10`) - see `docs/CPANEL-DEPLOYMENT.md` -> *Scheduled jobs*. Confirm with `php artisan schedule:list` that `birthdays:remind`, `app:sync-schema` and
+   `firsttimers:auto-unassign` resolve, then leave the old folder's cron deleted. On this shell-less account the proof they ran is the logs: `storage/logs/birthday-reminders.log`, `storage/logs/schema-sync.log` and `storage/logs/auto-unassign.log`.
 3. Watch for a week: `storage/logs/laravel.log` on the new folder, cPanel ->
    **Errors**, and the "Index of /" symptom in the workflow notes (that means a
    half-written tree - re-run the deploy, do not patch by hand).

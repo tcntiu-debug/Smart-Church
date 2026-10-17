@@ -222,7 +222,12 @@ class SyncSchema extends Command
         }
 
         if ($this->option('dry-run')) {
-            $this->line(" - {$name}: would be applied");
+            // `migrate --path` skips a file that is already recorded, so a dry
+            // run has to say the same thing - otherwise a database that is
+            // already in step reports work that will not happen.
+            $this->line($this->isRecorded($name)
+                ? " - {$name}: already applied earlier"
+                : " - {$name}: would be applied");
 
             return true;
         }

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<!--
+  TIU (tiu.tcnikorodu.org) - migration freeze notice.
+
+  Apache serves this file as the ErrorDocument for the 503 that the OLD folder's
+  .htaccess returns while the old app is frozen for the move to
+  smartchurch.tcnikorodu.org (docs/MIGRATION-smartchurch.md, section 2 step 1).
+  Upload this one file to the OLD document root:
+      public_html/tiu.tcnikorodu.org/maintenance.html
+  (ErrorDocument paths are relative to the document root, not to the site root.)
+
+  Nothing here loads from the network - no stylesheet, no favicon, no web font,
+  no script, and the icon is inline SVG. That is deliberate: /maintenance.html is
+  the only URL in that folder that still answers 200, so a linked style.css,
+  favicon.ico or Google font would come back as a 503 of its own and the page
+  would render bare. Keep it self-contained if you edit the wording.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>TIU is temporarily offline</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 24px;
+    display: flex; align-items: center; justify-content: center;
+    background-color: #f4f7f6; color: #333;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .card {
+    width: 100%; max-width: 34rem; background: #fff; border-radius: 12px;
+    border-top: 6px solid #005a9c; box-shadow: 0 10px 30px rgba(0, 0, 0, .08);
+    padding: 32px 28px 26px; text-align: center;
+  }
+  .mark { width: 64px; height: 64px; display: block; margin: 0 auto 10px; }
+  h1 { margin: 0 0 10px; color: #005a9c; font-size: 1.45rem; line-height: 1.3; }
+  p { margin: 0 0 14px; }
+  .lead { font-size: 1.05rem; }
+  .tagalog { margin-bottom: 18px; color: #555; font-size: .95rem; font-style: italic; }
+  .facts { max-width: 27rem; margin: 0 auto 4px; padding: 0; text-align: left; list-style: none; }
+  .facts li { position: relative; margin-bottom: 10px; padding-left: 26px; }
+  .facts li::before {
+    content: ""; position: absolute; left: 6px; top: .58em;
+    width: 8px; height: 8px; border-radius: 50%; background: #005a9c;
+  }
+  .foot { margin: 22px 0 0; padding-top: 14px; border-top: 1px solid #e9ecef; color: #6c757d; font-size: .85rem; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="#005a9c" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Servers being moved">
+      <rect x="3" y="4" width="18" height="7" rx="1.5"></rect>
+      <rect x="3" y="13" width="18" height="7" rx="1.5"></rect>
+      <circle cx="7" cy="7.5" r=".9" fill="#005a9c" stroke="none"></circle>
+      <circle cx="7" cy="16.5" r=".9" fill="#005a9c" stroke="none"></circle>
+      <line x1="15" y1="7.5" x2="18" y2="7.5"></line>
+      <line x1="15" y1="16.5" x2="18" y2="16.5"></line>
+    </svg>
+    <h1>We are moving to a new server</h1>
+    <p class="lead">The TIU app is offline for a short while while we move it to its new home.
+      We will be back as soon as the move is finished.</p>
+    <p class="tagalog">Pansamantalang hindi available ang app habang inililipat namin ito sa bagong
+      server. Wala kang kailangang gawin.</p>
+    <ul class="facts">
+      <li>Nothing you need to do - your account, your tasks and your records are safe.</li>
+      <li>Please do not register again; the account you already have will be there when we are back.</li>
+      <li>E-mail links sent before the move may stop working. After the move, use <em>Forgot password</em>
+        on the login page if you need a new one.</li>
+    </ul>
+    <p class="foot">TIU &middot; watch your e-mail and our group chats for the go-live announcement.</p>
+  </main>
+</body>
+</html>
