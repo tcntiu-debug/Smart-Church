@@ -79,7 +79,9 @@ GET /api/public/announcements?limit=5&campus_id=1
   "meta": { "limit": 5, "generated_at": "…" } }
 ```
 
-`limit` is 1-50 (default 10) and rejected with 422 outside that range. The query
+`limit` is 1-50 (default 10) and rejected with 422 outside that range - as JSON
+even when the caller sends no `Accept: application/json`, so a plain `curl` or
+`fetch` gets the error rather than a 302. The query
 selects `id, title, content, created_at, campus_id` only - no member or PII column
 is ever read - and the answer carries `Cache-Control: public, max-age=60`.
 `config/cors.php` already answers `api/*` with `Access-Control-Allow-Origin: *`.

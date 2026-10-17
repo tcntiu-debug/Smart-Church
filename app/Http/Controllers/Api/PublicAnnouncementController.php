@@ -7,6 +7,7 @@ use App\Models\Campus;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
 /**
@@ -35,10 +36,24 @@ class PublicAnnouncementController extends Controller
 
     public function index(Request $request)
     {
-        $validated = $request->validate([
+        $validator = Validator::make($request->only(['limit', 'campus_id']), [
             'limit' => 'nullable|integer|min:1|max:'.self::MAX_LIMIT,
             'campus_id' => 'nullable|integer|min:1',
         ]);
+
+        // Answer 422 as JSON whoever calls: $request->validate() would redirect
+        // back (302) when the caller did not send Accept: application/json -
+        // curl, or a fetch that only sets Content-Type - and the documented
+        // contract is a 422 with the field named.
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The given data was invalid.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
 
         $limit = (int) ($validated['limit'] ?? self::DEFAULT_LIMIT);
 

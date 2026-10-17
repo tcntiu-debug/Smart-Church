@@ -113,6 +113,12 @@ class PublicAnnouncementApiTest extends TestCase
 
         $this->getJson('/api/public/announcements?limit=0')
             ->assertStatus(422);
+
+        // A plain fetch (or curl) sends no Accept: application/json. The answer
+        // is still the documented 422, not a 302 back to the referring page.
+        $this->get('/api/public/announcements?limit=500')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['limit']);
     }
 
     public function test_the_feed_is_safe_for_another_origin()
