@@ -54,8 +54,8 @@ the caller / guide actually changed.
 ## Publishing a notice rings every bell once
 
 `NotificationService::announce($id, $title, $content, $campusId)` is called by the
-web form (`/admin-announcements/store`) and by the token API
-(`POST /api/announcements/store`), so a notice published from a phone is heard the
+web form (`POST /admin-announcements/store`) and by the token API
+(`POST /api/announcements`), so a notice published from a phone is heard the
 same way as one published from the dashboard:
 
 * `announcementAudience()` is every living member (`status != 3`), narrowed to the
