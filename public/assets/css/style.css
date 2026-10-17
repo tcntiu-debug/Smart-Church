@@ -7248,6 +7248,73 @@ body:not(.ms-settings-open) .ms-settings-toggle:hover{
   background-color: #fff;
   color: rgb(76,54,188);
 }
+
+/* Side navigation: getting out of the open panel, and its phone backdrop.
+
+   public/assets/js/framework.js owns the open state: any `.ms-toggler` carrying
+   `data-toggle="slideLeft"` flips `ms-aside-left-open` on <body>, `ms-aside-open`
+   on the panel and `d-block` on the left overlay. The close button and the
+   backdrop below therefore drive the menu through that single handler. */
+
+/* Close button carried by the panel itself. On phones the navbar toggler falls
+   behind the open 255px panel, so this is the only way to close the menu there. */
+.ms-aside-close{
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: #000000de;
+  background-color: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  -webkit-transition: 0.2s;
+  transition: 0.2s;
+}
+.ms-aside-close:hover,
+.ms-aside-close:focus{
+  color: #ff8306;
+  background-color: rgba(0,0,0,0.06);
+  outline: none;
+}
+.ms-dark-theme .ms-aside-close{
+  color: #ffffff;
+}
+.ms-dark-theme .ms-aside-close:hover,
+.ms-dark-theme .ms-aside-close:focus{
+  color: #ff8306;
+  background-color: rgba(255,255,255,0.1);
+}
+
+/* Backdrop behind the panel on phones (its right-hand twin lives with the aside
+   rules further up the file). A tap on it reaches the same slideLeft handler, so
+   the menu closes. From 1025px up the side nav is a permanent column: the
+   overlay is forced off even while the toggle keeps `d-block` on it, because
+   dimming the whole page when the column collapses would be wrong. */
+.ms-aside-overlay.ms-overlay-left{
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  overflow: hidden;
+  z-index: 998;
+  background-color: rgba(0,0,0,0.3);
+}
+@media (min-width: 1025px){
+  .ms-aside-overlay.ms-overlay-left{
+    display: none !important;
+  }
+}
 .ms-welcome-btn:hover,
 .ms-welcome-btn:focus,
 .ms-welcome-btn:not(:disabled):not(.disabled):active{

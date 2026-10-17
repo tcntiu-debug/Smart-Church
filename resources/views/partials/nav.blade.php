@@ -9,6 +9,21 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
 @endphp
 
 <aside id="ms-side-nav" class="side-nav fixed ms-aside-scrollable ms-aside-left">
+  {{-- Close control carried by the panel itself: on phones the navbar toggler
+       sits behind the open 255px panel, so without this there is no way out.
+       It reuses the theme's `.ms-toggler` slideLeft contract (see
+       public/assets/js/framework.js), the same one the navbar button and the
+       backdrop in layouts/app drive - no script of its own. --}}
+  <button type="button"
+          class="ms-aside-close ms-toggler"
+          data-target="#ms-side-nav"
+          data-toggle="slideLeft"
+          aria-controls="ms-side-nav"
+          aria-label="Close menu"
+          title="Close menu">
+    <i class="fas fa-times" aria-hidden="true"></i>
+  </button>
+
   <div class="logo-sn ms-d-block-lg">
     <a class="pl-0 ml-0 text-center" href="{{ url('/mytask') }}">
       <img src="{{ asset('assets/img/tiupix/tiupix-logo.png') }}" alt="logo">
