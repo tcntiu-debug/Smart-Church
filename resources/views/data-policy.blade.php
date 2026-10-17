@@ -59,7 +59,7 @@
                                 <h6>3.2. Data Retention and Deletion</h6>
                                 <p>The church is committed to not holding personal data for longer than is necessary.</p>
                                 <ul>
-                                    <li><strong>For First-Timers:</strong> The standard Integration Period is 13 weeks. After unassignment, Guides must delete personal contact records from their personal devices.</li>
+                                    <li><strong>For First-Timers:</strong> The standard Integration Period is 8 weeks. After unassignment, Guides must delete personal contact records from their personal devices.</li>
                                     <li><strong>For Call Tree Assignments:</strong> Contact details are provided for the specific week's assignment. Once the assignment is complete, the data should not be retained for unauthorized purposes.</li>
                                 </ul>
 

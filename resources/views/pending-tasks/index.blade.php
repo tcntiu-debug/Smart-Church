@@ -116,7 +116,8 @@
                                         @endif
                                     </td>
                                     <td class="align-middle">
-                                        <a href="https://tiu.tcnikorodu.org/dash-board?tiu_member_id={{ $action->tiu_member_id }}&full_name={{ urlencode($guide_full_name) }}" target="_blank" class="text-primary font-weight-bold">
+                                        {{-- url() follows APP_URL, so the same link is correct locally, on the staging host and on whichever subdomain the app is served from - a written-out host here would send a live user to a retired site. --}}
+                                        <a href="{{ url('/dash-board') }}?tiu_member_id={{ $action->tiu_member_id }}&full_name={{ urlencode($guide_full_name) }}" target="_blank" class="text-primary font-weight-bold">
                                             {{ $guide_full_name }}
                                         </a><br>
                                         <small class="text-muted"><i class="fa fa-phone-alt"></i> {{ $action->guide_phone }}</small><br>
