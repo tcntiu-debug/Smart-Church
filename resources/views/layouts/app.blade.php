@@ -348,6 +348,11 @@
         background-color: #f1ebff;
     }
 
+    span.notif-icon-announcement {
+        color: #a11f36;
+        background-color: #ffe9ee;
+    }
+
     .notif-main {
         flex: 1 1 auto;
         min-width: 0;
@@ -431,6 +436,11 @@
     .ms-dark-theme span.notif-icon-task {
         color: #c3b1ff;
         background-color: #2a2350;
+    }
+
+    .ms-dark-theme span.notif-icon-announcement {
+        color: #ff9fb2;
+        background-color: #3a1820;
     }
 </style>
 

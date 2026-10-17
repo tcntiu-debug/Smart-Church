@@ -31,6 +31,7 @@ class NotificationController extends Controller
         NotificationService::TYPE_CALLER_ASSIGNMENT => 'fa-phone',
         NotificationService::TYPE_GUIDE_ASSIGNMENT => 'fa-handshake',
         NotificationService::TYPE_WEEKLY_TASK => 'fa-tasks',
+        NotificationService::TYPE_ANNOUNCEMENT => 'fa-bullhorn',
         'birthday_reminder' => 'fa-birthday-cake',
     ];
 
@@ -38,6 +39,7 @@ class NotificationController extends Controller
         NotificationService::TYPE_CALLER_ASSIGNMENT => 'Open call list',
         NotificationService::TYPE_GUIDE_ASSIGNMENT => 'Open my tasks',
         NotificationService::TYPE_WEEKLY_TASK => 'Open my tasks',
+        NotificationService::TYPE_ANNOUNCEMENT => 'Open notice board',
         'birthday_reminder' => 'View birthdays',
     ];
 
@@ -50,6 +52,7 @@ class NotificationController extends Controller
         NotificationService::TYPE_CALLER_ASSIGNMENT => 'caller',
         NotificationService::TYPE_GUIDE_ASSIGNMENT => 'guide',
         NotificationService::TYPE_WEEKLY_TASK => 'task',
+        NotificationService::TYPE_ANNOUNCEMENT => 'announcement',
         'birthday_reminder' => 'birthday',
     ];
 

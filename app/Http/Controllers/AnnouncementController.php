@@ -3,14 +3,22 @@
 namespace App\Http\Controllers;
 
 use App\Models\Campus;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class AnnouncementController extends Controller
 {
-    public function __construct()
+    /**
+     * @var \App\Services\NotificationService
+     */
+    protected $notifications;
+
+    public function __construct(NotificationService $notifications)
     {
+        $this->notifications = $notifications;
+
         $this->middleware('auth');
     }
 
@@ -50,12 +58,18 @@ class AnnouncementController extends Controller
             'content' => 'nullable|string',
         ]);
 
-        DB::table('announcements')->insert([
+        $storedCampusId = Campus::writeId($campusId);
+
+        $id = DB::table('announcements')->insertGetId([
             'title' => $request->title,
             'content' => $request->content ?? '',
             'created_at' => now(),
-            'campus_id' => Campus::writeId($campusId),
+            'campus_id' => $storedCampusId,
         ]);
+
+        // Publishing a notice rings every member's bell (the bell links back to
+        // /notice). Editing one does not: an update must not shout twice.
+        $this->notifications->announce((int) $id, (string) $request->title, $request->content, $storedCampusId);
 
         return redirect()->back()->with('success', 'Announcement posted successfully!');
     }

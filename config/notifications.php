@@ -25,6 +25,7 @@ return [
         'caller_assignment',
         'guide_assignment',
         'weekly_task',
+        'announcement',
     ],
 
     // How many unread notifications the poll request returns.
@@ -38,6 +39,7 @@ return [
         'caller_assignment' => '/weeklist',
         'guide_assignment' => '/my-tasks',
         'weekly_task' => '/my-tasks',
+        'announcement' => '/notice',
     ],
 
 ];

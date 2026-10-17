@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -20,6 +21,9 @@ use Illuminate\Support\Facades\Schema;
  *      WeekListController::assignGuides(): the modal's "Assign all callers")
  *   * weekly_task       - a guide's next week of tasks was activated
  *     (MyTaskController, when a week is completed)
+ *   * announcement      - a notice was published on the notice board
+ *     (AnnouncementController and the token API's AnnouncementController; the
+ *      whole church is written in one go, see announce())
  *
  * NotificationController::feed() hands the unread rows back to the browser, which
  * the layout polls so a phone shows the same alert as a system notification. Web
@@ -37,6 +41,8 @@ class NotificationService
     public const TYPE_GUIDE_ASSIGNMENT = 'guide_assignment';
 
     public const TYPE_WEEKLY_TASK = 'weekly_task';
+
+    public const TYPE_ANNOUNCEMENT = 'announcement';
 
     /**
      * Whether notifications of this type should be written at all.
@@ -125,6 +131,122 @@ class NotificationService
         }
 
         return $written;
+    }
+
+    /**
+     * Write the same notification for a large audience in as few statements as
+     * possible.
+     *
+     * notifyMany() calls notify() once per member, which is right for a handful
+     * of assignments but not for "everybody in church" (hundreds of rows, and a
+     * schema check each): this writes one INSERT per 250 members. It never
+     * throws, exactly like notify(): a notice that cannot ring the bell is still
+     * published.
+     *
+     * @param  array  $memberIds
+     * @return int  How many rows were written
+     */
+    public function notifyAudience(array $memberIds, string $type, string $title, ?string $body = null, array $data = [], ?int $campusId = null): int
+    {
+        $memberIds = $this->normaliseIds($memberIds);
+        $title = trim($title);
+
+        if ($memberIds === [] || $title === '') {
+            return 0;
+        }
+
+        if (! $this->isEnabled($type) || ! $this->tableReady()) {
+            return 0;
+        }
+
+        $timestamp = now();
+        $title = mb_substr($title, 0, 191);
+        $payload = $data === [] ? null : json_encode($data);
+        $written = 0;
+
+        foreach (array_chunk($memberIds, 250) as $chunk) {
+            $rows = [];
+
+            foreach ($chunk as $memberId) {
+                $rows[] = [
+                    'tiu_member_id' => $memberId,
+                    'campus_id' => $campusId,
+                    'type' => $type,
+                    'title' => $title,
+                    'body' => $body,
+                    'data' => $payload,
+                    'created_at' => $timestamp,
+                    'updated_at' => $timestamp,
+                ];
+            }
+
+            try {
+                DB::table('app_notifications')->insert($rows);
+                $written += count($rows);
+            } catch (\Throwable $e) {
+                Log::error('In-app notification broadcast failed', [
+                    'type' => $type,
+                    'members' => count($chunk),
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $written;
+    }
+
+    /**
+     * Every living member of the church, or of one campus when a campus id is
+     * given (multi-campus mode only - in single campus mode the announcement row
+     * carries no campus_id and the whole church is the audience).
+     *
+     * @return array<int, int>
+     */
+    public function announcementAudience(?int $campusId = null): array
+    {
+        if (! Schema::hasTable('tiu_member')) {
+            return [];
+        }
+
+        $query = DB::table('tiu_member')
+            ->where('tiu_member_id', '>', 0)
+            // status 3 is a deleted member, and a missing status is alive.
+            ->where(function ($q) {
+                $q->whereNull('status')->orWhere('status', '!=', '3');
+            });
+
+        if ($campusId) {
+            $query->where('campus_id', $campusId);
+        }
+
+        return $this->normaliseIds($query->pluck('tiu_member_id')->all());
+    }
+
+    /**
+     * Ring every member's bell about a notice-board post.
+     *
+     * @param  int  $announcementId  `announcements.id` of the published row
+     * @param  string  $title  The title the author typed
+     * @param  string|null  $content  Notice body; shortened for the bell
+     * @param  int|null  $campusId  What the announcement row carries (Campus::writeId())
+     * @return int  How many members were notified
+     */
+    public function announce(int $announcementId, string $title, ?string $content = null, ?int $campusId = null): int
+    {
+        $title = trim($title);
+
+        if ($announcementId <= 0 || $title === '') {
+            return 0;
+        }
+
+        return $this->notifyAudience(
+            $this->announcementAudience($campusId),
+            self::TYPE_ANNOUNCEMENT,
+            $title,
+            $this->excerpt($content),
+            ['announcement_id' => $announcementId, 'url' => '/notice'],
+            $campusId
+        );
     }
 
     /**
@@ -264,6 +386,17 @@ class NotificationService
         Log::warning('app_notifications is missing: run `php artisan app:sync-schema` so in-app notifications can be stored.');
 
         return false;
+    }
+
+    /**
+     * A one-paragraph version of a longer text: what the bell shows instead of
+     * the whole notice.
+     */
+    protected function excerpt(?string $text, int $limit = 180): ?string
+    {
+        $text = trim((string) preg_replace('/\s+/u', ' ', (string) $text));
+
+        return $text === '' ? null : Str::limit($text, $limit);
     }
 
     /**

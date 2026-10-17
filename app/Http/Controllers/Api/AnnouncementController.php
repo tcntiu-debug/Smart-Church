@@ -4,11 +4,22 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Campus;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class AnnouncementController extends Controller
 {
+    /**
+     * @var \App\Services\NotificationService
+     */
+    protected $notifications;
+
+    public function __construct(NotificationService $notifications)
+    {
+        $this->notifications = $notifications;
+    }
+
     /**
      * Get all announcements for the user's campus
      */
@@ -43,12 +54,18 @@ class AnnouncementController extends Controller
         $user = DB::selectOne("SELECT campus_id FROM tiu_member WHERE tiu_member_id = ?", [$userId]);
         $campusId = $user->campus_id ?? 0;
 
+        $storedCampusId = Campus::writeId($campusId);
+
         $id = DB::table('announcements')->insertGetId([
             'title' => $request->title,
             'content' => $request->content ?? '',
             'created_at' => now(),
-            'campus_id' => Campus::writeId($campusId),
+            'campus_id' => $storedCampusId,
         ]);
+
+        // Same fan-out as the web form: the app's bell is told about every
+        // notice published from any surface (docs/NOTIFICATIONS.md).
+        $this->notifications->announce((int) $id, (string) $request->title, $request->content, $storedCampusId);
 
         return response()->json([
             'success' => true,

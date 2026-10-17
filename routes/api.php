@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\ChurchAttendanceController;
 use App\Http\Controllers\Api\HomeController as ApiHomeController;
 use App\Http\Controllers\Api\MapController as ApiMapController;
 use App\Http\Controllers\Api\ChildrenChurchController;
+use App\Http\Controllers\Api\PublicAnnouncementController;
 use App\Http\Controllers\Api\WeekListController;
 
 // ==========================================
@@ -44,6 +45,14 @@ Route::post('/logout', [AuthController::class, 'logout']);
 // /api/test-db used to live here: it returned the member count and, on failure,
 // the raw database exception message to any anonymous caller. Use
 // `php artisan tinker` or the application log when you need to smoke-test the DB.
+
+// ==========================================
+// PUBLIC READ-ONLY ENDPOINTS (no token required)
+// ==========================================
+// The notice board for the church's public site (the Vercel build). Unlike
+// /notice in web.php this is anonymous, so it returns published announcements
+// only and never touches a member row. Rate limited by the `api` group.
+Route::get('/public/announcements', [PublicAnnouncementController::class, 'index']);
 
 // ==========================================
 // PROTECTED API ENDPOINTS (require token)
