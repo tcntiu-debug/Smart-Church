@@ -130,4 +130,40 @@ class PublicAnnouncementApiTest extends TestCase
             'The public feed must stay readable from the church website origin.'
         );
     }
+
+    /**
+     * The local test client skips the web server, but on cPanel the document
+     * root's .htaccess is what forwards a URL to Laravel - and its old
+     * `RewriteCond %{REQUEST_URI} !/public/` skipped every path that contained
+     * that segment. This endpoint therefore never reached the front controller
+     * on dev: LiteSpeed answered with its own 404 page. The guard now tests the
+     * path relative to the .htaccess, so only paths that already start with
+     * public/ are left alone.
+     */
+    public function test_the_document_root_rewrite_still_sends_this_url_to_laravel()
+    {
+        $htaccess = (string) file_get_contents(base_path('.htaccess'));
+
+        // The comments quote the old condition, so only the directives count.
+        $rules = implode("\n", array_filter(
+            preg_split('/\r\n|\r|\n/', $htaccess),
+            function ($line) {
+                return strpos(ltrim($line), '#') !== 0;
+            }
+        ));
+
+        $this->assertStringNotContainsString(
+            '!/public/',
+            $rules,
+            'A condition on /public/ anywhere in the URL swallows /api/public/announcements.'
+        );
+
+        $this->assertStringContainsString(
+            'RewriteRule ^public/ - [L]',
+            $rules,
+            'The root .htaccess must leave only paths that start with public/ alone.'
+        );
+
+        $this->getJson('/api/public/announcements?limit=1')->assertOk();
+    }
 }

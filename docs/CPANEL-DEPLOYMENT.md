@@ -521,6 +521,10 @@ older migration can abort a full run — see *Troubleshooting*.)
   `public/` before the `FilesMatch` deny is reached. The rule that matters is
   *never* `200` and never a directory listing — proof the `.htaccess` is protecting
   application code.
+- `https://your-domain.com/api/public/announcements?limit=1` returns **200** with
+  `{"success":true,...}`. It is the one route whose path contains the segment
+  `public`, so it also proves the rewrite still hands such URLs to Laravel rather
+  than answering with the web server's own 404 (`RewriteRule ^public/ - [L]`).
 - Upload a member photo; it appears under `public/display_photo` on the server.
 - **Actions** → the run shows green with a summary table.
 

@@ -84,6 +84,13 @@ selects `id, title, content, created_at, campus_id` only - no member or PII colu
 is ever read - and the answer carries `Cache-Control: public, max-age=60`.
 `config/cors.php` already answers `api/*` with `Access-Control-Allow-Origin: *`.
 
+The path itself is a hosting trap: it contains `/public/`, and the repository's
+root `.htaccess` (which turns the cPanel document root into a Laravel front
+controller) used to answer such paths with the web server's own 404, so the
+endpoint worked under `php artisan test` and 404'd on `dev.lit-grp.com`. The guard
+is now `RewriteRule ^public/ - [L]` - only paths that *start* with `public/` are
+left alone - and `PublicAnnouncementApiTest` reads the file to keep it that way.
+
 ## The bell's panel (and the feed behind it)
 
 The panel is `partials/notification-modal`, docked to the right edge by the

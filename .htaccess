@@ -14,12 +14,17 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # Leave requests that already resolve into public/ alone (prevents loops,
+    # and also makes subdirectory installs work). The test is the path relative
+    # to this file, so it fires for /public/assets/app.css on cPanel and for
+    # /Smart-Church/public/... on XAMPP - and *not* for a route that merely
+    # contains the segment "public", such as /api/public/announcements. The
+    # older `RewriteCond %{REQUEST_URI} !/public/` matched anywhere in the URL
+    # and sent that endpoint to the web server's own 404 before Laravel saw it.
+    RewriteRule ^public/ - [L]
+
     # Never intercept domain/SSL validation requests (AutoSSL, Let's Encrypt).
     RewriteCond %{REQUEST_URI} !^/\.well-known/
-
-    # Leave requests that already resolve into public/ alone (prevents loops,
-    # and also makes subdirectory installs work).
-    RewriteCond %{REQUEST_URI} !/public/
 
     # Everything else is handled by Laravel's front controller.
     RewriteRule ^(.*)$ public/$1 [L]
