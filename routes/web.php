@@ -363,6 +363,7 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     // Birthdays
     Route::get('/birthdays', [BirthdayController::class, 'index'])->name('birthdays.index');
     Route::get('/birthdays/filter', [BirthdayController::class, 'filter'])->name('birthdays.filter');
+    Route::get('/birthdays/status', [BirthdayController::class, 'status'])->name('birthdays.status');
     Route::post('/birthdays/send-wish', [BirthdayController::class, 'sendWish'])->name('birthdays.send-wish');
 
     // Notifications (in-app bell)

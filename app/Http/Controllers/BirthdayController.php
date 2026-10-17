@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Campus;
+use App\Services\BirthdayReminderService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 
 class BirthdayController extends Controller
@@ -19,13 +23,11 @@ class BirthdayController extends Controller
      */
     public function index()
     {
-        $user = Auth::user();
-        $memberRole = $user->member_role ?? '';
-        if (!in_array($memberRole, ['Super User', 'Admin', 'Admins', 'Workers'])) {
+        if (! $this->canManageReminders()) {
             return redirect('/aoverview')->with('error', 'Access Denied');
         }
 
-        // Get all birthdays from birthday table (filtered by user's campus)
+        $user = Auth::user();
         $campusId = $user->campus_id ?? 0;
         $birthdays = DB::table('birthday as b')
             ->join('tiu_member as m', 'b.tiu_member_id', '=', 'm.tiu_member_id')
@@ -86,6 +88,86 @@ class BirthdayController extends Controller
     }
 
     /**
+     * Reminder status and preview (see docs/BIRTHDAY-REMINDERS.md).
+     *
+     * Answers the questions a daily digest leaves behind on a shared host: did
+     * the scheduler run, what would today's digest contain, who would receive
+     * it, and is e-mail really leaving the server? The preview is the command's
+     * own --dry-run, so opening this page sends nothing and writes no log row.
+     */
+    public function status(BirthdayReminderService $service)
+    {
+        if (! $this->canManageReminders()) {
+            return redirect('/aoverview')->with('error', 'Access Denied');
+        }
+
+        $timezone = config('birthday.timezone', 'Africa/Lagos');
+        $today = $service->today();
+
+        $tables = [];
+        foreach (['birthday', 'tiu_member', 'birthday_reminder_logs', 'app_notifications'] as $table) {
+            $tables[$table] = Schema::hasTable($table);
+        }
+
+        // The dry run touches four tables; refuse it when one is missing rather
+        // than let the command create a table behind an admin's back.
+        if (in_array(false, $tables, true)) {
+            $dryRun = 'Skipped: the missing tables above have to exist before the preview can run (php artisan app:sync-schema).';
+        } else {
+            try {
+                Artisan::call('birthdays:remind', ['--dry-run' => true]);
+                $dryRun = trim(Artisan::output());
+            } catch (\Throwable $e) {
+                $dryRun = 'The dry run failed: '.$e->getMessage();
+            }
+        }
+
+        $logPath = storage_path('logs/birthday-reminders.log');
+        $logExists = is_file($logPath);
+        $logModified = $logExists ? Carbon::createFromTimestamp(filemtime($logPath))->timezone($timezone) : null;
+        $logTail = $logExists ? $this->tailLines($logPath) : [];
+
+        $recentLogs = $tables['birthday_reminder_logs']
+            ? DB::table('birthday_reminder_logs')
+                ->orderByDesc('sent_on')
+                ->orderByDesc('id')
+                ->limit(10)
+                ->get()
+            : collect();
+
+        $recipients = $tables['tiu_member']
+            ? $service->recipientsFor(Campus::defaultId())
+            : [];
+
+        $emailableRecipients = 0;
+        foreach ($recipients as $recipient) {
+            if (filter_var($recipient['email'] ?? '', FILTER_VALIDATE_EMAIL)) {
+                $emailableRecipients++;
+            }
+        }
+
+        $warnings = $this->reminderWarnings($logExists, $logModified, $today, $emailableRecipients);
+
+        $channels = array_values((array) config('birthday.channels', ['email']));
+
+        return view('birthdays.status', compact(
+            'timezone',
+            'today',
+            'tables',
+            'dryRun',
+            'logPath',
+            'logExists',
+            'logModified',
+            'logTail',
+            'recentLogs',
+            'recipients',
+            'emailableRecipients',
+            'warnings',
+            'channels'
+        ));
+    }
+
+    /**
      * Filter birthdays by month
      */
     public function filter(Request $request)
@@ -136,5 +218,88 @@ class BirthdayController extends Controller
             'message' => 'Opening WhatsApp...',
             'whatsapp_url' => "https://wa.me/{$phone}?text=" . urlencode($message)
         ]);
+    }
+
+    /**
+     * Birthday pages are for the staff that keeps them: the same four roles the
+     * sidebar link is shown to.
+     */
+    protected function canManageReminders(): bool
+    {
+        $role = Auth::user()->member_role ?? '';
+
+        return in_array($role, ['Super User', 'Admin', 'Admins', 'Workers'], true);
+    }
+
+    /**
+     * The things that silently stop a digest: no cron, a log mailer, nobody to
+     * send to.
+     *
+     * @return array<int, string>
+     */
+    protected function reminderWarnings(bool $logExists, ?Carbon $logModified, Carbon $today, int $emailableRecipients): array
+    {
+        $warnings = [];
+
+        if (! $logExists) {
+            $warnings[] = 'There is no storage/logs/birthday-reminders.log yet: the scheduler has never run birthdays:remind on this server. Check the cron entry below.';
+        } elseif ($logModified === null || $logModified->copy()->startOfDay()->lt($today->copy()->startOfDay())) {
+            $lastSeen = $logModified ? $logModified->format('D, d M Y g:i A') : 'an unknown date';
+            $warnings[] = 'The last run logged on '.$lastSeen.', before today - today\'s digest has not gone out yet.';
+        }
+
+        $mailer = (string) config('mail.default');
+        if (in_array($mailer, ['log', 'array'], true)) {
+            $warnings[] = 'MAIL_MAILER is "'.$mailer.'", so e-mail is written to a log instead of delivered. Set a real transport in .env.';
+        }
+
+        if (trim((string) config('mail.from.address')) === '') {
+            $warnings[] = 'MAIL_FROM_ADDRESS is empty; many mail servers reject a message without a sender.';
+        }
+
+        if (in_array('telegram', (array) config('birthday.channels', []), true)
+            && trim((string) config('birthday.telegram.bot_token', '')) === ''
+            && empty(array_filter((array) config('birthday.telegram.chat_ids', [])))) {
+            $warnings[] = 'The telegram channel is enabled but no bot token or chat ids are set, so those messages are skipped.';
+        }
+
+        if ($emailableRecipients === 0) {
+            $warnings[] = 'No reminder recipient has an e-mail address, so the e-mail channel would reach nobody.';
+        }
+
+        return $warnings;
+    }
+
+    /**
+     * The last lines of a log file without loading the whole thing (the digest
+     * log is appended to every day and never rotated).
+     *
+     * @return array<int, string>
+     */
+    protected function tailLines(string $path, int $lines = 60): array
+    {
+        $handle = @fopen($path, 'rb');
+
+        if ($handle === false) {
+            return [];
+        }
+
+        $size = (int) filesize($path);
+        $read = min($size, 16384);
+
+        if ($read > 0) {
+            fseek($handle, -$read, SEEK_END);
+        }
+
+        $contents = (string) fread($handle, $read);
+        fclose($handle);
+
+        $contents = trim($contents);
+
+        if ($contents === '') {
+            return [];
+        }
+
+        return array_slice(preg_split('/\r\n|\r|\n/', $contents), -$lines);
     }
 }

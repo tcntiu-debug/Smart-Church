@@ -16,6 +16,9 @@
                 </select>
             </div>
             <a href="{{ route('birthdays.index') }}" class="btn btn-sm btn-secondary">Reset</a>
+            <a href="{{ route('birthdays.status') }}" class="btn btn-sm btn-primary">
+                <i class="fas fa-bell"></i> Reminder status
+            </a>
         </form>
     </div>
     <div class="ms-panel-body">
