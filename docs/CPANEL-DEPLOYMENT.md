@@ -342,6 +342,51 @@ That single entry drives every entry in `app/Console/Kernel.php::schedule()` —
 `Africa/Lagos`. Use the same PHP binary as the post-deploy cron above. This is **separate** from the
 daily `app:post-deploy` cron: keep both.
 
+> **Production (`smartchurch.tcnikorodu.org`): this entry is the only thing that makes
+> scheduled work happen, and the deploy does not create it.** The publish pipeline is
+> SFTP-only — it has no shell — so on the production cPanel account (`tcnikoro`) nothing
+> runs by itself. Until the heartbeat exists there, `birthdays:remind`,
+> `app:sync-schema` and `firsttimers:auto-unassign` never fire, and the tables they own
+> (`app_notifications`, `birthday_reminder_logs`, `member_tracking_followup_archive`) are
+> never created either. Add it in cPanel → **Cron Jobs** of *that* account:
+>
+> ```
+> * * * * * /usr/local/bin/ea-php80 /home/tcnikoro/public_html/smartchurch.tcnikorodu.org/artisan schedule:run >> /dev/null 2>&1
+> ```
+>
+> Keep the dev entry too — dev needs the same heartbeat for its `03:20` `app:sync-schema`
+> after each deploy. Before saving, confirm the two things that fail silently because the
+> line throws its output away:
+>
+> ```bash
+> ls /home/tcnikoro/public_html/smartchurch.tcnikorodu.org/artisan   # path exists?
+> ls /usr/local/bin/ea-php*                                          # which binaries?
+> ```
+>
+> A wrong path or a missing binary writes `No such file or directory` to `/dev/null` and
+> looks exactly like "nothing was due". Verify the tick afterwards with
+> `php artisan schedule:list` in that directory (see *Verifying the cron is actually
+> alive* below).
+>
+> **Before the first production tick:**
+>
+> * Take a database backup (cPanel → **Backup** → *Download a Full Account Backup* or a
+>   database backup). The `03:20` `app:sync-schema` **drops the retired Transport / FOF
+>   tables and empties the campus columns** — that is intended, but not reversible without
+>   the backup.
+> * Fill in the mail settings in the production `.env` (`MAIL_MAILER`, `MAIL_HOST`,
+>   `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION`, `MAIL_FROM_ADDRESS`,
+>   `MAIL_FROM_NAME`). Use a mailbox on the domain: cPanel's Exim rejects a forged From.
+>   A failing mail does **not** abort the run — the reason lands in
+>   `birthday_reminder_logs.notes` and `storage/logs/laravel.log`, and the in-app bell
+>   (`database` channel) still gets the digest.
+> * Set `TELEGRAM_BOT_TOKEN` (and `BIRTHDAY_TELEGRAM_CHAT_IDS`, or `TELEGRAM_CHAT_ID`) only
+>   if the push channel is wanted.
+> * Once production sends for real, stop dev from notifying real people: set
+>   `BIRTHDAY_CHANNELS=database` in the **dev** `.env` (keeps the bell for testing, drops
+>   mail + Telegram) or remove the dev cron. The weekly `firsttimers:auto-unassign` on dev
+>   only touches the dev database, so it can stay.
+
 > **Do not leave this entry on *Once Per Day* (`0 0 * * *`).** The cron line is only the
 > heartbeat that wakes the scheduler — Laravel compares its own expression (`0 7 * * *`
 > in `Africa/Lagos`) on every tick and fires `birthdays:remind` only when they match. A
