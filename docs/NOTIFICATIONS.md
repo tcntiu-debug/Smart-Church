@@ -74,7 +74,7 @@ anonymous feed instead:
 ```json
 GET /api/public/announcements?limit=5&campus_id=1
 { "success": true, "count": 1, "data": [ { "id": 41, "title": "…",
-  "content": "…", "excerpt": "…", "posted_at": "2026-10-17T09:00:00+01:00",
+  "content": "…", "excerpt": "…", "posted_at": "2026-10-17T08:00:00+00:00",
   "posted_at_human": "Oct 17, 2026 9:00 AM", "campus_id": null, "campus": null } ],
   "meta": { "limit": 5, "generated_at": "…" } }
 ```
@@ -92,6 +92,11 @@ controller) used to answer such paths with the web server's own 404, so the
 endpoint worked under `php artisan test` and 404'd on `dev.lit-grp.com`. The guard
 is now `RewriteRule ^public/ - [L]` - only paths that *start* with `public/` are
 left alone - and `PublicAnnouncementApiTest` reads the file to keep it that way.
+
+The contract a front-end developer needs (fields, errors, CORS, a Next.js example
+and copy-paste test commands) is written out separately in
+[PUBLIC-ANNOUNCEMENTS-API.md](PUBLIC-ANNOUNCEMENTS-API.md).
+
 
 ## The bell's panel (and the feed behind it)
 
