@@ -5,8 +5,8 @@ The church website (the Vercel build) needs to show the same notices the app's
 This document is the contract for the supported way in: one anonymous, read-only
 endpoint.
 
-Everything below was checked against the **live dev deployment** on 17 Oct 2026
-(the sample responses are real ones).
+Everything below was checked against the **live deployments** — dev *and*
+production — on 17 Oct 2026 (the sample responses are real ones).
 
 ---
 
@@ -21,18 +21,22 @@ Everything below was checked against the **live dev deployment** on 17 Oct 2026
 Use **dev** until the page is signed off, then switch one constant in the site's
 environment to production. Nothing else changes — both run the same code.
 
-> **Production status check before you hand this over.** On 17 Oct 2026 the dev
-> host answered this URL with `200` and production still answered with the host's
-> own `404` page, because production had not yet taken the deploy that carries the
-> endpoint (and the `.htaccess` fix it needs). Confirm before telling the web
-> developer to point at production:
+> **Both hosts verified live on 17 Oct 2026, 19:48 UTC.** Production answers
+> `200`, `application/json`, `Cache-Control: max-age=60, public`,
+> `Access-Control-Allow-Origin: *`, and `422` for a bad `limit` — the same contract
+> as dev. Re-check at any time with:
 >
 > ```bash
 > curl -s -o /dev/null -w "%{http_code}\n" \
 >   https://smartchurch.tcnikorodu.org/api/public/announcements?limit=1
 > ```
 >
-> `200` = ready. A `404` that is **HTML** (not JSON) = not deployed yet.
+> `200` = ready. A `404` that is **HTML** (not JSON, `Server: LiteSpeed`, no
+> `charset`) = the host answered without reaching the app: either the deployed
+> build is not the one carrying the endpoint, or the root `.htaccess` is stale.
+> Production served exactly that for a few hours earlier the same day, because an
+> **older** deploy run was approved and overwrote the live folder with a build
+> from before the endpoint existed. See the first row of *Troubleshooting*.
 
 
 ## 2. Authentication, CORS, rate limit
