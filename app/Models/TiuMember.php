@@ -5,11 +5,17 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
 //use App\Traits\HasCampusScope;
 
 class TiuMember extends Authenticatable
 {
-    use HasFactory;
+    // `Notifiable` is what `CanResetPassword::sendPasswordResetNotification()`
+    // calls: it sends the mail with `$this->notify(new ResetPassword(...))`.
+    // Without it the "Forgot Password" request created a token and then died
+    // on `Call to undefined method ...::notify()`, so the modal showed
+    // "undefined" and no link was ever mailed.
+    use HasFactory, Notifiable;
     //use HasCampusScope;
     
     protected $table = 'tiu_member';

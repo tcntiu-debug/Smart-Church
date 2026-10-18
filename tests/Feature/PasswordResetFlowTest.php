@@ -4,6 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\TiuMember;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -71,5 +74,112 @@ class PasswordResetFlowTest extends TestCase
         );
 
         $response->assertSessionHasErrors('email');
+    }
+
+    /**
+     * The reset mail is sent by `CanResetPassword::sendPasswordResetNotification()`,
+     * which calls `$this->notify(new ResetPassword($token))`. `TiuMember` is the
+     * model behind `config('auth.providers.users')`, and without the `Notifiable`
+     * trait that call is a BadMethodCallException: the token is stored, the mail
+     * never leaves, and the modal can only report a 500.
+     */
+    public function test_the_member_model_can_send_notifications()
+    {
+        $this->assertTrue(
+            in_array(Notifiable::class, class_uses_recursive(TiuMember::class), true),
+            'App\Models\TiuMember must use the Notifiable trait or the password reset notification cannot be sent.'
+        );
+
+        $this->assertTrue(
+            method_exists(TiuMember::class, 'notify'),
+            'App\Models\TiuMember::notify() is what the reset notification calls.'
+        );
+    }
+
+    public function test_the_reset_notification_is_handed_to_the_member()
+    {
+        $member = TiuMember::query()->whereNotNull('email')->where('email', '<>', '')->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member with an e-mail address to send the notification to.');
+        }
+
+        Notification::fake();
+
+        $member->sendPasswordResetNotification('probe-token');
+
+        Notification::assertSentTo($member, ResetPassword::class, function (ResetPassword $notification) {
+            return $notification->token === 'probe-token';
+        });
+    }
+
+    /**
+     * The modal reads `errors.email[0]`, and it asks for JSON explicitly so a
+     * 419/500 carries a body too. The old handler read `responseJSON.email`,
+     * which Laravel never sends - hence the literal "undefined" in the modal.
+     */
+    public function test_an_unknown_address_is_reported_in_the_shape_the_modal_reads()
+    {
+        $response = $this->postJson(route('password.email'), [
+            'email' => 'nobody-' . uniqid() . '@example.invalid',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonStructure(['message', 'errors' => ['email']]);
+        $response->assertJsonPath('errors.email.0', "We can't find a user with that email address.");
+    }
+
+    public function test_the_login_page_reads_the_error_shape_laravel_sends()
+    {
+        $this->get('/')
+            ->assertStatus(200)
+            ->assertSee('json.errors.email', false)
+            ->assertSee('Accept', false);
+    }
+
+    /**
+     * A `log` (or `array`) mailer writes the message to a file instead of
+     * delivering it, so on production the request is refused. That refusal has
+     * to be logged at error level: production runs with LOG_LEVEL=error, and a
+     * warning about the one thing that stops the mail would never be written.
+     */
+    public function test_a_log_mailer_is_refused_with_an_error_log_on_production()
+    {
+        $this->withoutMiddleware();
+        $this->app['env'] = 'production';
+        config(['mail.default' => 'log']);
+
+        Log::spy();
+
+        $response = $this->postJson(route('password.email'), [
+            'email' => 'nobody@example.invalid',
+        ]);
+
+        $response->assertStatus(500);
+        $this->assertStringContainsString(
+            'could not send the reset e-mail',
+            (string) $response->json('message'),
+            'A log mailer must not be reported to the member as a sent link.'
+        );
+
+        Log::shouldHaveReceived('error')->once();
+    }
+
+    /**
+     * Production shipped without the `password_resets` table, so the broker threw
+     * before a mail could be built. `app:sync-schema` is what creates missing
+     * tables on the server (the deploy has no shell), so it has to know this one.
+     */
+    public function test_the_schema_sync_creates_the_password_reset_table()
+    {
+        $command = new \App\Console\Commands\SyncSchema();
+
+        $property = new \ReflectionProperty($command, 'requiredTables');
+        $property->setAccessible(true);
+
+        $tables = $property->getValue($command);
+
+        $this->assertArrayHasKey('password_resets', $tables);
+        $this->assertFileExists(base_path($tables['password_resets']));
     }
 }

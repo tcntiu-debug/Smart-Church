@@ -567,6 +567,13 @@ The app must be served from `https://smartchurch.tcnikorodu.org` while
    forgeable by anybody who knows a member's e-mail, and it never expires. A 301
    (not 302) is what makes the installed PWAs update their start URL. The
    Android/iOS apps rebuilt against the new host need nothing.
+
+   Two things on the server have to be right before that test means anything:
+   the `password_resets` table must exist (`php artisan app:sync-schema` creates
+   it - it is in the required-table list) and `MAIL_MAILER` must be a real
+   transport. With `MAIL_MAILER=log` the link is only written to
+   `storage/logs/laravel.log`, and on production the modal now refuses the
+   request instead of claiming the mail was sent. See `docs/PASSWORD-RESET.md`.
 3. Add `https://smartchurch.tcnikorodu.org` to the CORS / Sanctum allowed
    origins (`config/cors.php`, `config/sanctum.php`) if they list a host.
 4. Leave `tiu.tcnikorodu.org`'s DNS and certificate in place - the redirect needs

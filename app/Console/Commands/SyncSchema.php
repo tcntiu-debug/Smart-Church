@@ -33,6 +33,9 @@ class SyncSchema extends Command
      * @var array
      */
     protected $requiredTables = [
+        // "Forgot Password" stores its single-use token here; without the table
+        // the broker throws and the reset mail is never even built.
+        'password_resets' => 'database/migrations/2014_10_12_100000_create_password_resets_table.php',
         'birthday_reminder_logs' => 'database/migrations/2026_10_09_000001_create_birthday_reminder_logs_table.php',
         'app_notifications' => 'database/migrations/2026_10_09_000002_create_app_notifications_table.php',
         // Where the 8-week auto-unassign keeps the guide's work before the

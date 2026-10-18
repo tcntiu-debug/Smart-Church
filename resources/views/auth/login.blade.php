@@ -120,12 +120,12 @@
                         <i class="flaticon-secure-shield d-block"></i>
                         <h1>Forgot Password?</h1>
                         <p>Enter your email to recover your password</p>
-                        <div id="forgot-message"></div>
+                        <div id="forgot-message" aria-live="polite"></div>
                         <div class="ms-form-group has-icon">
-                            <input type="text" id="emailReset" placeholder="Email Address" class="form-control">
+                            <input type="email" id="emailReset" placeholder="Email Address" class="form-control" autocomplete="email">
                             <i class="material-icons">email</i>
                         </div>
-                        <button onclick="passwordReset()" type="button" class="btn btn-primary shadow-none">
+                        <button id="forgot-submit" onclick="passwordReset()" type="button" class="btn btn-primary shadow-none">
                             Reset Password
                         </button>
                     </div>
@@ -153,25 +153,52 @@
         });
 
         function passwordReset() {
-            var email = $("#emailReset").val();
+            var email = $.trim($("#emailReset").val());
             var messageDiv = $("#forgot-message");
-            
+            var button = $("#forgot-submit");
+
+            messageDiv.empty();
+
             if (!email) {
                 messageDiv.html('<div class="alert-custom">Please enter your email address</div>');
                 return;
             }
-            
+
+            // `Accept: application/json` is what makes Laravel answer with a JSON
+            // body even for a 419/500. Without it the reply is an HTML error page,
+            // `responseJSON` is undefined and the box below says "undefined".
+            button.prop('disabled', true).text('Sending...');
+
             $.ajax({
                 type: "POST",
                 url: "{{ route('password.email') }}",
+                headers: { "Accept": "application/json" },
                 data: { email: email, _token: "{{ csrf_token() }}" },
                 success: function(data) {
-                    messageDiv.html('<div class="alert-success-custom">Password reset link sent to your email!</div>');
+                    messageDiv.html('<div class="alert-success-custom">' +
+                        escapeHtml(data && data.message ? data.message : 'Password reset link sent to your email!') +
+                        '</div>');
                 },
                 error: function(xhr) {
-                    messageDiv.html('<div class="alert-custom">' + xhr.responseJSON?.email?.[0] || 'Email not found' + '</div>');
+                    var json = xhr.responseJSON || {};
+                    var reason = (json.errors && json.errors.email && json.errors.email[0]) || json.message;
+
+                    if (!reason && xhr.status === 419) {
+                        reason = 'Your session expired. Reload the page and try again.';
+                    }
+
+                    messageDiv.html('<div class="alert-custom">' +
+                        escapeHtml(reason || 'Something went wrong. Please try again.') +
+                        '</div>');
+                },
+                complete: function() {
+                    button.prop('disabled', false).text('Reset Password');
                 }
             });
+        }
+
+        function escapeHtml(value) {
+            return $('<div>').text(value).html();
         }
     </script>
 </body>

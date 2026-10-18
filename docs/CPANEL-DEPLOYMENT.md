@@ -311,9 +311,10 @@ php artisan app:post-deploy --migrate   # ...plus pending database migrations
 5. attempts `route:cache` and **warns instead of failing** if your routes cannot be
    serialised (see *Known issue* below);
 6. with `--migrate`, runs pending migrations using `--force`.
-7. always runs `app:sync-schema`, which creates the tables the code needs (notification
-   bell, birthday reminder log) and drops the tables of the retired Transport (bus route)
-   and standalone FOF modules — idempotent, see *Schema sync* below.
+7. always runs `app:sync-schema`, which creates the tables the code needs (password
+   reset tokens, notification bell, birthday reminder log) and drops the tables of the
+   retired Transport (bus route) and standalone FOF modules — idempotent, see
+   *Schema sync* below.
 
 ### If cPanel Terminal is not available
 
@@ -570,7 +571,7 @@ database are applied by `php artisan app:sync-schema` instead — it runs from t
 
 | What | Why it is needed | Result |
 |------|------------------|--------|
-| `birthday_reminder_logs`, `app_notifications` | created by the migrations that shipped with the birthday reminders and the notification bell | created when missing; a table that already exists is left untouched and its migration is recorded as applied, so a later `migrate` cannot abort with "table already exists" |
+| `password_resets`, `birthday_reminder_logs`, `app_notifications` | created by the migrations that shipped with the password reset flow, the birthday reminders and the notification bell | created when missing; a table that already exists is left untouched and its migration is recorded as applied, so a later `migrate` cannot abort with "table already exists" |
 | `transport_routes`, `transport_stops`, `bus_attendance`, `fof_cohort_setting`, `fof_register_table`, `fof_mark_attendance_table` plus the `tiu_member` transport foreign keys | the Transport (bus route) and standalone FOF modules were retired on 2026-05-25 | dropped (`dropIfExists` / guarded drops, so a re-run is a no-op) |
 
 The **files** of those retired modules are removed by the *Prune files deleted from the
