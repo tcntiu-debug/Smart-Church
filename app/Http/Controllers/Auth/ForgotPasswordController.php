@@ -160,6 +160,13 @@ class ForgotPasswordController extends Controller
             'exception' => get_class($e),
             'mailer' => config('mail.default'),
             'mail_host' => config('mail.mailers.' . config('mail.default') . '.host'),
+            'mail_port' => config('mail.mailers.' . config('mail.default') . '.port'),
+            // The mailbox, not the password: a one-character difference between
+            // `MAIL_USERNAME` and the mailbox that really exists is the usual
+            // reason for "Failed to authenticate on SMTP server", and it is only
+            // visible here - the modal never shows a reason.
+            'mail_username' => config('mail.mailers.' . config('mail.default') . '.username'),
+            'mail_encryption' => config('mail.mailers.' . config('mail.default') . '.encryption'),
             'from' => config('mail.from.address'),
         ]);
     }

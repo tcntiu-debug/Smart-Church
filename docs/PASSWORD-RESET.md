@@ -40,6 +40,21 @@ found'` then rendered the literal word **undefined** in the box.
 | modal JavaScript | sends `Accept: application/json`, shows `data.message`, reads `errors.email[0]`, ignores a second click while the request is in flight |
 | `app:sync-schema` | creates `password_resets` when it is missing (alongside the notification tables) |
 
+## The mailer
+
+This app is Laravel 8.83, so mail is sent by **SwiftMailer**
+(`vendor/swiftmailer`, required by `laravel/framework`) - not PHPMailer, and not
+PHP's `mail()`. `MAIL_MAILER` picks the transport:
+
+| `MAIL_MAILER` | What actually happens |
+|---|---|
+| `smtp` (recommended) | a real SMTP session to `MAIL_HOST:MAIL_PORT`, `EHLO` + `STARTTLS` (when `MAIL_ENCRYPTION=tls`, port 587), then `AUTH LOGIN` with `MAIL_USERNAME`/`MAIL_PASSWORD` |
+| `sendmail` | the message is piped to the server's own Exim (`MAIL_SENDMAIL_PATH`, `/usr/sbin/sendmail -t -i`) - no credentials, but the From must belong to the account |
+| `log` / `array` | nothing is delivered (written to `storage/logs/laravel.log` / held in memory) - refused on any `APP_ENV=production` host |
+
+There is no `mail` transport in Laravel 8; `MAIL_MAILER=mail` fails with
+`Unsupported mail transport [mail]`. Use `sendmail` for local submission.
+
 Every failure is logged with the mailer, host and From address:
 
 ```
@@ -133,6 +148,53 @@ Running it locally instead: `MAIL_MAILER=log` plus any `MAIL_FROM_ADDRESS` in th
 local `.env` writes the whole message (with the working reset link) to
 `storage/logs/laravel.log` and the modal reports success, since nothing leaves
 the machine. The local database already has `password_resets`.
+
+### "We could not send the reset e-mail just now" on dev
+
+The modal hides the reason on purpose. Read the one line the controller writes
+to `storage/logs/laravel.log` - in
+`/home/litgrpco/public_html/dev.lit-grp.com/storage/logs/laravel.log`, which
+File Manager can download (`/storage/...` is refused over HTTP by the root
+`.htaccess`). It starts with `Password reset link could not be sent to <address>:`
+and ends with the transport's own message:
+
+| The log line contains | Cause | Fix in the dev `.env` |
+|---|---|---|
+| `Base table or view not found ... password_resets` | the table was never created; dev has no shell, so `app:sync-schema` cannot be run there | run the `CREATE TABLE` above in phpMyAdmin |
+| `Failed to authenticate on SMTP server with username "noreply@lit-grp.com"` | no such mailbox, or the password is still `CHANGE-ME`. The mailbox created in cPanel is `no-reply@lit-grp.com` - **one hyphen apart** | `MAIL_USERNAME=no-reply@lit-grp.com` + that mailbox's password |
+| `Sender address rejected` / `550` | cPanel's Exim refuses a From that is not the authenticated mailbox | make `MAIL_FROM_ADDRESS` identical to `MAIL_USERNAME` |
+| `Connection could not be established with host "mail.lit-grp.com:587"` | wrong host/port, or TLS on the wrong port | `587` + `tls` (STARTTLS); `465` needs `ssl` |
+| `MAIL_MAILER is "log"` | a log mailer on a production-env host | use `smtp`; test `log` locally only |
+| `Could not resolve host` | `MAIL_HOST` typo, or DNS not yet propagated | `mail.lit-grp.com` |
+
+### Proving the token table exists without a shell
+
+Dev has no shell, so `app:sync-schema` cannot be run there. To tell "missing
+table" from "mail failed" without it, POST the reset form with a token that
+cannot be valid:
+
+- a **known** address answers `422 {"email":["This password reset token is invalid."]}`
+  - only possible after `password_resets` was queried, so the table exists;
+- an unknown address answers `We can't find a user...` **before** the table is
+  touched, so it proves nothing;
+- a `500` with `Base table or view not found ... password_resets` means the table
+  is missing - create it with the DDL above.
+
+No mail is sent by that probe and no password changes, because the token is
+rejected.
+
+No password at hand? Hand the message to the server's own Exim instead of an
+authenticated mailbox - same machine, so no credentials are involved:
+
+```dotenv
+MAIL_MAILER=sendmail
+MAIL_SENDMAIL_PATH="/usr/sbin/sendmail -t -i"
+MAIL_FROM_ADDRESS="no-reply@lit-grp.com"
+```
+
+Exim accepts that From because `lit-grp.com` is local to the account. A real
+authenticated mailbox (`smtp`) still has the better reputation for Gmail, so
+come back to it once the password is in.
 
 ## Tests
 

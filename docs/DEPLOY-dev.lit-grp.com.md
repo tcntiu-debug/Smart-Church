@@ -229,10 +229,10 @@ SESSION_LIFETIME=120
 MAIL_MAILER=smtp
 MAIL_HOST=mail.lit-grp.com
 MAIL_PORT=587
-MAIL_USERNAME=noreply@lit-grp.com
+MAIL_USERNAME=no-reply@lit-grp.com
 MAIL_PASSWORD=CHANGE-ME
 MAIL_ENCRYPTION=tls
-MAIL_FROM_ADDRESS="noreply@lit-grp.com"
+MAIL_FROM_ADDRESS="no-reply@lit-grp.com"
 MAIL_FROM_NAME="${APP_NAME}"
 
 TELEGRAM_BOT_TOKEN=
@@ -240,6 +240,17 @@ TELEGRAM_CHAT_ID=
 
 PHP_MEMORY_LIMIT=512M
 ```
+
+   The mailbox has to exist **before** the first send: cPanel -> **Email
+   Accounts** -> *Add Email Account* -> `no-reply@lit-grp.com`, then put that
+   mailbox's password in `MAIL_PASSWORD`. `MAIL_USERNAME` and
+   `MAIL_FROM_ADDRESS` must be the **same** address - cPanel's Exim rejects a
+   forged From, and the SMTP login fails outright for a mailbox that does not
+   exist (the earlier template said `noreply@lit-grp.com`, one hyphen away from
+   the real `no-reply@lit-grp.com`). If the password is not at hand, either
+   reset it in **Email Accounts** -> *Manage* -> *Password*, or hand the mail to
+   the server's own Exim with `MAIL_MAILER=sendmail` (see
+   `docs/PASSWORD-RESET.md` -> *"We could not send the reset e-mail just now" on dev*).
 
 4. Generate the app key. The account has **no shell**, so cPanel **Terminal** will not work.
    Generate the key on your **local** machine and paste it in:

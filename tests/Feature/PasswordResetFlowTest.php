@@ -182,4 +182,46 @@ class PasswordResetFlowTest extends TestCase
         $this->assertArrayHasKey('password_resets', $tables);
         $this->assertFileExists(base_path($tables['password_resets']));
     }
+
+    /**
+     * The modal never shows a reason, so the log line is the only evidence of
+     * what a failed send actually tried. It has to name the mailbox, the host,
+     * the port and the encryption: dev's template shipped
+     * `MAIL_USERNAME=noreply@lit-grp.com` while the mailbox that exists is
+     * `no-reply@lit-grp.com`, and that one hyphen is invisible anywhere else.
+     */
+    public function test_a_failed_send_logs_the_mailbox_it_used()
+    {
+        config([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.host' => 'mail.lit-grp.com',
+            'mail.mailers.smtp.port' => 587,
+            'mail.mailers.smtp.username' => 'no-reply@lit-grp.com',
+            'mail.mailers.smtp.encryption' => 'tls',
+            'mail.from.address' => 'no-reply@lit-grp.com',
+        ]);
+
+        Log::spy();
+
+        $controller = new \App\Http\Controllers\Auth\ForgotPasswordController();
+        $method = new \ReflectionMethod($controller, 'logFailure');
+        $method->setAccessible(true);
+
+        $method->invoke(
+            $controller,
+            \Illuminate\Http\Request::create('/password/email', 'POST', ['email' => 'member@example.com']),
+            new \RuntimeException('Failed to authenticate on SMTP server with username "noreply@lit-grp.com"')
+        );
+
+        Log::shouldHaveReceived('error')
+            ->once()
+            ->withArgs(function ($message, $context = []) {
+                return strpos($message, 'member@example.com') !== false
+                    && ($context['mail_username'] ?? null) === 'no-reply@lit-grp.com'
+                    && ($context['mail_host'] ?? null) === 'mail.lit-grp.com'
+                    && (int) ($context['mail_port'] ?? 0) === 587
+                    && ($context['mail_encryption'] ?? null) === 'tls'
+                    && ($context['mailer'] ?? null) === 'smtp';
+            });
+    }
 }
