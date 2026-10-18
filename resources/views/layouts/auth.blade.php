@@ -16,7 +16,7 @@
          page can raise Swal.fire() on its own - the registration forms report
          every validation error that way. --}}
     <link href="{{ asset('assets/css/sweetalert2.min.css') }}" rel="stylesheet">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon.ico') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('icons/icon-32.png') }}">
 
     <style>
         /* .ms-auth is sized for the login card (height:100vh), but a guest page

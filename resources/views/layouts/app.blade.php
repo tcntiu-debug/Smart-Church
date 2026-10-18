@@ -12,13 +12,13 @@
     <link href="{{ asset('assets/css/style.css') }}" rel="stylesheet">
     <link href="{{ asset('assets/css/style2.css') }}" rel="stylesheet">
     <link href="{{ asset('assets/css/theme-toggle.css') }}" rel="stylesheet">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon.ico') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('icons/icon-32.png') }}">
 
     {{-- Installable app (PWA): manifest + icons, driven by partials/pwa-install-button
          and public/service-worker.js - see docs/PWA.md. --}}
     <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
     <meta name="theme-color" content="#F97316">
-    <link rel="apple-touch-icon" href="{{ asset('icons/icon-192.png') }}">
+    <link rel="apple-touch-icon" href="{{ asset('icons/icon-192-v2.png') }}">
 </head>
 <style>
     /* Fix for accordion button hover - make text visible */
@@ -564,7 +564,7 @@
                 panelLimit: 30,
                 pollSeconds: {{ (int) config('notifications.poll_seconds', 60) }},
                 enabled: {{ config('notifications.enabled', true) ? 'true' : 'false' }},
-                icon: '{{ asset('icons/icon-192.png') }}'
+                icon: '{{ asset('icons/icon-192-v2.png') }}'
             };
         </script>
         <script src="{{ asset('assets/js/notifications.js') }}"></script>

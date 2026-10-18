@@ -11,8 +11,9 @@ involved.
 | Piece | Responsibility |
 |-------|----------------|
 | `public/manifest.webmanifest` | Name, icons, `start_url` (`/home`), `display: standalone`, brand colours and three shortcuts (Home Dashboard, Week List, Notifications). |
-| `public/icons/icon-192.png`, `public/icons/icon-512.png` | The launcher icons (orange `#F97316` tile with the TIU logo). |
-| `public/icons/maskable-512.png` | Android adaptive icon: the logo sits inside the safe zone so a round/squircle mask does not clip it. |
+| `public/icons/icon-192-v2.png`, `public/icons/icon-512-v2.png` | The launcher icons: the TIU crest alone (no wordmark) on the orange `#F97316` tile. |
+| `public/icons/maskable-512-v2.png` | Android adaptive icon: the crest sits inside the safe zone so a round/squircle mask does not clip it. |
+| `public/icons/icon-32.png`, `public/favicon.ico` | Tab icon (`<link rel="icon">`) and the 16+32 `.ico` a browser requests from the site root. |
 | `public/service-worker.js` | Registered by the layout. A network-only `fetch` handler (unintercepted, nothing cached), plus `notificationclick` handling. Chrome/Edge only offer "Install app" — and only let a page raise a system notification — on an HTTPS origin that has a worker with a `fetch` handler. |
 | `resources/views/layouts/app.blade.php` | Links the manifest, sets `<meta name="theme-color">` and the Apple touch icon, registers the worker and captures `beforeinstallprompt` into `window.tiuInstallPrompt` (raising `tiu:install-available`). |
 | `resources/views/partials/pwa-install-button.blade.php` | The button. Include it with `@include('partials.pwa-install-button')`. |
@@ -42,31 +43,39 @@ involved.
 
 ## Regenerating the icons
 
-The icons are rendered from `public/assets/img/tiupix/tiupix-logo.png` (812×305).
-If the logo changes, re-run this on Windows PowerShell:
+The icons come from `public/assets/img/tiupix/tiupix-logo.png` (812×305), which is
+a lock-up: the crest on the left, the "TCN IKORODU SMART CHURCH" wordmark on the
+right. A launcher icon is drawn at 48–192 px on a phone, so the wordmark would be
+a smudge — the icons show the crest alone, cropped off the left of the logo
+(`-CrestWidth`, default `0.41` = the 333 px before the "S" of SMART starts) and
+centred on the `#F97316` brand tile.
+
+Do not hand-draw the icons. From the repository root:
 
 ```powershell
-Add-Type -AssemblyName System.Drawing
-$src = 'public\assets\img\tiupix\tiupix-logo.png'
-$out = 'public\icons'
-$logo = [System.Drawing.Image]::FromFile((Resolve-Path $src))
-function New-Icon([int]$size, [string]$file, [double]$scale) {
-    $bmp = New-Object System.Drawing.Bitmap($size, $size)
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.Clear([System.Drawing.Color]::FromArgb(249, 115, 22))
-    $ratio = [Math]::Min(($size * $scale) / $logo.Width, ($size * $scale * 0.55) / $logo.Height)
-    $w = [int]($logo.Width * $ratio); $h = [int]($logo.Height * $ratio)
-    $g.DrawImage($logo, [int](($size - $w) / 2), [int](($size - $h) / 2), $w, $h)
-    $g.Dispose(); $bmp.Save($file, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
-}
-New-Icon 192 "$out\icon-192.png" 0.86
-New-Icon 512 "$out\icon-512.png" 0.86
-New-Icon 512 "$out\maskable-512.png" 0.62
+powershell -ExecutionPolicy Bypass -File scripts\make-pwa-icons.ps1
 ```
 
-Any square PNGs will do as well — keep one at 192×192 and one at 512×512, plus a
-`maskable` twin whose artwork stays inside the middle 80% of the canvas.
+It writes `icon-192-v2.png`, `icon-512-v2.png`, `maskable-512-v2.png` (artwork kept
+inside the middle 80 %, so Android's round/squircle mask cannot clip the crest),
+`icon-32.png` for `<link rel="icon">` and a 16+32 `public/favicon.ico`.
+
+**Bump the version suffix whenever the artwork changes.** Browsers — and already
+installed apps — cache an icon by its URL, so rewriting a file in place keeps
+showing the old picture. Generate a new name and update every place that names the
+icons:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\make-pwa-icons.ps1 -Suffix '-v3'
+```
+
+- `public/manifest.webmanifest` — the `icons` array and the three shortcuts
+- `resources/views/layouts/app.blade.php` — `apple-touch-icon` and the notification icon
+- `tests/Feature/ProgressiveWebAppTest.php` — asserts the dashboard links the icon
+
+Delete the previous suffix once the new one is live. A phone that already has the
+app installed may need it removed and re-installed before the launcher shows the
+new artwork, because Android snapshots the icon at install time.
 
 ## Verifying an install
 

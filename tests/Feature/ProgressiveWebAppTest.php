@@ -63,7 +63,7 @@ class ProgressiveWebAppTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('rel="manifest"', false);
         $response->assertSee('manifest.webmanifest', false);
-        $response->assertSee('icons/icon-192.png', false);
+        $response->assertSee('icons/icon-192-v2.png', false);
         $response->assertSee('service-worker.js', false);
         $response->assertSee('beforeinstallprompt', false);
         $response->assertSee('data-pwa-install', false);
