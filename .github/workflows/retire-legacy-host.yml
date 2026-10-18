@@ -81,6 +81,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # The deployable tree lives on main. The repository's default branch is
+          # a stale master, so a run started from the wrong branch in the
+          # "Use workflow from" dropdown still gets the right files.
+          ref: main
 
       - name: What this run touches
         run: |
