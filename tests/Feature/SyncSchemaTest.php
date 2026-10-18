@@ -13,10 +13,12 @@ use Tests\TestCase;
  *
  *   1. create the tables the shipped code needs (the notification bell and the
  *      birthday reminder log);
- *   2. retire the Transport (bus route) and standalone FOF program - dropping
+ *   2. add the columns the code writes to tables that already existed (the
+ *      password reset's `tiu_member.remember_token`);
+ *   3. retire the Transport (bus route) and standalone FOF program - dropping
  *      their tables, the tiu_member transport foreign keys and the files/routes
  *      that belonged to them;
- *   3. retire the campus_id columns of the church (single campus mode): make them
+ *   4. retire the campus_id columns of the church (single campus mode): make them
  *      nullable, then empty the data that no row is written with any more.
  *
  * Deliberately no RefreshDatabase: the suite runs against the application's real
@@ -32,6 +34,17 @@ class SyncSchemaTest extends TestCase
     protected $requiredTables = [
         'birthday_reminder_logs',
         'app_notifications',
+    ];
+
+    /**
+     * Columns the code needs after the sync, as table => column. A missing one
+     * does not stop a page from rendering - it stops the write that mentions it,
+     * which is how the password reset 500'd.
+     *
+     * @var array<string, string>
+     */
+    protected $requiredColumns = [
+        'tiu_member' => 'remember_token',
     ];
 
     /**
@@ -62,6 +75,7 @@ class SyncSchemaTest extends TestCase
         '2026_05_25_000004_drop_fof_tables',
         '2026_10_14_000002_make_campus_id_nullable',
         '2026_10_14_000003_retire_the_campus_id_data',
+        '2026_10_18_000001_add_remember_token_to_tiu_member_table',
     ];
 
     /**
@@ -100,6 +114,23 @@ class SyncSchemaTest extends TestCase
             $this->assertTrue(
                 Schema::hasTable($table),
                 "The table the code needs ({$table}) is missing."
+            );
+        }
+    }
+
+    /**
+     * Columns the shipped code needs exist after the sync. `tiu_member` existed
+     * long before Laravel's auth did, so `remember_token` was never created - and
+     * the password reset writes it before it saves.
+     */
+    public function test_required_columns_exist()
+    {
+        $this->artisan('app:sync-schema')->assertExitCode(0);
+
+        foreach ($this->requiredColumns as $table => $column) {
+            $this->assertTrue(
+                Schema::hasColumn($table, $column),
+                "The column the code writes ({$table}.{$column}) is missing."
             );
         }
     }

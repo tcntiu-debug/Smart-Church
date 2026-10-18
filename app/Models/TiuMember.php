@@ -57,7 +57,10 @@ class TiuMember extends Authenticatable
         'campus_id'
     ];
     
-    protected $hidden = ['password'];
+    // `remember_token` belongs beside `password` now that the column exists
+    // (2026_10_18_000001): a token that leaks in a JSON response is a session
+    // somebody else can reuse.
+    protected $hidden = ['password', 'remember_token'];
     
     // ==========================================
     // RELATIONSHIPS

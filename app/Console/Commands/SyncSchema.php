@@ -22,7 +22,7 @@ class SyncSchema extends Command
      *
      * @var string
      */
-    protected $description = 'Bring the server database in step with the deployed code: create the notification tables, retire the Transport / FOF tables and the campus data';
+    protected $description = 'Bring the server database in step with the deployed code: create the tables and columns the code writes, retire the Transport / FOF tables and the campus data';
 
     /**
      * Tables the code needs but the SFTP-only deploy pipeline cannot create (it
@@ -41,6 +41,25 @@ class SyncSchema extends Command
         // Where the 8-week auto-unassign keeps the guide's work before the
         // follow-up row is deleted (see /weeklist/guide-history).
         'member_tracking_followup_archive' => 'database/migrations/2026_10_14_000001_create_member_tracking_followup_archive_table.php',
+    ];
+
+    /**
+     * Columns the code needs on tables that already existed, mapped to the
+     * migration that adds them.
+     *
+     * A missing column is quieter than a missing table - every page still
+     * renders; only the statement that writes the column fails with
+     * "Unknown column ... in 'field list'". `tiu_member.remember_token` is the
+     * password reset: `ResetsPasswords` sets it before `save()`, so without the
+     * column the reset form answered 500 and the new password was never stored
+     * (a "remember me" login died on the same UPDATE).
+     *
+     * @var array<string, array<string, string>>
+     */
+    protected $requiredColumns = [
+        'tiu_member' => [
+            'remember_token' => 'database/migrations/2026_10_18_000001_add_remember_token_to_tiu_member_table.php',
+        ],
     ];
 
     /**
@@ -121,6 +140,14 @@ class SyncSchema extends Command
             }
         }
 
+        foreach ($this->requiredColumns as $table => $columns) {
+            foreach ($columns as $column => $migration) {
+                if (! $this->ensureColumn($table, $column, $migration)) {
+                    $failed++;
+                }
+            }
+        }
+
         $this->newLine();
         $this->table(['Table the code needs', 'State'], array_map(function ($table) {
             return [$table, Schema::hasTable($table) ? 'present' : 'MISSING'];
@@ -135,6 +162,8 @@ class SyncSchema extends Command
 
             return [$name, $this->isRecorded($name) ? 'applied' : 'PENDING'];
         }, $this->alterMigrations));
+
+        $this->table(['Column the code needs', 'State'], $this->columnStates());
 
         if ($this->option('dry-run')) {
             $this->info('Dry run: nothing was changed.');
@@ -199,6 +228,77 @@ class SyncSchema extends Command
         }
 
         return $this->applyMigration($name, $migration);
+    }
+
+    /**
+     * Make sure $table.$column exists, applying $migration for it when it does not.
+     *
+     * Same contract as ensureTable(): a column that is already there is never
+     * touched, and its migration is recorded as applied, so a later `migrate` run
+     * cannot try to add it a second time (or fail on a database where somebody
+     * added it by hand through phpMyAdmin).
+     *
+     * @param  string  $table
+     * @param  string  $column
+     * @param  string  $migration
+     * @return bool
+     */
+    protected function ensureColumn($table, $column, $migration)
+    {
+        $name = pathinfo($migration, PATHINFO_FILENAME);
+        $path = base_path($migration);
+
+        if (! is_file($path)) {
+            $this->warn(" - {$name}: file not found, skipped");
+
+            return false;
+        }
+
+        if (Schema::hasTable($table) && Schema::hasColumn($table, $column)) {
+            if ($this->option('dry-run')) {
+                $this->line(" - {$name}: {$table}.{$column} already present");
+
+                return true;
+            }
+
+            if ($this->isRecorded($name)) {
+                $this->line(" - {$name}: already applied earlier");
+            } else {
+                $this->recordAsApplied($name);
+                $this->line(" - {$name}: {$table}.{$column} already present, migration recorded as applied");
+            }
+
+            return true;
+        }
+
+        if ($this->option('dry-run')) {
+            $this->line(" - {$name}: would be applied (adds {$table}.{$column})");
+
+            return true;
+        }
+
+        return $this->applyMigration($name, $migration);
+    }
+
+    /**
+     * One row per required column, for the deployment log.
+     *
+     * @return array<int, array<int, string>>
+     */
+    protected function columnStates()
+    {
+        $rows = [];
+
+        foreach ($this->requiredColumns as $table => $columns) {
+            foreach (array_keys($columns) as $column) {
+                $rows[] = [
+                    "{$table}.{$column}",
+                    Schema::hasTable($table) && Schema::hasColumn($table, $column) ? 'present' : 'MISSING',
+                ];
+            }
+        }
+
+        return $rows;
     }
 
     /**

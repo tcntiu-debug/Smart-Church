@@ -92,6 +92,7 @@ cd ~/public_html/smartchurch.tcnikorodu.org
 php artisan config:clear
 php artisan app:sync-schema            # creates password_resets when missing
 php artisan tinker --execute="var_dump(Schema::hasTable('password_resets'));"
+php artisan tinker --execute="var_dump(Schema::hasColumn('tiu_member', 'remember_token'));"
 ```
 
 Then use the modal once with a real member address, and if no mail arrives:
@@ -212,12 +213,56 @@ Exim accepts that From because `lit-grp.com` is local to the account. A real
 authenticated mailbox (`smtp`) still has the better reputation for Gmail, so
 come back to it once the password is in.
 
+### "Server Error" after submitting the new password
+
+The token page loads and the form posts, then the answer is a 500 and the password
+is still the old one. `storage/logs/laravel.log` says:
+
+```text
+SQLSTATE[42S22]: Column not found: 1054 Unknown column 'remember_token' in 'field list'
+```
+
+`tiu_member` came from the legacy schema and never had Laravel's `remember_token`
+column (`2026_04_28_000005` creates the table without it). Nothing *reads* it, so
+every page keeps rendering - the failure is on the write.
+`ResetsPasswords::reset()` calls `setRememberToken(Str::random(60))` before
+`save()`, so the UPDATE names a column MySQL cannot find and the whole statement,
+new password included, is rejected. The single-use token has already been deleted
+at that point, so the same link cannot be retried; the login form's **remember me**
+checkbox died on the very same UPDATE.
+
+The fix is the column, not the form:
+
+```bash
+php artisan migrate            # 2026_10_18_000001_add_remember_token_to_tiu_member_table
+php artisan app:sync-schema    # hosts without a shell: applies the same one file
+```
+
+Dev has no shell, so run this in cPanel > **phpMyAdmin** >
+`litgrpco_smart_church_db` > **SQL** instead - exactly what the migration creates,
+and safe to run twice:
+
+```sql
+ALTER TABLE `tiu_member`
+  ADD COLUMN `remember_token` VARCHAR(100) NULL DEFAULT NULL AFTER `password`;
+```
+
+The reset page then redirects to `/home` signed in, and phpMyAdmin shows the
+60-character `remember_token` on that member. `app:sync-schema` also records the
+migration, so a later `php artisan migrate` does not try to add the column again.
+
 ## Tests
 
 `tests/Feature/PasswordResetFlowTest.php` pins the flow: the reset route the
 notification builds, the modal pointing at an existing route, `TiuMember` having
 `Notifiable`/`notify()`, the notification being dispatched to a member, the
 `errors.email[0]` shape the modal reads, a `log` mailer being refused *and*
-logged as an error on production, and `password_resets` being in
-`app:sync-schema`'s required tables. The tests are read-only - no token rows are
-written by the suite.
+logged as an error on production, `password_resets` being in
+`app:sync-schema`'s required tables, and the reset submission itself: the
+`remember_token` column existing, the UPDATE a reset runs being accepted, and the
+whole `POST /password/reset` storing the new password. That last trio writes
+inside a transaction that is always rolled back, so the suite changes nothing -
+no token rows, no passwords, no remember tokens are left behind.
+
+`tests/Feature/SyncSchemaTest.php` covers `app:sync-schema` itself, including
+`tiu_member.remember_token` as a required column and its migration being recorded.

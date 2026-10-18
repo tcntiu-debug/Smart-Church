@@ -3,11 +3,16 @@
 namespace Tests\Feature;
 
 use App\Models\TiuMember;
+use App\Providers\RouteServiceProvider;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -19,8 +24,9 @@ use Tests\TestCase;
  * of mailing anything. These tests pin the whole flow down - the sender, the
  * link, the form the link opens - not just the endpoint that looks wired.
  *
- * Read-only: no RefreshDatabase, no writes. The one POST uses an address that
- * cannot exist, so nothing is mailed.
+ * Read-only apart from one transaction that is always rolled back: no
+ * RefreshDatabase (the suite runs against the application's real connection).
+ * The one POST uses an address that cannot exist, so nothing is mailed.
  */
 class PasswordResetFlowTest extends TestCase
 {
@@ -260,5 +266,129 @@ class PasswordResetFlowTest extends TestCase
                     && ($context['mail_encryption'] ?? null) === 'tls'
                     && ($context['mailer'] ?? null) === 'smtp';
             });
+    }
+
+    /**
+     * `tiu_member` is the auth table, but it was created from the legacy schema
+     * and never had Laravel's `remember_token` column. Nothing reads it, so the
+     * gap only shows up on a write: `ResetsPasswords::reset()` calls
+     * `setRememberToken()` before `save()`, MySQL then rejects the whole UPDATE
+     * with "Unknown column 'remember_token' in 'field list'", the reset form
+     * answers 500 - and the single-use token is already gone, so the member
+     * cannot even retry with the same link.
+     */
+    public function test_the_member_table_has_the_remember_token_column_auth_writes()
+    {
+        if (! Schema::hasTable('tiu_member')) {
+            $this->markTestSkipped('The tiu_member table does not exist on this connection.');
+        }
+
+        $this->assertTrue(
+            Schema::hasColumn('tiu_member', 'remember_token'),
+            'tiu_member has no remember_token column: every password reset (and every "remember me" '
+            . "login) dies on \"Unknown column ... in 'field list'\". Run `php artisan migrate`, or "
+            . '`php artisan app:sync-schema` on a host that has no shell.'
+        );
+    }
+
+    /**
+     * The statement that failed, reproduced: the model update a reset makes. It
+     * runs in a transaction that is always rolled back, so no member keeps the
+     * probe token and no password changes.
+     */
+    public function test_the_update_a_password_reset_runs_is_accepted()
+    {
+        $member = TiuMember::query()->whereNotNull('email')->where('email', '<>', '')->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member with an e-mail address to try the reset write on.');
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $member->setRememberToken(Str::random(60));
+
+            $this->assertTrue(
+                $member->save(),
+                'The UPDATE a password reset runs was rejected by the database.'
+            );
+
+            $this->assertNotNull(
+                DB::table('tiu_member')->where('tiu_member_id', $member->getKey())->value('remember_token'),
+                'The remember_token a reset writes was not stored.'
+            );
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    /**
+     * The whole submission the member makes, through the controller the form
+     * posts to - this is the request that answered "Server Error". A real token
+     * row is created, the form is posted and the stored hash is checked; the
+     * transaction is always rolled back, so the member's password and tokens are
+     * left exactly as they were.
+     */
+    public function test_submitting_the_reset_form_stores_the_new_password()
+    {
+        $member = TiuMember::query()->whereNotNull('email')->where('email', '<>', '')->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member with an e-mail address to reset.');
+        }
+
+        $token = Str::random(64);
+        $password = 'Probe-password-123!';
+
+        DB::beginTransaction();
+
+        try {
+            DB::table('password_resets')->where('email', $member->email)->delete();
+            DB::table('password_resets')->insert([
+                'email' => $member->email,
+                'token' => Hash::make($token),
+                'created_at' => now(),
+            ]);
+
+            $response = $this->post(route('password.update'), [
+                'token' => $token,
+                'email' => $member->email,
+                'password' => $password,
+                'password_confirmation' => $password,
+            ]);
+
+            $response->assertSessionHasNoErrors();
+            $response->assertRedirect(RouteServiceProvider::HOME);
+
+            $this->assertTrue(
+                Hash::check($password, (string) DB::table('tiu_member')
+                    ->where('tiu_member_id', $member->getKey())
+                    ->value('password')),
+                'The reset form answered, but the new password was not stored.'
+            );
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    /**
+     * The column has to be reachable from `app:sync-schema`, not only from
+     * `migrate`: the dev and production hosts are deployed over SFTP and their
+     * schema is brought in step by that command (docs/PASSWORD-RESET.md).
+     */
+    public function test_the_schema_sync_can_add_the_remember_token_column()
+    {
+        $property = new \ReflectionProperty(\App\Console\Commands\SyncSchema::class, 'requiredColumns');
+        $property->setAccessible(true);
+
+        $columns = $property->getValue(new \App\Console\Commands\SyncSchema());
+
+        $this->assertArrayHasKey(
+            'remember_token',
+            $columns['tiu_member'] ?? [],
+            'app:sync-schema does not know about tiu_member.remember_token, so the SFTP-only hosts cannot be fixed.'
+        );
+        $this->assertFileExists(base_path($columns['tiu_member']['remember_token']));
     }
 }
