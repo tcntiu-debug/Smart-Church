@@ -13,6 +13,17 @@ The broker is the framework's: `config/auth.php` points `passwords.users` at the
 `reset-password.php?reset-token=...` scheme is used - that token was
 `openssl_encrypt(email, 'AES-128-ECB', 'password')`, forgeable and non-expiring.
 
+## What the link opens
+
+`auth.passwords.reset` (and the `password.request` page at `GET /password/reset`)
+extend `layouts.auth` - the bare, logged-out shell `/mregister` uses - not
+`layouts.app`. The link is opened by a visitor who is *not* signed in, usually on
+a phone straight out of a mail client, so the page must not arrive wrapped in the
+dashboard: no left menu, no welcome name, no notification bell (every link in
+that menu only bounces to the login page, and the chrome itself looks like the
+link signed the visitor in). `PasswordResetFlowTest` fails if `ms-side-nav` or
+`ms-aside-left-open` reappears on either page.
+
 ## Why the modal used to say "undefined"
 
 The request failed, and the failure had two separate causes:
@@ -55,11 +66,16 @@ PHP's `mail()`. `MAIL_MAILER` picks the transport:
 There is no `mail` transport in Laravel 8; `MAIL_MAILER=mail` fails with
 `Unsupported mail transport [mail]`. Use `sendmail` for local submission.
 
-Every failure is logged with the mailer, host and From address:
+Every failure is logged with the mailer, host, port, mailbox, encryption and
+From address - the password is never logged:
 
 ```
-Password reset link could not be sent to member@example.com: Connection could not be established with host "mail.example.com:587"
+Password reset link could not be sent to member@example.com: Failed to authenticate on SMTP server with username "noreply@example.com"
+{"mailer":"smtp","mail_host":"mail.example.com","mail_port":587,"mail_username":"noreply@example.com","mail_encryption":"tls","from":"no-reply@example.com"}
 ```
+
+The `mail_username` in that line is what identifies the most common cause: a
+mailbox name that differs from the one that exists (`noreply@` vs `no-reply@`).
 
 **The reason is deliberately not shown to the member** - the modal only says the
 mail could not be sent and to contact the church office. Read

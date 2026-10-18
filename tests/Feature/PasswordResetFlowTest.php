@@ -61,6 +61,43 @@ class PasswordResetFlowTest extends TestCase
             ->assertSee('probe-token');
     }
 
+    /**
+     * The link opens for somebody who is not signed in, on a phone, out of a
+     * mail client. It used to extend layouts.app, so the form arrived inside the
+     * dashboard - left menu, welcome name, bell - and every link in that menu
+     * only bounces to the login page. Guest pages use layouts.auth (the shell
+     * /mregister uses): `ms-logged-out` on <body>, and no `<aside id="ms-side-nav">`.
+     */
+    public function test_the_reset_form_the_mail_links_to_has_no_dashboard_chrome()
+    {
+        $response = $this->get(route('password.reset', ['token' => 'probe-token', 'email' => 'member@example.com']));
+
+        $response->assertStatus(200);
+        $response->assertSee('ms-logged-out', false);
+        $response->assertDontSee('ms-side-nav', false);
+        $response->assertDontSee('ms-aside-left-open', false);
+        $response->assertDontSee('ms-navbar', false);
+    }
+
+    public function test_the_link_request_page_has_no_dashboard_chrome_either()
+    {
+        $response = $this->get(route('password.request'));
+
+        $response->assertStatus(200);
+        $response->assertSee('ms-logged-out', false);
+        $response->assertDontSee('ms-side-nav', false);
+        $response->assertDontSee('ms-aside-left-open', false);
+    }
+
+    public function test_the_reset_form_posts_the_token_it_was_opened_with()
+    {
+        $this->get(route('password.reset', ['token' => 'probe-token', 'email' => 'member@example.com']))
+            ->assertStatus(200)
+            ->assertSee('name="token" value="probe-token"', false)
+            ->assertSee('name="password_confirmation"', false)
+            ->assertSee(route('password.update'), false);
+    }
+
     public function test_an_unknown_address_is_reported_not_crashed()
     {
         $response = $this->post(route('password.email'), [
