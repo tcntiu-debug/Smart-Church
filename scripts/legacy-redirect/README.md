@@ -32,6 +32,34 @@ executes.
 | `.htaccess` | The authoritative fix: `DirectoryIndex index.html` (so a leftover `index.php` stops answering `/`), a **301** of every other URL to the new home page, the AutoSSL `/.well-known/` path exempted, and `ErrorDocument 404 /index.html` as the no-rewrite fallback. |
 | `index.php` | Fallback for hosts where dotfiles are awkward: a 5-line 301 shim. Use it **instead of** `.htaccess` (the `.htaccess` covers deep links and the old endpoints; this only repairs the `302 → /index.php` chain). |
 
+## Minimal manual route (no `.htaccess`)
+
+If dotfiles are awkward, this is the whole change — no `.htaccess`, no workflow:
+
+1. In the legacy document root (the folder that holds `index.html`,
+   `dashboard.php`, `process_script.php`), **+ File** → `index.php`.
+2. Paste, save (UTF-8, no BOM, nothing before `<?php`):
+
+```php
+<?php
+header('Location: https://smartchurch.tcnikorodu.org/', true, 301);
+header('Cache-Control: no-store');
+exit;
+```
+
+Measured before/after on `tiu.tcnikorodu.org` with only this shim in place:
+
+| URL | Before | After |
+|-----|--------|-------|
+| `/index.php` | `404` | **`301`** → new site |
+| `/dashboard.php`, `/member-view.php` | `302` → `/index.php` → `404` | `302` → `/index.php` → **`301`** → new site |
+| `/` | `200` (the `index.html` notice) | `301` if the server prefers `index.php`, otherwise unchanged `200` — rename `index.html` → `index-out.html` to force the `301` |
+| `/process_script.php` | `200` (old DB) | unchanged `200` — rename it to `process_script.php.bak` to stop the old endpoint |
+
+The `.htaccess` below is still the better fix: it returns a single **301** for
+every URL, `/` included, and silences the old endpoints. This shim only repairs
+the `302 → /index.php` chain.
+
 ## One-click route (GitHub Actions, uses the deploy credentials)
 
 If you would rather not touch File Manager, `.github/workflows/retire-legacy-host.yml`
