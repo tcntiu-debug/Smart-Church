@@ -239,8 +239,9 @@ php artisan app:sync-schema    # hosts without a shell: applies the same one fil
 ```
 
 Dev has no shell, so run this in cPanel > **phpMyAdmin** >
-`litgrpco_smart_church_db` > **SQL** instead - exactly what the migration creates,
-and safe to run twice:
+`litgrpco_smart_church_db` > **SQL** instead - exactly what the migration creates.
+Run it once: a second attempt answers *Duplicate column name 'remember_token'*,
+which only means the column is already there.
 
 ```sql
 ALTER TABLE `tiu_member`
