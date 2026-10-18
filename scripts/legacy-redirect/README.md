@@ -32,7 +32,31 @@ executes.
 | `.htaccess` | The authoritative fix: `DirectoryIndex index.html` (so a leftover `index.php` stops answering `/`), a **301** of every other URL to the new home page, the AutoSSL `/.well-known/` path exempted, and `ErrorDocument 404 /index.html` as the no-rewrite fallback. |
 | `index.php` | Fallback for hosts where dotfiles are awkward: a 5-line 301 shim. Use it **instead of** `.htaccess` (the `.htaccess` covers deep links and the old endpoints; this only repairs the `302 → /index.php` chain). |
 
-## Upload (2 minutes)
+## One-click route (GitHub Actions, uses the deploy credentials)
+
+If you would rather not touch File Manager, `.github/workflows/retire-legacy-host.yml`
+does the upload with the same cPanel account the production deploy already uses
+(it keeps one folder per domain inside `public_html/`, so it can reach the
+legacy folder):
+
+1. GitHub → **Actions** → **Retire legacy host (301 to Smart Church)** →
+   **Run workflow**.
+2. Run it once with `mode: check` (the default). It lists the legacy folder and
+   **uploads nothing** — confirm it shows `dashboard.php`, `process_script.php`,
+   `index.html`. If the path is wrong it prints what *is* inside `public_html/`
+   so you can set the `LEGACY_REMOTE_DIR` repository variable (default
+   `public_html/tiu.tcnikorodu.org/`).
+3. Run it again with `mode: apply`. It renames the existing `.htaccess` to
+   `.htaccess.bak`, uploads this folder's `.htaccess` + `index.html`, then
+   verifies `/`, `/index.php`, `/indexdeprecated.php`, `/dashboard.php`,
+   `/member-view.php` and `/process_script.php` all answer `301` to the new
+   host, that `/.well-known/` is **not** redirected, and that the new site still
+   answers `200`. Any failure is reported as a red ✗ with the exact URL and code.
+
+Undo is the same either way: `mv .htaccess.bak .htaccess` in the legacy folder.
+The workflow never runs on push — only from the **Run workflow** button.
+
+## Upload (2 minutes, by hand)
 
 The document root is shown in cPanel → **Domains** → the `tiu.tcnikorodu.org`
 row → *Manage*. It is usually a sibling of `public_html/smartchurch.tcnikorodu.org/`.

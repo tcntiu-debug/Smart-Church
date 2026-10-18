@@ -549,6 +549,12 @@ The app must be served from `https://smartchurch.tcnikorodu.org` while
    `process_script.php` keeps answering (old database, live mail/Telegram).
    The 301 must land, not just the notice page.
 
+   One-click alternative: the **Retire legacy host (301 to Smart Church)**
+   workflow (`.github/workflows/retire-legacy-host.yml`) uploads those files with
+   the deploy's own cPanel account. Run it with `mode: check` first (lists the
+   folder, uploads nothing), then `mode: apply` (backs up `.htaccess`, uploads,
+   and verifies the 301s).
+
    **Check the reset flow before you flip this.** Until now the only working
    "Forgot Password" was the old app's, and its link is hardcoded to the old host:
    `Process_script_ajax.php` mails

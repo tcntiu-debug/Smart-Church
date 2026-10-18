@@ -1,0 +1,254 @@
+name: Retire legacy host (301 to Smart Church)
+
+# ---------------------------------------------------------------------------
+# One-time cutover of tiu.tcnikorodu.org: upload scripts/legacy-redirect/.htaccess
+# + index.html into the LEGACY document root, then prove that every old URL
+# answers 301 -> https://smartchurch.tcnikorodu.org/.
+#
+# WHY THIS EXISTS
+#   Renaming the old index.php is not a redirect. dashboard.php, member-view.php
+#   and the rest answer 302 -> index.php themselves, so with index.php gone every
+#   old bookmark ends on the host's "Page not found" page, while
+#   process_script.php keeps answering 200 against the OLD database. Only the
+#   .htaccess turns the host into a 301 - and it has to be uploaded somewhere
+#   that can see the legacy folder. This workflow uses the same cPanel account as
+#   deploy-cpanel-prod.yml (one folder per domain inside public_html/), so it can
+#   reach the sibling folder without touching File Manager.
+#
+# MANUAL ONLY - never on push.
+#   Inputs > mode:
+#     check  (default) list the legacy folder and stop. Nothing is written.
+#     apply            back up .htaccess -> .htaccess.bak, upload the two files,
+#                      then verify the 301s. This is the cutover.
+#   The rest of scripts/legacy-redirect/ (README, the index.php shim) is NOT
+#   uploaded - those belong to the manual File Manager route.
+#
+# Required repository secrets - the SAME three the production deploy uses, so
+# nothing new has to be created (they may live on the `production` environment):
+#   PROD_CPANEL_HOST, PROD_CPANEL_USER, PROD_CPANEL_PASSWORD
+#
+# Optional repository variables:
+#   LEGACY_REMOTE_DIR       legacy document root, RELATIVE to the account home
+#                           (default: public_html/tiu.tcnikorodu.org/)
+#   PROD_CPANEL_SSH_PORT    22 (default)
+#   PROD_CPANEL_REMOTE_DIR  read only as a safety check, to refuse to write into
+#                           the live app folder by mistake
+#
+# Guards before anything is uploaded:
+#   * the target may not be the live app folder;
+#   * the target must look like the old app (dashboard.php / process_script.php /
+#     index.html / index.php present). If the listing fails or looks wrong, the
+#     run stops and uploads nothing - fall back to the File Manager steps in
+#     scripts/legacy-redirect/README.md.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check = look only (nothing uploaded); apply = upload the 301 files'
+        type: choice
+        options:
+          - check
+          - apply
+        default: check
+        required: true
+
+concurrency:
+  group: retire-legacy-host
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  retire:
+    name: 301 the old host to Smart Church
+    runs-on: ubuntu-latest
+    # Same environment as the production deploy: it is where the cPanel secrets
+    # may live, and it puts this one-way change behind the approval gate.
+    environment: production
+
+    env:
+      SSHPASS: ${{ secrets.PROD_CPANEL_PASSWORD }}
+      SSH_HOST: ${{ secrets.PROD_CPANEL_HOST }}
+      SSH_USER: ${{ secrets.PROD_CPANEL_USER }}
+      SSH_PORT: ${{ vars.PROD_CPANEL_SSH_PORT || 22 }}
+      LEGACY_DIR: ${{ vars.LEGACY_REMOTE_DIR || 'public_html/tiu.tcnikorodu.org/' }}
+      LIVE_DIR: ${{ vars.PROD_CPANEL_REMOTE_DIR || 'public_html/smartchurch.tcnikorodu.org/' }}
+      MODE: ${{ inputs.mode }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate deployment secrets
+        run: |
+          missing=0
+          for pair in "PROD_CPANEL_HOST:$SSH_HOST" "PROD_CPANEL_USER:$SSH_USER" "PROD_CPANEL_PASSWORD:$SSHPASS"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if [ -z "$value" ]; then
+              echo "::error title=Missing repository secret::$name is not set. This workflow reuses the production deploy's cPanel secrets."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Refuse to aim at the live app folder
+        run: |
+          set -euo pipefail
+          legacy="${LEGACY_DIR%/}"
+          live="${LIVE_DIR%/}"
+          echo "legacy target: $legacy"
+          echo "live app folder: $live"
+          if [ -z "$legacy" ] || [ "$legacy" = "." ] || [ "$legacy" = "$live" ]; then
+            echo "::error title=Refusing to continue::LEGACY_REMOTE_DIR resolves to '$legacy', which is the live app folder or the account home. Set the variable to the legacy document root (default public_html/tiu.tcnikorodu.org/)."
+            exit 1
+          fi
+
+      - name: Look at the legacy folder
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lftp
+
+          set +e
+          LFTP_PASSWORD="$SSHPASS" lftp --env-password -u "$SSH_USER" "sftp://${SSH_HOST}:${SSH_PORT}" > legacy-ls.out 2>&1 <<LFTP
+          set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25"
+          set sftp:auto-confirm yes
+          set net:max-retries 3
+          set net:timeout 30
+          cls -1 "${LEGACY_DIR%/}"
+          bye
+          LFTP
+          rc=$?
+          set -e
+
+          echo "lftp exit: $rc"
+          echo "Remote listing of ${LEGACY_DIR%/}:"
+          tr -d '\r' < legacy-ls.out | sed 's/^/  /' | head -60
+
+          if [ "$rc" -ne 0 ]; then
+            # Almost always a wrong LEGACY_REMOTE_DIR. Show what IS inside
+            # public_html/ so the folder name can be read off the log instead of
+            # guessed a second time.
+            echo "Cannot list ${LEGACY_DIR%/} - here is what is inside public_html/:"
+            LFTP_PASSWORD="$SSHPASS" lftp --env-password -u "$SSH_USER" "sftp://${SSH_HOST}:${SSH_PORT}" > legacy-home.out 2>&1 <<LFTP || true
+          set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25"
+          set sftp:auto-confirm yes
+          set net:max-retries 3
+          set net:timeout 30
+          cls -1 public_html
+          bye
+          LFTP
+            tr -d '\r' < legacy-home.out | sed 's/^/  /' | head -60
+            echo "::error title=Cannot list the legacy folder::lftp failed (exit $rc). Set the repository variable LEGACY_REMOTE_DIR to the correct folder from the listing above (default public_html/tiu.tcnikorodu.org/), or use the File Manager route in scripts/legacy-redirect/README.md."
+            exit 1
+          fi
+
+          # Must look like the old TIU dashboard, not an empty or unrelated folder.
+          if ! tr -d '\r' < legacy-ls.out | grep -qE '^(dashboard\.php|process_script\.php|index\.html|index\.php)$'; then
+            echo "::error title=That folder does not look like the legacy app::expected dashboard.php / process_script.php / index.html / index.php in ${LEGACY_DIR%/}. Nothing was uploaded. Fix LEGACY_REMOTE_DIR or use the File Manager route."
+            exit 1
+          fi
+          echo "Legacy folder confirmed."
+
+      - name: Back up the existing .htaccess
+        if: inputs.mode == 'apply'
+        run: |
+          set -euo pipefail
+          set +e
+          LFTP_PASSWORD="$SSHPASS" lftp --env-password -u "$SSH_USER" "sftp://${SSH_HOST}:${SSH_PORT}" > legacy-backup.out 2>&1 <<LFTP
+          set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25"
+          set sftp:auto-confirm yes
+          cls -1 "${LEGACY_DIR%/}/.htaccess" && mv "${LEGACY_DIR%/}/.htaccess" "${LEGACY_DIR%/}/.htaccess.bak"
+          bye
+          LFTP
+          rc=$?
+          set -e
+          # A missing .htaccess is normal on a freshly emptied folder - report, never fail.
+          echo "backup lftp exit: $rc (non-zero usually just means there was no .htaccess)"
+          tr -d '\r' < legacy-backup.out | sed 's/^/  /' | head -20
+
+
+      - name: Upload the 301 files
+        if: inputs.mode == 'apply'
+        run: |
+          set -euo pipefail
+          set +e
+          LFTP_PASSWORD="$SSHPASS" lftp --env-password -u "$SSH_USER" "sftp://${SSH_HOST}:${SSH_PORT}" > legacy-put.out 2>&1 <<LFTP
+          set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=25"
+          set sftp:auto-confirm yes
+          set net:max-retries 3
+          set net:timeout 30
+          mkdir -p "${LEGACY_DIR%/}"
+          cd "${LEGACY_DIR%/}"
+          put scripts/legacy-redirect/.htaccess
+          put scripts/legacy-redirect/index.html
+          cls -1 "${LEGACY_DIR%/}"
+          bye
+          LFTP
+          rc=$?
+          set -e
+          echo "lftp exit: $rc"
+          tr -d '\r' < legacy-put.out | sed 's/^/  /' | head -40
+          if [ "$rc" -ne 0 ]; then
+            echo "::error title=Upload failed::lftp exit $rc - see the log above. If both files do not appear in the listing, the folder is unchanged and nothing is broken."
+            exit 1
+          fi
+          echo "Uploaded .htaccess + index.html to ${LEGACY_DIR%/}."
+
+      - name: Verify the redirects are live
+        if: inputs.mode == 'apply'
+        run: |
+          set -uo pipefail
+          fail=0
+          for path in "/" "/index.php" "/indexdeprecated.php" "/dashboard.php" "/member-view.php" "/process_script.php"; do
+            url="https://tiu.tcnikorodu.org${path}"
+            headers=$(curl -sS -m 25 -D - -o /dev/null -H 'Cache-Control: no-cache' "$url" 2>/dev/null | tr -d '\r' || true)
+            code=$(printf '%s\n' "$headers" | awk 'NR==1{print $2}')
+            loc=$(printf '%s\n' "$headers" | awk 'tolower($1)=="location:"{print $2}')
+            echo "${path} -> ${code:-no-response} ${loc:+-> $loc}"
+            if [ "$code" != "301" ] || ! printf '%s' "$loc" | grep -q '^https://smartchurch\.tcnikorodu\.org'; then
+              echo "::error title=${path} is not redirecting::got '${code:-no response}' ${loc:+(Location: $loc)}; expected 301 -> https://smartchurch.tcnikorodu.org/"
+              fail=1
+            fi
+          done
+
+          # AutoSSL must keep reaching the challenge folder, or the certificate
+          # for the old host stops renewing.
+          wk=$(curl -sS -m 25 -o /dev/null -w '%{http_code}' "https://tiu.tcnikorodu.org/.well-known/acme-challenge/ping" 2>/dev/null || echo "no-response")
+          echo "/.well-known/acme-challenge/ping -> $wk (must NOT be 301)"
+          if [ "$wk" = "301" ] || [ "$wk" = "302" ]; then
+            echo "::error title=AutoSSL path is redirected::the /.well-known/ exemption is not working; fix it before the certificate expires."
+            fail=1
+          fi
+
+          # The new site must still be healthy.
+          new=$(curl -sS -m 25 -o /dev/null -w '%{http_code}' https://smartchurch.tcnikorodu.org/ 2>/dev/null || echo "no-response")
+          echo "https://smartchurch.tcnikorodu.org/ -> $new (must be 200)"
+          if [ "$new" != "200" ]; then
+            echo "::error title=New site is not answering::got '$new'. Undo the cutover with mv .htaccess.bak .htaccess in the legacy folder."
+            fail=1
+          fi
+
+          exit $fail
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Legacy host cutover - mode: \`${MODE}\`"
+            echo ""
+            echo "* legacy folder: \`${LEGACY_DIR%/}\`"
+            echo "* live app folder (untouched): \`${LIVE_DIR%/}\`"
+            if [ "$MODE" = "apply" ]; then
+              echo "* the previous \`.htaccess\` is now \`.htaccess.bak\` in the same folder - undo with \`mv .htaccess.bak .htaccess\`."
+            else
+              echo "* check mode: **nothing was uploaded**. Re-run with \`apply\` to activate the 301."
+            fi
+            echo ""
+            echo "Manual alternative (File Manager): \`scripts/legacy-redirect/README.md\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
