@@ -8,6 +8,11 @@
 # With this in place the redirect is a real HTTP 301, so old bookmarks,
 # search-engine results and links in WhatsApp/e-mail all land on the new site -
 # index.html is then only the fallback when the rewrite engine is unavailable.
+#
+# Renaming index.php is NOT a redirect. The old pages do not 404 by themselves,
+# they answer 302 -> /index.php (dashboard.php, member-view.php, ...), so with
+# index.php renamed away every old link ends on the host's "Page not found".
+# The rule below answers before any of that PHP runs.
 # ---------------------------------------------------------------------------
 
 DirectoryIndex index.html
@@ -24,3 +29,8 @@ DirectoryIndex index.html
     # because the two applications do not share route names.
     RewriteRule ^ https://smartchurch.tcnikorodu.org/ [R=301,L]
 </IfModule>
+
+# Fallback for the case where mod_rewrite is switched off: an unknown URL shows
+# the notice (which refreshes to the new host) instead of the host's 404. A
+# static ErrorDocument, so it works even with PHP disabled in that folder.
+ErrorDocument 404 /index.html

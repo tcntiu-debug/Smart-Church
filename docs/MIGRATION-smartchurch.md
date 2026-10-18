@@ -532,13 +532,22 @@ The app must be served from `https://smartchurch.tcnikorodu.org` while
 2. When the new site passes the smoke test, make the old host a **301** so every
    installed PWA, every shortcut and every WhatsApp link lands on the new site:
    cPanel -> **Domains** -> *Manage* `tiu.tcnikorodu.org` -> **Redirect** ->
-   `https://smartchurch.tcnikorodu.org` with **301 Moved Permanently**, or an
-   `.htaccess` in the old document root:
+   `https://smartchurch.tcnikorodu.org` with **301 Moved Permanently**, or the
+   ready-made files in `scripts/legacy-redirect/` (`.htaccess` + `index.html`,
+   plus an `index.php` 301 shim for hosts that mangle dotfiles). Do **not**
+   carry the old path over - the two apps do not share route names:
 
    ```apache
    RewriteEngine On
-   RewriteRule ^(.*)$ https://smartchurch.tcnikorodu.org/$1 [R=301,L]
+   RewriteCond %{REQUEST_URI} !^/\.well-known/
+   RewriteRule ^ https://smartchurch.tcnikorodu.org/ [R=301,L]
    ```
+
+   Renaming the old `index.php` is **not** a substitute: `dashboard.php`,
+   `member-view.php` and the rest redirect *to* `index.php` themselves, so
+   without it every old link ends on a "Page not found" and
+   `process_script.php` keeps answering (old database, live mail/Telegram).
+   The 301 must land, not just the notice page.
 
    **Check the reset flow before you flip this.** Until now the only working
    "Forgot Password" was the old app's, and its link is hardcoded to the old host:

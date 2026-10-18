@@ -2,15 +2,35 @@
 
 `https://tiu.tcnikorodu.org` (the old plain-PHP "TIU Dashboard": `index.php`,
 `process_script.php`, `dashboard.php`) is replaced by
-`https://smartchurch.tcnikorodu.org`. These two files make the old address send
-everyone to the new one.
+`https://smartchurch.tcnikorodu.org`. These files make the old address send
+everyone to the new one with a **301**, instead of leaving old links on a
+"Page not found".
+
+## Renaming `index.php` is not a redirect
+
+The old pages redirect to `index.php` themselves, so deleting/renaming it turns
+every one of them into a 404. Measured on `tiu.tcnikorodu.org` after
+`index.php` → `indexdeprecated.php`:
+
+| URL | With only `index.html` | After `.htaccess` |
+|-----|------------------------|-------------------|
+| `/` | `200` — the notice page | `301` → new site |
+| `/index.php`, `/indexdeprecated.php` | `404` | `301` → new site |
+| `/dashboard.php`, `/member-view.php` | `302` → `/index.php` → `404` | `301` → new site |
+| `/process_script.php` | `200` — **the old endpoint still runs** | `301` → new site |
+
+That last row is why the `.htaccess` matters more than the notice page: while
+the old PHP is reachable, its AJAX/CRON endpoints keep talking to the old
+database (and can still send mail/Telegram). The 301 answers before any of it
+executes.
 
 ## What is in here
 
 | File | Purpose |
 |------|---------|
 | `index.html` | Self-contained redirect page: instant `<meta refresh>` + `location.replace()`, a visible button for anyone whose browser blocks it, `noindex` so search engines drop the old address. |
-| `.htaccess` | The authoritative fix: `DirectoryIndex index.html` (so the old `index.php` stops answering `/`) and a **301** of every other URL to the new home page, with the AutoSSL `/.well-known/` path exempted. |
+| `.htaccess` | The authoritative fix: `DirectoryIndex index.html` (so a leftover `index.php` stops answering `/`), a **301** of every other URL to the new home page, the AutoSSL `/.well-known/` path exempted, and `ErrorDocument 404 /index.html` as the no-rewrite fallback. |
+| `index.php` | Fallback for hosts where dotfiles are awkward: a 5-line 301 shim. Use it **instead of** `.htaccess` (the `.htaccess` covers deep links and the old endpoints; this only repairs the `302 → /index.php` chain). |
 
 ## Upload (2 minutes)
 
@@ -18,17 +38,22 @@ The document root is shown in cPanel → **Domains** → the `tiu.tcnikorodu.org
 row → *Manage*. It is usually a sibling of `public_html/smartchurch.tcnikorodu.org/`.
 
 1. cPanel → **File Manager** → open that document root.
-2. **Back up what is there**: select `.htaccess` (if present) → *Rename* →
-   `.htaccess.bak`. Do the same for `index.php` → `index.php.bak` if you are
-   **not** uploading the `.htaccess` (see the note below).
-3. Upload `index.html` and `.htaccess` from this folder.
-4. Make sure both are readable: `644`, and the folder `755`.
+2. cPanel → **Settings** (top right) → tick **Show Hidden Files**, otherwise
+   `.htaccess` is invisible and cannot be created or backed up.
+3. **Back up what is there**: select `.htaccess` (if present) → *Rename* →
+   `.htaccess.bak`. Do the same for `index.php` → `index.php.bak`.
+4. Upload `index.html` and `.htaccess` from this folder.
+5. Make sure both are readable: `644`, and the folder `755`.
 
-> **If you only want to upload `index.html`** (no `.htaccess`), rename
-> `index.php` to `index.php.bak` first. Apache/LiteSpeed check
-> `DirectoryIndex` in order and the old config lists `index.php` before
-> `index.html`, so leaving `index.php` in place means `/` keeps showing the old
-> login form and your new file is never reached.
+> **Cannot create a dotfile?** (Some hosts strip `.htaccess` on upload.) Use
+> **File Manager → + File**, name it `.htaccess`, paste the contents of this
+> folder's `.htaccess`, save. If that still fails, upload `index.php` (the 301
+> shim) and `index.html` instead — the old login page must then be
+> `index.php.bak`, or it keeps owning `/`.
+
+> **Why `DirectoryIndex` is set:** the old config lists `index.php` before
+> `index.html`, so a surviving `index.php` means `/` keeps showing the old
+> login form and the notice is never reached.
 
 ## Verify
 
@@ -38,8 +63,13 @@ curl -sI https://tiu.tcnikorodu.org/ | head -n 5
 # HTTP/1.1 301 Moved Permanently
 # Location: https://smartchurch.tcnikorodu.org/
 
-# A deep link from an old bookmark must also move:
-curl -sI https://tiu.tcnikorodu.org/dashboard.php | head -n 3
+# Deep links from old bookmarks, shortcuts and installed PWAs must move too:
+curl -sI https://tiu.tcnikorodu.org/dashboard.php | head -n 3   # expect 301
+curl -sI https://tiu.tcnikorodu.org/index.php     | head -n 3   # expect 301, not 404
+curl -sI https://tiu.tcnikorodu.org/process_script.php | head -n 3  # expect 301, not 200
+
+# AutoSSL must stay reachable (not redirected):
+curl -sI https://tiu.tcnikorodu.org/.well-known/acme-challenge/ping | head -n 1
 
 # And the new site must still be untouched:
 curl -s -o /dev/null -w "%{http_code}\n" https://smartchurch.tcnikorodu.org/
@@ -51,16 +81,23 @@ on the new login page.
 ## Undo
 
 Rename `.htaccess.bak` back to `.htaccess` (and `index.php.bak` back to
-`index.php`), delete `index.html`. Nothing else was touched — the old
-application's files, uploads and database are all still in place, so keep them
-for reference until you are sure nothing else reads that database.
+`index.php`), delete `index.html` and, if you used it, `index.php` (restore the
+backup). Nothing else was touched — the old application's files, uploads and
+database are all still in place, so keep them for reference until you are sure
+nothing else reads that database.
 
 ## Notes
 
 * The redirect is intentionally **path-agnostic** (everything goes to the new
   home page). The two applications do not share route names, so mapping
-  `/dashboard.php` onto a new path would produce 404s.
+  `/dashboard.php` onto a new path would produce 404s. This also means the old
+  `reset-password.php?reset-token=...` links land on the new login page — use
+  the new app's own "Forgot password" flow (see
+  `docs/MIGRATION-smartchurch.md`, section 3).
 * Do this **after** the new site is verified on its own address — this file
   hides the old application from every user the moment it lands.
 * The `/.well-known/` exemption is not optional: without it AutoSSL cannot renew
   the certificate for the old host.
+* The redirect is a **301 on purpose**: browsers and installed PWAs treat it as
+  permanent and update their start URL. Test with a private window first.
+
