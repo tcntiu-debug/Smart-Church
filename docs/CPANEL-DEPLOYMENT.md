@@ -406,6 +406,39 @@ daily `app:post-deploy` cron: keep both.
 > UTC, and it must be re-timed whenever `BIRTHDAY_SEND_AT` changes. Use the per-minute
 > `schedule:run` entry above unless you truly cannot.
 
+> **If the Cron Jobs form refuses to save (406 Not Acceptable).** On `tcnikoro` the cPanel
+> *Cron Jobs* page answers every save with *AJAX Error — Please refresh the page and try
+> again*, and the failing request itself returns **406 Not Acceptable** from the host's WAF
+> (mod_security / Imunify360). The rule it trips is the cron-injection signature: a request
+> body whose line starts with `* * * * *` and carries `>> /dev/null 2>&1`. Nothing typed
+> into that form gets through, and refreshing or re-logging in does not help — the block is
+> upstream of cPanel, so it is **not** the security token and **not** your cron syntax.
+>
+> Write the crontab directly instead (cPanel → **Advanced** → **Terminal**). The wrapper
+> keeps the metacharacters out of every request and leaves a tick log, which the plain
+> `/dev/null` line never does:
+>
+> ```bash
+> mkdir -p ~/bin
+> cat > ~/bin/church-scheduler.sh <<'EOF'
+> #!/bin/bash
+> cd /home/tcnikoro/public_html/smartchurch.tcnikorodu.org || exit 1
+> /usr/local/bin/ea-php80 artisan schedule:run >> storage/logs/scheduler.log 2>&1
+> EOF
+> chmod 755 ~/bin/church-scheduler.sh
+>
+> ( crontab -l 2>/dev/null | grep -v 'church-scheduler' ; \
+>   echo '* * * * * /bin/bash /home/tcnikoro/bin/church-scheduler.sh' ) | crontab -
+> crontab -l
+> ```
+>
+> `crontab -l` must show exactly one entry; run it by hand once and read
+> `storage/logs/scheduler.log` — `No scheduled commands are ready to run.` means the heartbeat
+> is alive, `No such file or directory` means the PHP binary in the script is wrong (check
+> `ls /usr/local/bin/ea-php*`). If Terminal is unavailable, ask the host to add
+> `* * * * * /bin/bash /home/tcnikoro/bin/church-scheduler.sh` and to whitelist
+> `Cron::add_line` for the account so the form works again.
+
 ### Weekly release of first timers who reached 8 weeks
 
 `firsttimers:auto-unassign` releases every first timer who has had a guide for eight weeks or
@@ -632,6 +665,7 @@ two branches instead of forcing it.
 | No birthday reminder e-mail arrives | The status was already recorded in `birthday_reminder_logs` (columns `campus_id`, `days_before`, `reminder_date`). Re-test with `php artisan birthdays:remind --days=3 --force --channel=mail`, and check the recipients: only `member_role` `Admin`/`Super User` members whose `department_name` JSON contains the configured department id receive it. |
 | Bell shows no numbers / `/notifications` is empty | Nothing has been written to `app_notifications` yet, or the logged-in member is not a Welcome Center admin. Run `php artisan birthdays:remind --days=3 --channel=database --force`. |
 | Birthday reminders still not running | The `schedule:run` cron entry is missing, uses the wrong PHP binary, or is set to *Once Per Day* (`0 0 * * *`) instead of *Once Per Minute* (`* * * * *`) — a daily tick never coincides with the `07:00` due time, so nothing ever fires. See *Scheduled jobs*. Verify with `php artisan birthdays:remind --dry-run` over SSH/Terminal. |
+| Cron Jobs page: *AJAX Error — Please refresh the page and try again* | The save request is blocked **before** cPanel by the host WAF and returns **406 Not Acceptable** (curl it and you get that page instead of JSON). The cron-injection rule matches a line beginning `* * * * *` and carrying `>> /dev/null 2>&1`, so the form can never save — no syntax change fixes it. Install the entry from cPanel Terminal with `crontab -l \| grep -v …`; see *Scheduled jobs*. |
 | `Please provide a valid cache path` | Missing `storage/framework/*` directories. `php artisan app:post-deploy` creates them. |
 | 500 error, blank page | Set `APP_DEBUG=true` temporarily in the server `.env`, load the page, read the message, then set it back to `false`. |
 | Assets missing (CSS/JS) | The `public/assets` and `public/vendors` folders were not uploaded. Check the *Publish to cPanel* step log for skipped files. |
