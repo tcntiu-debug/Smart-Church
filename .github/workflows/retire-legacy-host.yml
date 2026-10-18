@@ -1,4 +1,4 @@
-name: Retire legacy host (301 to Smart Church)
+name: Legacy 301 for tiu.tcnikorodu.org (manual - does not deploy the site)
 
 # ---------------------------------------------------------------------------
 # One-time cutover of tiu.tcnikorodu.org: upload scripts/legacy-redirect/.htaccess
@@ -82,6 +82,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: What this run touches
+        run: |
+          echo "TARGET (this run writes here) : ${LEGACY_DIR%/}  ->  https://tiu.tcnikorodu.org"
+          echo "UNTOUCHED (the deployed app)  : ${LIVE_DIR%/}  ->  https://smartchurch.tcnikorodu.org"
+          echo "MODE                          : ${MODE}"
+          echo ""
+          echo "This workflow does NOT deploy the new site. 'Deploy to cPanel (production)'"
+          echo "is the workflow that publishes to smartchurch, and it runs on every push."
+          {
+            echo "### Legacy 301 - mode \`${MODE}\`"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| legacy host (target) | \`https://tiu.tcnikorodu.org\` -> \`${LEGACY_DIR%/}\` |"
+            echo "| new site (untouched) | \`https://smartchurch.tcnikorodu.org\` -> \`${LIVE_DIR%/}\` |"
+            echo "| mode | \`${MODE}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Validate deployment secrets
         run: |
           missing=0
@@ -106,6 +124,12 @@ jobs:
             echo "::error title=Refusing to continue::LEGACY_REMOTE_DIR resolves to '$legacy', which is the live app folder or the account home. Set the variable to the legacy document root (default public_html/tiu.tcnikorodu.org/)."
             exit 1
           fi
+          case "$legacy" in
+            *smartchurch*)
+              echo "::error title=Refusing to continue::'$legacy' points at the new site, not the legacy host. This workflow must never write into the smartchurch folder."
+              exit 1
+              ;;
+          esac
 
       - name: Look at the legacy folder
         run: |
@@ -153,6 +177,17 @@ jobs:
             exit 1
           fi
           echo "Legacy folder confirmed."
+
+      - name: Measure the old host right now
+        run: |
+          set -uo pipefail
+          echo "Before this run, https://tiu.tcnikorodu.org answers:"
+          for path in "/" "/index.php" "/dashboard.php" "/process_script.php"; do
+            line=$(curl -sS -m 20 -D - -o /dev/null "https://tiu.tcnikorodu.org${path}" 2>/dev/null | tr -d '\r' | head -1 || true)
+            loc=$(curl -sS -m 20 -D - -o /dev/null "https://tiu.tcnikorodu.org${path}" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="location:"{print $2}' || true)
+            echo "  ${path} -> ${line:-no response} ${loc:+-> $loc}"
+          done
+          echo "(200/302/404 = the .htaccess is not installed yet; 301 = the cutover already happened)"
 
       - name: Back up the existing .htaccess
         if: inputs.mode == 'apply'
@@ -239,8 +274,9 @@ jobs:
         if: always()
         run: |
           {
-            echo "### Legacy host cutover - mode: \`${MODE}\`"
+            echo "### tiu.tcnikorodu.org -> 301 (legacy host only)"
             echo ""
+            echo "* mode: \`${MODE}\`"
             echo "* legacy folder: \`${LEGACY_DIR%/}\`"
             echo "* live app folder (untouched): \`${LIVE_DIR%/}\`"
             if [ "$MODE" = "apply" ]; then
