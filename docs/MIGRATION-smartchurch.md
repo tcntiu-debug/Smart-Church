@@ -881,8 +881,11 @@ drop them.
 2. Re-add the cron on the new folder (and only there):
 
    ```
-   * * * * * /usr/local/bin/ea-php80 /home/tcnikoro/public_html/smartchurch.tcnikorodu.org/artisan schedule:run >> /dev/null 2>&1
+   * * * * * /opt/cpanel/ea-php83/root/usr/bin/php /home/tcnikoro/public_html/smartchurch.tcnikorodu.org/artisan schedule:run >> /dev/null 2>&1
    ```
+
+   (`emerald3` runs PHP 8.3 — `php artisan schedule:list` prints the binary it resolved. The
+   older `/usr/local/bin/ea-php80` form in earlier notes does not exist there and fails silently.)
 
    **Every minute, not once a day.** The tick only fires an event whose own due time matches, so a daily `07:00` tick would silently skip `app:sync-schema` (`03:20`) and `firsttimers:auto-unassign` (Mondays `04:10`) - see `docs/CPANEL-DEPLOYMENT.md` -> *Scheduled jobs*. Confirm with `php artisan schedule:list` that `birthdays:remind`, `app:sync-schema` and
    `firsttimers:auto-unassign` resolve, then leave the old folder's cron deleted. On this shell-less account the proof they ran is the logs: `storage/logs/birthday-reminders.log`, `storage/logs/schema-sync.log` and `storage/logs/auto-unassign.log`.

@@ -351,7 +351,7 @@ daily `app:post-deploy` cron: keep both.
 > never created either. Add it in cPanel → **Cron Jobs** of *that* account:
 >
 > ```
-> * * * * * /usr/local/bin/ea-php80 /home/tcnikoro/public_html/smartchurch.tcnikorodu.org/artisan schedule:run >> /dev/null 2>&1
+> * * * * * /opt/cpanel/ea-php83/root/usr/bin/php /home/tcnikoro/public_html/smartchurch.tcnikorodu.org/artisan schedule:run >> /dev/null 2>&1
 > ```
 >
 > Keep the dev entry too — dev needs the same heartbeat for its `03:20` `app:sync-schema`
@@ -359,9 +359,16 @@ daily `app:post-deploy` cron: keep both.
 > line throws its output away:
 >
 > ```bash
-> ls /home/tcnikoro/public_html/smartchurch.tcnikorodu.org/artisan   # path exists?
-> ls /usr/local/bin/ea-php*                                          # which binaries?
+> cd ~/public_html/smartchurch.tcnikorodu.org
+> ls artisan                     # path exists?
+> php -v; php artisan schedule:list   # which interpreter?
 > ```
+>
+> `schedule:list` prints the binary it resolved — on `emerald3` that is
+> `'/opt/cpanel/ea-php83/root/usr/bin/php'`, i.e. **PHP 8.3** (verified 2026-10-17). Use that
+> path in the cron line. The generic `ea-php80` examples in this document do not exist on this
+> host, and a cron line naming a missing binary dies into `/dev/null`, indistinguishable from
+> "nothing was due".
 >
 > A wrong path or a missing binary writes `No such file or directory` to `/dev/null` and
 > looks exactly like "nothing was due". Verify the tick afterwards with
@@ -423,7 +430,7 @@ daily `app:post-deploy` cron: keep both.
 > cat > ~/bin/church-scheduler.sh <<'EOF'
 > #!/bin/bash
 > cd /home/tcnikoro/public_html/smartchurch.tcnikorodu.org || exit 1
-> /usr/local/bin/ea-php80 artisan schedule:run >> storage/logs/scheduler.log 2>&1
+> /opt/cpanel/ea-php83/root/usr/bin/php artisan schedule:run >> storage/logs/scheduler.log 2>&1
 > EOF
 > chmod 755 ~/bin/church-scheduler.sh
 >
@@ -434,8 +441,8 @@ daily `app:post-deploy` cron: keep both.
 >
 > `crontab -l` must show exactly one entry; run it by hand once and read
 > `storage/logs/scheduler.log` — `No scheduled commands are ready to run.` means the heartbeat
-> is alive, `No such file or directory` means the PHP binary in the script is wrong (check
-> `ls /usr/local/bin/ea-php*`). If Terminal is unavailable, ask the host to add
+> is alive, `No such file or directory` means the PHP binary in the script is wrong (use the
+> interpreter `php artisan schedule:list` prints). If Terminal is unavailable, ask the host to add
 > `* * * * * /bin/bash /home/tcnikoro/bin/church-scheduler.sh` and to whitelist
 > `Cron::add_line` for the account so the form works again.
 
