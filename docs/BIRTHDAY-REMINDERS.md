@@ -96,6 +96,20 @@ Summary: 1 digest(s) sent, 0 skipped, 0 failed | 1 birthday(s) | 2 recipient(s)
 * On the default milestones (`3,2,1`) the next three days hold no birthday, which
   is why a plain `--dry-run` prints `0 birthday(s)` and delivers nothing - the run
   itself is healthy.
+* **`0 recipient(s)` is not a verdict on the admin list.** When a day has no
+  birthdays the service `continue`s *before* it resolves recipients
+  (`BirthdayReminderService.php:75-85`), so the count is only ever computed for a day
+  that actually has one - a healthy run with nothing due therefore reports zero
+  recipients even when the Welcome Center admins are configured correctly. Ask the
+  audience directly instead (the campus argument is inert in single-campus mode):
+
+  ```bash
+  php artisan tinker --execute='echo count(app(App\Services\BirthdayReminderService::class)->recipientsFor(0)), PHP_EOL;'
+  ```
+
+  A non-zero answer is the proof that the next real birthday reaches someone; `0`
+  means `BIRTHDAY_DEPARTMENT_IDS` / `BIRTHDAY_RECIPIENT_ROLES` match nobody in this
+  database - fix that before the first birthday, not after.
 
 ## Verified end to end in dev (17 Oct 2026)
 
