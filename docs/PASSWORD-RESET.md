@@ -368,11 +368,15 @@ Publish it in this order:
    ```
 
    `bool(true)` only means that binary accepted the message, so confirm it
-   arrives. On emerald3 this route is *confirmed delivering*: `mail()` put the
-   test in Gmail's inbox on 2026-10-19 (`/sbin/sendmail` and `/usr/sbin/sendmail`
-   are one 6017-byte shim owned by group `mailtrap`, not Exim's own binary -
+   arrives. On emerald3 this route is *confirmed working end to end* on
+   2026-10-19: `mail()` put the test in Gmail's inbox, then after
+   `config:clear` + `config:cache` a `Mail::raw()` from `php artisan tinker`
+   printed `driver: sendmail` and delivered, and the form's reset link completed
+   a real password reset. `/sbin/sendmail` and `/usr/sbin/sendmail` are one
+   6017-byte shim owned by group `mailtrap`, not Exim's own binary -
    `/usr/sbin/exim -bV` as the account user only writes a `cwd=... args:` line
-   because `/etc/exim.conf` is not readable, which is normal and not a fault).
+   because `/etc/exim.conf` is not readable, which is normal and not a fault.
+   SwiftMailer's `DEPRECATED` lines under PHP 8.3 are cosmetic, not errors.
    If a host does trap mail, cPanel -> *Track Delivery* will have no row for the
    recipient; whether Exim answers on the loopback then decides the fallback:
 
@@ -420,6 +424,13 @@ Publish it in this order:
    ```bash
    grep -i "Password reset link could not be sent" storage/logs/laravel.log | tail -n 2
    ```
+
+   Read the timestamp, not the count: earlier failures stay in the file. Every
+   `.env` mail change needs `php artisan config:clear && php artisan
+   config:cache` first, or a cached config keeps the old mailer. On 2026-10-19
+   the whole path was verified this way: the modal reported a delivery, the link
+   opened the guest reset page, the new password was stored, and the signed-in
+   menu rendered.
 
 ## Tests
 
