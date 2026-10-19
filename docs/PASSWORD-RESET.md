@@ -327,30 +327,68 @@ Publish it in this order:
    another way the old `undefined` stays on screen) and runs `app:sync-schema`,
    which creates `password_resets` and adds `tiu_member.remember_token`. Without
    it the reset still 500s, because the UPDATE names `remember_token`.
-3. **Give production a mailbox.** Code cannot deliver mail on its own, and the
-   deploy never touches the server's `.env` (every `.env*` is excluded from the
-   upload), so whatever is there now is what prod has been using. In
-   `/home/tcnikoro/public_html/smartchurch.tcnikorodu.org/.env`:
+3. **Point production at the server's own mailer.** Code cannot deliver mail on
+   its own, and the deploy never touches the server's `.env` (every `.env*` is
+   excluded from the upload), so whatever is there now is what prod has been
+   using. On 2026-10-19 the log said:
+
+   ```
+   Connection could not be established with host mail.tcnikorodu.org :
+   stream_socket_client(): Unable to connect to tcp://mail.tcnikorodu.org:587
+   (Connection timed out)
+   ```
+
+   That is a DNS fact, not a password problem: `mail.tcnikorodu.org` is a
+   **CNAME to the apex** `tcnikorodu.org`, the apex is `216.198.79.1` (the website
+   host), and this application runs on `emerald3.doveserver.com`
+   (`147.124.220.188`). Port 587 was never open there, so the timeout happens
+   before TLS or `AUTH` - the mailbox password was never even tried.
+
+   **Preferred: hand the mail to the local Exim** - no host, port or password to
+   get wrong:
+
+   ```dotenv
+   MAIL_MAILER=sendmail
+   MAIL_SENDMAIL_PATH="/usr/sbin/sendmail -t -i"
+   MAIL_FROM_ADDRESS=no-reply@tcnikorodu.org
+   MAIL_FROM_NAME="TCN Ikorodu"
+   ```
+
+   Deliverability is already set up for this: the domain's SPF is
+   `v=spf1 ip4:147.124.220.188 +a +mx ... ~all`, so the server that will send is
+   authorised, and `default._domainkey.tcnikorodu.org` exists, so cPanel signs the
+   message. Check the path first (`which sendmail`; cPanel uses
+   `/usr/sbin/sendmail`).
+
+   **Alternative: SMTP to loopback**, if the mailbox credentials must be used:
 
    ```dotenv
    MAIL_MAILER=smtp
-   MAIL_HOST=mail.tcnikorodu.org
-   MAIL_PORT=587
-   MAIL_ENCRYPTION=tls
+   MAIL_HOST=127.0.0.1
+   MAIL_PORT=25
+   MAIL_ENCRYPTION=null
    MAIL_USERNAME=no-reply@tcnikorodu.org
    MAIL_PASSWORD=<that mailbox's real password>
    MAIL_FROM_ADDRESS=no-reply@tcnikorodu.org
    ```
 
-   `no-reply@tcnikorodu.org` must exist in cPanel -> *Email Accounts*, and
-   `MAIL_FROM_ADDRESS` must equal `MAIL_USERNAME` (cPanel's Exim rejects a forged
-   From). The credentials that work on dev (`no-reply@lit-grp.com` on
-   `mail.lit-grp.com`) do not work here - that is another mailbox on another
-   server, so copy the shape of the block, not the values. `.env.example` ships
-   Mailhog values (`MAIL_HOST=mailhog`, port `1025`), which resolve nowhere on a
-   real host - one more way a send fails while the old code called it sent. Then
-   re-run `php artisan app:post-deploy` (or `php artisan config:clear && php
-   artisan config:cache`): a cached config keeps the old values.
+   `MAIL_ENCRYPTION=null` must stay bare - quoting it sends the string `"null"`.
+   If Exim refuses `AUTH` on 25, drop `MAIL_USERNAME`/`MAIL_PASSWORD`; loopback
+   submission is trusted.
+
+   The credentials that work on dev (`no-reply@lit-grp.com` on
+   `mail.lit-grp.com`) do not work here - another mailbox on another server - so
+   copy the shape of the block, not the values. `.env.example` ships Mailhog
+   values (`MAIL_HOST=mailhog`, port `1025`), which resolve nowhere on a real host
+   - one more way a send fails while the old code called it sent. Then re-run
+   `php artisan app:post-deploy` (or `php artisan config:clear && php artisan
+   config:cache`): a cached config keeps the old values.
+
+   Later, if staff need to *receive* at this domain from phones and Outlook, fix
+   DNS in cPanel -> *Zone Editor*: `mail` should be an `A` record to
+   `147.124.220.188` (not a CNAME to the website host) and the MX an
+   `mail.tcnikorodu.org`; only then does `MAIL_HOST=mail.tcnikorodu.org:587` make
+   sense. Sending does not need it.
 4. **Prove it.** Submit the form on prod. The answer must now be either the real
    delivery or *"We could not send the reset e-mail just now..."* with the reason
    - never `undefined`. If it says sent and the mail still does not arrive, the
