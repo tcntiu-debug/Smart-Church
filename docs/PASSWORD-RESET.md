@@ -357,8 +357,16 @@ Publish it in this order:
    Deliverability is already set up for this: the domain's SPF is
    `v=spf1 ip4:147.124.220.188 +a +mx ... ~all`, so the server that will send is
    authorised, and `default._domainkey.tcnikorodu.org` exists, so cPanel signs the
-   message. Check the path first (`which sendmail`; cPanel uses
-   `/usr/sbin/sendmail`).
+   message.
+
+   `MAIL_SENDMAIL_PATH` must be the binary PHP already uses - `php -i | grep
+   sendmail_path` prints it (`/sbin/sendmail -t -i` on emerald3, while this
+   config's fallback is `/usr/sbin/sendmail -t -i`). Before blaming Laravel,
+   prove Exim accepts local submission on its own; `bool(true)` means it queued:
+
+   ```bash
+   php -r 'var_dump(mail("you@example.com", "Prod Exim test", "Hello"));'
+   ```
 
    **Alternative: SMTP to loopback**, if the mailbox credentials must be used:
 
