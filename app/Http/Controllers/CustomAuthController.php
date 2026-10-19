@@ -7,11 +7,24 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Log;
 use App\Models\TiuMember;
+use App\Services\MemberSessionService;
 use Illuminate\Support\Facades\DB;
 
 
 class CustomAuthController extends Controller
 {
+    /**
+     * Writes the session the sidebar and the greeting are rendered from.
+     *
+     * @var MemberSessionService
+     */
+    protected $memberSession;
+
+    public function __construct(MemberSessionService $memberSession)
+    {
+        $this->memberSession = $memberSession;
+    }
+
     public function showLoginForm()
     {
         return view('auth.login');
@@ -48,16 +61,12 @@ class CustomAuthController extends Controller
 
             Log::info('Step 4: Password verified');
 
-            // Check if account is disabled
-            if ($user->status == 2) {
-                Log::warning('Step 5: Account disabled');
-                return back()->with('error', 'Account is currently disabled. Please contact Admin');
-            }
-
-            // Check email verification
-            if ($user->email_verified != 1) {
-                Log::warning('Step 6: Email not verified');
-                return back()->with('error', 'Email not yet verified. Contact Admin');
+            // Check that the account may sign in at all: a disabled account
+            // (`status` 2) and an unverified address are refused here, and the
+            // password reset asks the same question (MemberSessionService).
+            if (! $this->memberSession->canSignIn($user)) {
+                Log::warning('Step 5/6: Sign-in refused (status ' . $user->status . ', email_verified ' . $user->email_verified . ')');
+                return back()->with('error', $this->memberSession->blockedMessage($user));
             }
 
             Log::info('Step 5 and 6: Account active and email verified');
@@ -66,9 +75,9 @@ class CustomAuthController extends Controller
             Auth::loginUsingId($user->tiu_member_id);
             Log::info('Step 7: User logged in with Auth::loginUsingId');
 
-            // Calculate leadership roles
-            $this->calculateLeadershipRoles($user);
-            Log::info('Step 8: Leadership roles calculated');
+            // Fill the session the menu, the greeting and the lead views read
+            $this->memberSession->start($user);
+            Log::info('Step 8: Member session filled');
 
             // Update login history
             $this->updateLoginHistory($user);
@@ -82,40 +91,6 @@ class CustomAuthController extends Controller
             Log::error($e->getTraceAsString());
             return back()->with('error', 'Login error: ' . $e->getMessage());
         }
-    }
-
-    private function calculateLeadershipRoles($user)
-    {
-        $userId = $user->tiu_member_id;
-
-        // Get department leads
-        $leadDeptIds = DB::table('department')->where('dept_lead_id', $userId)->pluck('dept_id')->toArray();
-        $leadHouseFellowshipIds = DB::table('department')->where('dept_lead_id', $userId)->where('dept_type', 'House Fellowship')->pluck('dept_id')->toArray();
-        $leadClusterIds = DB::table('department')->where('dept_lead_id', $userId)->where('dept_type', 'Cluster')->pluck('dept_id')->toArray();
-
-        // Get church type leads
-        $leadChurchTypeIds = DB::table('church_type')->where('church_type_lead_id', $userId)->pluck('id')->toArray();
-
-        Session::put('lead_of_dept', $leadDeptIds);
-        Session::put('lead_of_house_fellowship', $leadHouseFellowshipIds);
-        Session::put('lead_of_cluster', $leadClusterIds);
-        Session::put('lead_of_church_type', $leadChurchTypeIds);
-
-        $isHOD = count($leadDeptIds) > 0 || count($leadHouseFellowshipIds) > 0 || count($leadClusterIds) > 0 || count($leadChurchTypeIds) > 0 || in_array($user->member_role, ['Super User', 'Admin']);
-        Session::put('userIsHODOrLead', $isHOD);
-
-        // Set other session variables
-        Session::put('first_name', $user->first_name);
-        Session::put('last_name', $user->last_name);
-        Session::put('tiu_member_id', $user->tiu_member_id);
-        Session::put('member_role', $user->member_role);
-        Session::put('subgroup', $user->subgroup ?? '');
-        Session::put('church_type_id', $user->church_type_id);
-        Session::put('campus_id', $user->campus_id);
-        Session::put('department_name', $user->department_name);
-        Session::put('house_fellowship', $user->house_fellowship);
-        Session::put('cluster', $user->cluster);
-        Session::put('login', true);
     }
 
     private function updateLoginHistory($user)

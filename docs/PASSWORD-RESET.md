@@ -252,6 +252,35 @@ The reset page then redirects to `/home` signed in, and phpMyAdmin shows the
 60-character `remember_token` on that member. `app:sync-schema` also records the
 migration, so a later `php artisan migrate` does not try to add the column again.
 
+## Signed in, but without the left menu
+
+The reset signs the member in (`ResetsPasswords` calls `Auth::login()`), and that
+alone is not what the login form does. The sidebar (`partials/nav.blade.php`)
+renders from session keys the login form writes - `member_role` decides which
+admin blocks exist, `department_name` (the JSON string the column holds) picks
+the department menus, `lead_of_dept` / `lead_of_church_type` / `userIsHODOrLead`
+open the HOD views - and `layouts/app.blade.php` greets the member with
+`first_name`. A reset that only called `Auth::login()` therefore landed on
+`/home` as "Welcome Guest" with the plain member menu; the admin menu came back
+only after signing out and in again.
+
+`App\Services\MemberSessionService` holds that session setup now, and both doors
+use it: `CustomAuthController::login()` and
+`ResetPasswordController::resetPassword()`. JSON columns are copied with
+`getRawOriginal()`, so the session keeps the string the login form has always
+stored rather than the array `TiuMember`'s accessors return.
+
+The same service answers whether the account may sign in at all (`canSignIn()`:
+`status` is not 2 and `email_verified` is 1). The reset asks it before filling
+the session and, for an account the login form would turn away, signs the member
+straight back out and redirects to the login page with the login form's own
+message - a reset only proves the mailbox and the new password.
+
+`ResetsPasswords`' own `resetPassword()` / `sendResetResponse()` are kept under
+aliases (`performPasswordReset`, `sendSuccessfulResetResponse`): they are trait
+methods, so `parent::...` would hit `Controller::__call` and throw
+`BadMethodCallException`.
+
 ## Tests
 
 `tests/Feature/PasswordResetFlowTest.php` pins the flow: the reset route the
@@ -261,9 +290,14 @@ notification builds, the modal pointing at an existing route, `TiuMember` having
 logged as an error on production, `password_resets` being in
 `app:sync-schema`'s required tables, and the reset submission itself: the
 `remember_token` column existing, the UPDATE a reset runs being accepted, and the
-whole `POST /password/reset` storing the new password. That last trio writes
-inside a transaction that is always rolled back, so the suite changes nothing -
-no token rows, no passwords, no remember tokens are left behind.
+whole `POST /password/reset` storing the new password. It also pins what that
+reset leaves behind: the session keys the left menu and the greeting are
+rendered from (`member_role`, `first_name`, `userIsHODOrLead`, ...), the nav
+partial rendered from them (the "Admin Console" block must be there), and a
+disabled account being signed out again and sent to the login page instead of
+being handed a session. Those writes happen inside a transaction that is always
+rolled back, so the suite changes nothing - no token rows, no passwords, no
+remember tokens are left behind.
 
 `tests/Feature/SyncSchemaTest.php` covers `app:sync-schema` itself, including
 `tiu_member.remember_token` as a required column and its migration being recorded.

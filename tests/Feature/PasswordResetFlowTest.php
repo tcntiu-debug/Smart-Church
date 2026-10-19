@@ -373,6 +373,121 @@ class PasswordResetFlowTest extends TestCase
     }
 
     /**
+     * The reset signs the member in, but `ResetsPasswords` only calls
+     * `Auth::login()`. The left menu and the greeting are rendered from session
+     * keys that only the login form used to write (MemberSessionService), so a
+     * reset arrived on /home as "Welcome Guest" with the plain member menu - the
+     * admin blocks stayed hidden until the member signed out and in again.
+     */
+    public function test_the_reset_fills_the_session_the_left_menu_is_rendered_from()
+    {
+        $member = TiuMember::query()
+            ->whereNotNull('email')->where('email', '<>', '')
+            ->whereIn('member_role', ['Super User', 'Admin'])
+            ->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No admin with an e-mail address to reset.');
+        }
+
+        $token = Str::random(64);
+        $password = 'Probe-password-123!';
+
+        DB::beginTransaction();
+
+        try {
+            DB::table('password_resets')->where('email', $member->email)->delete();
+            DB::table('password_resets')->insert([
+                'email' => $member->email,
+                'token' => Hash::make($token),
+                'created_at' => now(),
+            ]);
+
+            $response = $this->post(route('password.update'), [
+                'token' => $token,
+                'email' => $member->email,
+                'password' => $password,
+                'password_confirmation' => $password,
+            ]);
+
+            $response->assertSessionHasNoErrors();
+
+            $this->assertTrue(auth()->check(), 'The reset did not sign the member in.');
+            $this->assertEquals($member->getKey(), session('tiu_member_id'));
+            $this->assertTrue(session('login'));
+
+            // The keys partials/nav.blade.php and layouts/app.blade.php read.
+            $this->assertSame(
+                $member->member_role,
+                session('member_role'),
+                'partials/nav.blade.php decides every admin block from session(member_role).'
+            );
+            $this->assertSame($member->first_name, session('first_name'));
+            $this->assertTrue(
+                (bool) session('userIsHODOrLead'),
+                'An Admin must open the HOD-Lead View on the page the reset redirects to.'
+            );
+
+            // And the menu those keys produce, rendered as the dashboard does.
+            $nav = view('partials.nav')->render();
+            $this->assertStringContainsString('Admin Console', $nav);
+            $this->assertStringContainsString('Welcome Center', $nav);
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    /**
+     * A reset proves the mailbox and the new password, not that the account may
+     * sign in. The login form turns away a disabled member (`status` 2) and an
+     * unverified address, so the reset must not hand them a session either.
+     */
+    public function test_the_reset_does_not_sign_in_a_disabled_member()
+    {
+        $member = TiuMember::query()->whereNotNull('email')->where('email', '<>', '')->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member with an e-mail address to reset.');
+        }
+
+        $token = Str::random(64);
+        $password = 'Probe-password-123!';
+
+        DB::beginTransaction();
+
+        try {
+            DB::table('tiu_member')
+                ->where('tiu_member_id', $member->getKey())
+                ->update(['status' => 2]);
+
+            DB::table('password_resets')->where('email', $member->email)->delete();
+            DB::table('password_resets')->insert([
+                'email' => $member->email,
+                'token' => Hash::make($token),
+                'created_at' => now(),
+            ]);
+
+            $response = $this->post(route('password.update'), [
+                'token' => $token,
+                'email' => $member->email,
+                'password' => $password,
+                'password_confirmation' => $password,
+            ]);
+
+            $response->assertRedirect(route('login'));
+            $response->assertSessionHas('error', 'Account is currently disabled. Please contact Admin');
+
+            $this->assertGuest();
+            $this->assertFalse(
+                (bool) session('login', false),
+                'A refused account must not be left with session(login) set.'
+            );
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    /**
      * The column has to be reachable from `app:sync-schema`, not only from
      * `migrate`: the dev and production hosts are deployed over SFTP and their
      * schema is brought in step by that command (docs/PASSWORD-RESET.md).
