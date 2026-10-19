@@ -359,22 +359,22 @@ Publish it in this order:
    authorised, and `default._domainkey.tcnikorodu.org` exists, so cPanel signs the
    message.
 
-   `MAIL_SENDMAIL_PATH` must be the binary PHP already uses - `php -i | grep
-   sendmail_path` prints it (`/sbin/sendmail -t -i` on emerald3, while this
-   config's fallback is `/usr/sbin/sendmail -t -i`). Before blaming Laravel,
-   prove Exim accepts local submission on its own; `bool(true)` means it queued:
+   `MAIL_SENDMAIL_PATH` must be the binary PHP itself uses: `php -i | grep
+   sendmail_path` prints it (`/usr/sbin/sendmail -t -i` on emerald3). Before
+   blaming Laravel, prove local submission on its own:
 
    ```bash
    php -r 'var_dump(mail("you@example.com", "Prod Exim test", "Hello"));'
    ```
 
-   `bool(true)` only proves the submission binary accepted the message - confirm
-   it actually arrives. On emerald3 `/sbin/sendmail` and `/usr/sbin/sendmail` are
-   the same 6017-byte file owned by group `mailtrap`, not Exim's own binary, so
-   that `true` can come from a wrapper. Inspect it with `file /usr/sbin/sendmail`
-   and `ls -l /usr/sbin/exim*`, and check cPanel -> *Track Delivery* for the
-   recipient: a row there means Exim handled it, no row means it never got that
-   far. Whether Exim itself listens on the loopback decides the fallback:
+   `bool(true)` only means that binary accepted the message, so confirm it
+   arrives. On emerald3 this route is *confirmed delivering*: `mail()` put the
+   test in Gmail's inbox on 2026-10-19 (`/sbin/sendmail` and `/usr/sbin/sendmail`
+   are one 6017-byte shim owned by group `mailtrap`, not Exim's own binary -
+   `/usr/sbin/exim -bV` as the account user only writes a `cwd=... args:` line
+   because `/etc/exim.conf` is not readable, which is normal and not a fault).
+   If a host does trap mail, cPanel -> *Track Delivery* will have no row for the
+   recipient; whether Exim answers on the loopback then decides the fallback:
 
    ```bash
    timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/25; head -n 1 <&3'
