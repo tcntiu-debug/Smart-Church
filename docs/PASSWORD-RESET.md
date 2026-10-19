@@ -368,6 +368,18 @@ Publish it in this order:
    php -r 'var_dump(mail("you@example.com", "Prod Exim test", "Hello"));'
    ```
 
+   `bool(true)` only proves the submission binary accepted the message - confirm
+   it actually arrives. On emerald3 `/sbin/sendmail` and `/usr/sbin/sendmail` are
+   the same 6017-byte file owned by group `mailtrap`, not Exim's own binary, so
+   that `true` can come from a wrapper. Inspect it with `file /usr/sbin/sendmail`
+   and `ls -l /usr/sbin/exim*`, and check cPanel -> *Track Delivery* for the
+   recipient: a row there means Exim handled it, no row means it never got that
+   far. Whether Exim itself listens on the loopback decides the fallback:
+
+   ```bash
+   timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/25; head -n 1 <&3'
+   ```
+
    **Alternative: SMTP to loopback**, if the mailbox credentials must be used:
 
    ```dotenv
