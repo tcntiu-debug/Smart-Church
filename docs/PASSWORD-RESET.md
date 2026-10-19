@@ -344,18 +344,24 @@ Publish it in this order:
 
    `no-reply@tcnikorodu.org` must exist in cPanel -> *Email Accounts*, and
    `MAIL_FROM_ADDRESS` must equal `MAIL_USERNAME` (cPanel's Exim rejects a forged
-   From). `.env.example` ships Mailhog values (`MAIL_HOST=mailhog`, port `1025`),
-   which resolve nowhere on a real host - one more way a send fails while the old
-   code called it sent. Then re-run `php artisan app:post-deploy` (or `php artisan
-   config:clear && php artisan config:cache`): a cached config keeps the old
-   values.
+   From). The credentials that work on dev (`no-reply@lit-grp.com` on
+   `mail.lit-grp.com`) do not work here - that is another mailbox on another
+   server, so copy the shape of the block, not the values. `.env.example` ships
+   Mailhog values (`MAIL_HOST=mailhog`, port `1025`), which resolve nowhere on a
+   real host - one more way a send fails while the old code called it sent. Then
+   re-run `php artisan app:post-deploy` (or `php artisan config:clear && php
+   artisan config:cache`): a cached config keeps the old values.
 4. **Prove it.** Submit the form on prod. The answer must now be either the real
    delivery or *"We could not send the reset e-mail just now..."* with the reason
    - never `undefined`. If it says sent and the mail still does not arrive, the
    app handed the message over: check the recipient's *Spam/Junk*, cPanel ->
    *Track Delivery* for `no-reply@tcnikorodu.org`, and that the mailbox exists.
-   If it says it could not send, `tail -n 30 storage/logs/laravel.log` holds the
-   transport error (host, port, mailbox, and Exim's own reason).
+   If it says it could not send, the reason is one log line - it names the
+   mailbox, host, port, encryption and From that were actually tried:
+
+   ```bash
+   grep -i "Password reset link could not be sent" storage/logs/laravel.log | tail -n 2
+   ```
 
 ## Tests
 
