@@ -281,6 +281,82 @@ aliases (`performPasswordReset`, `sendSuccessfulResetResponse`): they are trait
 methods, so `parent::...` would hit `Controller::__call` and throw
 `BadMethodCallException`.
 
+## Publishing this to production
+
+Everything described above is already committed on `main`, and none of it has to
+be re-done: `2902a1d` (the controller that really mails and the modal that cannot
+print `undefined`), `920ab40` (the link opens the guest reset page), `191d64c` +
+`4d3ed34` (`remember_token`) and `b479065` (the menu session). `2902a1d` is an
+ancestor of `b479065` (`git merge-base --is-ancestor 2902a1d b479065` exits 0),
+so approving the production run for `b479065` ships all five.
+
+The live copy is the one step a push does **not** do by itself: the production
+workflow stops at the `production` environment and waits for a reviewer
+(`docs/CPANEL-DEPLOYMENT.md` §3e). Dev has no such gate, which is why the fix was
+live on `dev.lit-grp.com` while prod kept serving the code from before `2902a1d`.
+That old modal explains both production symptoms exactly:
+
+- **"undefined"** - its error branch built the message as
+  `'<div ...>' + xhr.responseJSON?.email?.[0] || 'Email not found'`, and `+`
+  binds before `||`, so *any* reply without that field printed the literal word
+  `undefined` (a 404/500 HTML page, or a 422 body);
+- **"Password reset link sent" and no mail** - its success branch printed that
+  text for every 2xx, and the old controller reported success as soon as the
+  token row was written. A `MAIL_MAILER=log`, an unreachable `MAIL_HOST`, or a
+  wrong mailbox password therefore looked like a delivery. The new controller
+  asks the mailer first: it refuses `log` on a production host and rethrows the
+  transport error, which the modal shows and the log records.
+
+Publish it in this order:
+
+1. **Approve the run.** GitHub -> *Actions* -> *Deploy to cPanel (production)* ->
+   the run built from `b479065` -> *Review deployments* -> *Approve and deploy*.
+   Cancel any older run still waiting (a `920ab40` or docs-only run): approving it
+   would publish an older tree over the new one. If no run is waiting any more,
+   use *Run workflow* on `main` - a `workflow_dispatch` run builds the current
+   `HEAD`.
+2. **Run the post-deploy step on the server.** The pipeline only copies files; it
+   never executes PHP there.
+
+   ```bash
+   cd ~/public_html/smartchurch.tcnikorodu.org
+   php artisan app:post-deploy
+   ```
+
+   It rebuilds the config and Blade caches (a stale compiled login view is
+   another way the old `undefined` stays on screen) and runs `app:sync-schema`,
+   which creates `password_resets` and adds `tiu_member.remember_token`. Without
+   it the reset still 500s, because the UPDATE names `remember_token`.
+3. **Give production a mailbox.** Code cannot deliver mail on its own, and the
+   deploy never touches the server's `.env` (every `.env*` is excluded from the
+   upload), so whatever is there now is what prod has been using. In
+   `/home/tcnikoro/public_html/smartchurch.tcnikorodu.org/.env`:
+
+   ```dotenv
+   MAIL_MAILER=smtp
+   MAIL_HOST=mail.tcnikorodu.org
+   MAIL_PORT=587
+   MAIL_ENCRYPTION=tls
+   MAIL_USERNAME=no-reply@tcnikorodu.org
+   MAIL_PASSWORD=<that mailbox's real password>
+   MAIL_FROM_ADDRESS=no-reply@tcnikorodu.org
+   ```
+
+   `no-reply@tcnikorodu.org` must exist in cPanel -> *Email Accounts*, and
+   `MAIL_FROM_ADDRESS` must equal `MAIL_USERNAME` (cPanel's Exim rejects a forged
+   From). `.env.example` ships Mailhog values (`MAIL_HOST=mailhog`, port `1025`),
+   which resolve nowhere on a real host - one more way a send fails while the old
+   code called it sent. Then re-run `php artisan app:post-deploy` (or `php artisan
+   config:clear && php artisan config:cache`): a cached config keeps the old
+   values.
+4. **Prove it.** Submit the form on prod. The answer must now be either the real
+   delivery or *"We could not send the reset e-mail just now..."* with the reason
+   - never `undefined`. If it says sent and the mail still does not arrive, the
+   app handed the message over: check the recipient's *Spam/Junk*, cPanel ->
+   *Track Delivery* for `no-reply@tcnikorodu.org`, and that the mailbox exists.
+   If it says it could not send, `tail -n 30 storage/logs/laravel.log` holds the
+   transport error (host, port, mailbox, and Exim's own reason).
+
 ## Tests
 
 `tests/Feature/PasswordResetFlowTest.php` pins the flow: the reset route the
