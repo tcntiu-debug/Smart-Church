@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class AdminFirstTimerController extends Controller
 {
@@ -47,6 +48,7 @@ class AdminFirstTimerController extends Controller
         $startDate = $request->get('start_date');
         $endDate = $request->get('end_date');
         $genderFilter = $request->get('gender_filter');
+        $search = trim((string) $request->get('search', ''));
 
         // Departments for dropdown
         $departments = DB::table('department')
@@ -76,16 +78,38 @@ class AdminFirstTimerController extends Controller
                 DB::raw('COALESCE(fth.attendance_count, 0) as attendance_count')
             );
 
-        // Date filters
+        // Date filters. The implicit "recent records" window only applies while
+        // browsing: a search has to reach older records too, otherwise looking up
+        // someone who registered a few months ago wrongly answers "no results".
         if ($startDate && $endDate) {
             $query->whereBetween(DB::raw('DATE(ft.register_date)'), [$startDate, $endDate]);
-        } else {
+        } elseif ($search === '') {
             $query->where(DB::raw('DATE(ft.register_date)'), '>=', DB::raw("DATE_SUB(CURDATE(), INTERVAL $dayLimit DAY)"));
         }
 
         // Gender filter
         if ($genderFilter) {
             $query->where('ft.gender', $genderFilter);
+        }
+
+        // Free-text search across the columns an admin is likely to know. It is
+        // applied before pagination, so it reaches every record in the selected
+        // date window rather than only the rows on the current page.
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+
+            $query->where(function ($q) use ($like) {
+                $q->where('ft.first_name', 'like', $like)
+                    ->orWhere('ft.last_name', 'like', $like)
+                    ->orWhereRaw("CONCAT(ft.first_name, ' ', ft.last_name) LIKE ?", [$like])
+                    ->orWhere('ft.phone_number', 'like', $like)
+                    ->orWhere('ft.email', 'like', $like)
+                    ->orWhere('ft.address', 'like', $like)
+                    ->orWhere('ft.occupation', 'like', $like)
+                    ->orWhere('ft.attendant_type', 'like', $like)
+                    ->orWhere('tm.first_name', 'like', $like)
+                    ->orWhere('tm.last_name', 'like', $like);
+            });
         }
 
         // Church type filter for "Switch" users
@@ -101,27 +125,14 @@ class AdminFirstTimerController extends Controller
 
         $firstTimers = $query->orderBy('ft.register_date', 'desc')->paginate(50);
 
-        // Status counts (also respect campus filter)
-        $statusCountsQuery = DB::table('first_timer')
-            ->select('status', DB::raw('COUNT(*) as count'))
-            ->when($churchTypeName === 'Switch' && !empty($churchTypeId), function ($q) use ($churchTypeId) {
-                return $q->where('church_type_id', $churchTypeId);
-            });
-
-        if ($memberRole !== 'Super User' && !empty($userCampusId)) {
-            $statusCountsQuery->forCurrentCampus('campus_id', $userCampusId);
-        }
-
-        $statusCounts = $statusCountsQuery->groupBy('status')->pluck('count', 'status');
-
         return view('admin.first-timers', compact(
             'firstTimers',
             'departments',
             'startDate',
             'endDate',
             'genderFilter',
-            'dayLimit',
-            'statusCounts'
+            'search',
+            'dayLimit'
         ));
     }
 
@@ -386,18 +397,32 @@ class AdminFirstTimerController extends Controller
         $request->validate([
             'first_timer_id' => 'required|integer',
             'more_action' => 'required|string|in:Disable,Unassigned,Integrated,Delete',
-            'unassign_reason' => 'required_if:more_action,Unassigned|string|max:1000',
+            // nullable is what keeps Delete/Disable/Integrated working: the
+            // ConvertEmptyStringsToNull middleware turns the empty textarea into
+            // null, and the string rule rejects null when the attribute is not
+            // marked nullable - only Unassigned should ever require a reason.
+            'unassign_reason' => 'nullable|string|max:1000|required_if:more_action,Unassigned',
         ]);
 
-        $ftId = $request->first_timer_id;
+        $ftId = (int) $request->first_timer_id;
         $action = $request->more_action;
 
         if ($action === 'Delete') {
-            // Delete from first_timer and related records
-            DB::table('member_tracking_followup')->where('first_timer_id', $ftId)->delete();
-            DB::table('first_timer_hangout')->where('first_timer_id', $ftId)->delete();
-            DB::table('first_timers_updates')->where('first_timer_id', $ftId)->delete();
-            DB::table('first_timer')->where('first_timer_id', $ftId)->delete();
+            // Delete the first timer and every row that belongs to it, as one
+            // unit: a failure half way through must not leave orphaned records.
+            DB::transaction(function () use ($ftId) {
+                DB::table('member_tracking_followup')->where('first_timer_id', $ftId)->delete();
+                DB::table('first_timer_hangout')->where('first_timer_id', $ftId)->delete();
+                DB::table('first_timers_updates')->where('first_timer_id', $ftId)->delete();
+
+                // The week list keeps one manual caller override per first timer;
+                // without this the assignment would outlive the person it points at.
+                if (Schema::hasTable('caller_assignments')) {
+                    DB::table('caller_assignments')->where('first_timer_id', $ftId)->delete();
+                }
+
+                DB::table('first_timer')->where('first_timer_id', $ftId)->delete();
+            });
 
             return redirect()->route('admin.first-timers')->with('success', 'First timer deleted successfully.');
         }

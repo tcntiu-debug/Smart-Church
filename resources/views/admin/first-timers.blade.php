@@ -1,59 +1,15 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="ms-panel">
-    <div class="ms-panel-header">
-        <div class="d-flex justify-content-between">
-            <div class="ms-header-text">
-                <h6>TRACKING OVERVIEW</h6>
-            </div>
-        </div>
+@if ($errors->any())
+    <div class="alert alert-danger">
+        <ul class="mb-0">
+            @foreach ($errors->all() as $error)
+                <li>{{ $error }}</li>
+            @endforeach
+        </ul>
     </div>
-    <div class="ms-panel-body pb-0">
-        <div class="row">
-            <div class="col-xl-3 col-md-6">
-                <div class="ms-card card-twitter ms-widget ms-infographics-widget">
-                    <div class="ms-card-body media">
-                        <div class="media-body">
-                            <p class="fs-12">First timers not assigned</p>
-                            <p class="ms-card-change">{{ $statusCounts['Not Assigned'] ?? 0 }}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-xl-3 col-md-6">
-                <div class="ms-card card-linkedin ms-widget ms-infographics-widget">
-                    <div class="ms-card-body media">
-                        <div class="media-body">
-                            <p class="fs-12">First timers assigned</p>
-                            <p class="ms-card-change">{{ $statusCounts['Assigned'] ?? 0 }}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-xl-3 col-md-6">
-                <div class="ms-card card-facebook ms-widget ms-infographics-widget">
-                    <div class="ms-card-body media">
-                        <div class="media-body">
-                            <p class="fs-12">First Timers Reassigned</p>
-                            <p class="ms-card-change">{{ $statusCounts['Reassigned'] ?? 0 }}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-xl-3 col-md-6">
-                <div class="ms-card card-instagram ms-widget ms-infographics-widget">
-                    <div class="ms-card-body media">
-                        <div class="media-body">
-                            <p class="fs-12">First Timers Unassigned</p>
-                            <p class="ms-card-change">{{ $statusCounts['Unassigned'] ?? 0 }}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+@endif
 
 <div class="ms-panel">
     <div class="ms-panel-header">
@@ -62,16 +18,21 @@
     <div class="ms-panel-body">
         <div class="d-flex flex-wrap align-items-center mb-3 gap-2">
             <button id="download-csv" class="btn btn-primary">Download CSV</button>
-            <form class="d-flex flex-wrap align-items-center gap-2" method="GET" action="{{ route('admin.first-timers') }}">
-                <div class="col-md-3">
+            <form id="ft-filter-form" class="d-flex flex-wrap align-items-start" method="GET" action="{{ route('admin.first-timers') }}">
+                <div class="col-md-4">
+                    <label for="search" class="form-label">Search</label>
+                    <input type="search" name="search" id="search" class="form-control" value="{{ $search ?? '' }}" placeholder="Name, phone or email" autocomplete="off">
+                    <small class="form-text text-muted">Results update as you type.</small>
+                </div>
+                <div class="col-md-2">
                     <label for="start_date" class="form-label">Start Date</label>
                     <input type="date" name="start_date" id="start_date" class="form-control" value="{{ $startDate ?? '' }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label for="end_date" class="form-label">End Date</label>
                     <input type="date" name="end_date" id="end_date" class="form-control" value="{{ $endDate ?? '' }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label for="gender_filter" class="form-label">Gender</label>
                     <select name="gender_filter" id="gender_filter" class="form-control">
                         <option value="">All Genders</option>
@@ -419,6 +380,49 @@
 @push('scripts')
 <script>
     $(document).ready(function() {
+        // ========== AUTO SEARCH WHILE TYPING ==========
+        // The table is rendered server side and a search has to reach records
+        // outside the default "recent" window, so the box submits the same GET
+        // form the Filter button uses once typing pauses. The term survives the
+        // reload; the caret is put back at the end so typing can simply continue.
+        var searchTimer = null;
+        var $filterForm = $('#ft-filter-form');
+        var $searchInput = $('#search');
+        var lastSearch = $searchInput.val();
+
+        $searchInput.on('input search', function() {
+            var term = $(this).val();
+
+            if (term === lastSearch) {
+                return;
+            }
+
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(function() {
+                lastSearch = term;
+                $filterForm.trigger('submit');
+            }, 500); // wait for a pause in typing before reloading
+        });
+
+        // Enter or the Filter button navigate away immediately; cancel any
+        // pending auto search so the page cannot submit itself twice.
+        $filterForm.on('submit', function() {
+            clearTimeout(searchTimer);
+        });
+
+        if (lastSearch !== '' && document.activeElement === document.body) {
+            $searchInput.trigger('focus');
+
+            var searchBox = $searchInput.get(0);
+            if (searchBox && searchBox.setSelectionRange) {
+                try {
+                    searchBox.setSelectionRange(lastSearch.length, lastSearch.length);
+                } catch (e) {
+                    // Some browsers disallow selection on type="search"; focus is enough.
+                }
+            }
+        }
+
         // ========== DOWNLOAD CSV ==========
         $('#download-csv').on('click', function() {
             const escapeCsvCell = function(cellData) {
@@ -697,12 +701,23 @@
             $('#more_action').val('');
         });
 
-        // ========== DATATABLE ==========
-        $('#order-listing').DataTable({
-            "aLengthMenu": [[5, 10, 15, -1], [5, 10, 15, "All"]],
-            "iDisplayLength": 10,
-            "language": { search: "" },
-            "order": []
+        // ========== DELETE CONFIRMATION ==========
+        // Delete is permanent, so ask first and stop the double click that would
+        // send the same POST twice while the page is redirecting.
+        $('#more-action-form').on('submit', function(e) {
+            if ($('#more_action').val() !== 'Delete') {
+                return;
+            }
+
+            var name = $.trim($('#modal-ft-fullname').text());
+            var question = 'Delete ' + (name ? name : 'this first timer') + ' permanently? This cannot be undone.';
+
+            if (!window.confirm(question)) {
+                e.preventDefault();
+                return;
+            }
+
+            $(this).find('button[type="submit"]').prop('disabled', true).text('Deleting...');
         });
     });
 </script>
