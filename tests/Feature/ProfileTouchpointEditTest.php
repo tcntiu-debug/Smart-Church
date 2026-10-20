@@ -115,7 +115,32 @@ class ProfileTouchpointEditTest extends TestCase
         $response = $this->actingAs($member)->get('/profile');
 
         $response->assertStatus(200);
+        $response->assertSee('Touch Point');
+        $response->assertSee('Assigned by an administrator');
         $response->assertDontSee('name="touch_points[]"', false);
+    }
+
+    public function test_a_legacy_admin_role_with_whitespace_still_gets_the_editor()
+    {
+        $admin = $this->admin();
+
+        DB::beginTransaction();
+
+        try {
+            DB::table('tiu_member')
+                ->where('tiu_member_id', $admin->tiu_member_id)
+                ->update(['member_role' => ' admin ']);
+
+            $admin->refresh();
+
+            $response = $this->actingAs($admin)->get('/profile');
+
+            $response->assertStatus(200);
+            $response->assertSee('name="touch_points[]"', false);
+            $response->assertSee('id="touch-points"', false);
+        } finally {
+            DB::rollBack();
+        }
     }
 
     public function test_an_admin_save_stores_the_selection_and_rejects_unknown_groups()

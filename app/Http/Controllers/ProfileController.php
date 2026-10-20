@@ -21,11 +21,12 @@ class ProfileController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        $sessionRole = $user->member_role ?? 'Member';
+        $sessionRole = $this->sessionRole($user);
+        $isAdmin = $this->isAdminRole($sessionRole);
 
         // Determine which user profile to load
         $tiuMemberId = $user->tiu_member_id ?? $user->id;
-        if (($sessionRole == 'Super User' || $sessionRole == 'Admin') && $request->has('tiu_member_id')) {
+        if ($isAdmin && $request->has('tiu_member_id')) {
             $tiuMemberId = $request->tiu_member_id;
         }
 
@@ -60,11 +61,12 @@ class ProfileController extends Controller
         // "Touch Point" reads the member's department-23 groups. Admins edit
         // them here (the select is rendered below); everyone else only sees the
         // value. Bare legacy values that only name another department's subgroup
-        // are not touch points.
-        $currentTouchpoints = SubgroupAssignmentService::groupsForMember($tiuMember->subgroup)
-            ->where('department_id', SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID)
-            ->pluck('sub_group_name')
-            ->all();
+        // are not touch points. Resolve through the sub_group rows so both the
+        // `department_id` and the older `department_name` schema work.
+        $currentTouchpoints = SubgroupAssignmentService::namesForMemberDepartment(
+            $tiuMember->subgroup,
+            SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
+        );
 
         // Options for the admin-only editor. Read through the service (query
         // builder) so the campus global scope cannot hide groups.
@@ -101,6 +103,8 @@ class ProfileController extends Controller
         $selectedHouseFellowshipIds = $tiuMember->house_fellowship ?? [];
         $selectedSubgroupOversight = $tiuMember->oversight_extra1 ?? [];
 
+        $canEditTouchpoints = $isAdmin;
+
         return view('profile.edit', compact(
             'tiuMember',
             'allDepartments',
@@ -120,7 +124,9 @@ class ProfileController extends Controller
             'selectedClusterIds',
             'selectedHouseFellowshipIds',
             'selectedSubgroupOversight',
-            'sessionRole'
+            'sessionRole',
+            'isAdmin',
+            'canEditTouchpoints'
         ));
     }
 
@@ -131,10 +137,11 @@ class ProfileController extends Controller
 
             $tiuMemberId = $request->tiu_member_id;
             $user = Auth::user();
-            $sessionRole = $user->member_role ?? 'Member';
+            $sessionRole = $this->sessionRole($user);
+            $isAdmin = $this->isAdminRole($sessionRole);
 
             // Permission check
-            if ($sessionRole !== 'Super User' && $sessionRole !== 'Admin' && $user->tiu_member_id != $tiuMemberId) {
+            if (! $isAdmin && (string) $user->tiu_member_id !== (string) $tiuMemberId) {
                 return response()->json(['success' => false, 'message' => 'You do not have permission to edit this profile.'], 403);
             }
 
@@ -145,7 +152,7 @@ class ProfileController extends Controller
             // Touch Point is editable by admins on this page. Resolve the
             // submitted selection against the department's real groups before
             // anything is written; an empty submission clears the assignment.
-            $canEditTouchpoints = ($sessionRole === 'Super User' || $sessionRole === 'Admin');
+            $canEditTouchpoints = $isAdmin;
             $touchpointsSubmitted = $canEditTouchpoints && $request->has('touch_points');
             $touchpointNames = $touchpointsSubmitted
                 ? $this->resolveTouchpointNames($request->input('touch_points'))
@@ -308,6 +315,36 @@ class ProfileController extends Controller
             Log::error('Profile update line: ' . $e->getLine());
             return response()->json(['success' => false, 'message' => 'Database error: ' . $e->getMessage() . ' on line ' . $e->getLine()], 500);
         }
+    }
+
+    /**
+     * The role stored on the signed-in member, with the session as a fallback.
+     *
+     * Legacy imports sometimes left trailing whitespace (or an empty string)
+     * in `tiu_member.member_role`, which made every exact `== 'Admin'`
+     * comparison fail and hid admin-only controls.
+     *
+     * @param  object  $user
+     * @return string
+     */
+    protected function sessionRole($user)
+    {
+        $role = trim((string) ($user->member_role ?? ''));
+
+        if ($role === '') {
+            $role = trim((string) session('member_role', 'Member'));
+        }
+
+        return $role;
+    }
+
+    /**
+     * @param  mixed  $role
+     * @return bool
+     */
+    protected function isAdminRole($role)
+    {
+        return in_array(strtolower(trim((string) $role)), ['super user', 'admin'], true);
     }
 
     private function sendDepartmentNotification($request, $addedIds, $removedIds)

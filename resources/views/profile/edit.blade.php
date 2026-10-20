@@ -200,7 +200,7 @@
                         </select>
                     </div>
                     @endunless
-                    @if($sessionRole == 'Super User' || $sessionRole == 'Admin')
+                    @if($isAdmin)
                     <div class="col-md-6 mb-3">
                         <label>Member Role</label>
                         <select name="member_role" id="member-role" class="form-control" required>
@@ -217,24 +217,30 @@
                 </div>
                 
                 <div class="row">
-                    @if($sessionRole == 'Super User' || $sessionRole == 'Admin')
                     <div class="col-md-6 mb-3">
                         <label>Touch Point</label>
-                        {{-- The empty hidden value makes "clear all" submit the
-                             field; browsers omit an empty multiple select. --}}
-                        <input type="hidden" name="touch_points[]" value="">
-                        <select name="touch_points[]" id="touch-points" class="form-control" multiple
-                                data-placeholder="Select touch point(s)">
-                            @foreach($touchpointOptions as $touchpoint)
-                                <option value="{{ $touchpoint }}" {{ in_array($touchpoint, $currentTouchpoints, true) ? 'selected' : '' }}>
-                                    {{ $touchpoint }}
-                                </option>
-                            @endforeach
-                        </select>
-                        <small class="text-muted">Saved with the profile. The
-                            <a href="{{ url('/group') }}">Group</a> page shows the same assignments.</small>
+                        @if($canEditTouchpoints)
+                            {{-- The empty hidden value makes "clear all" submit the
+                                 field; browsers omit an empty multiple select. --}}
+                            <input type="hidden" name="touch_points[]" value="">
+                            <select name="touch_points[]" id="touch-points" class="form-control" multiple
+                                    data-placeholder="Select touch point(s)">
+                                @foreach($touchpointOptions as $touchpoint)
+                                    <option value="{{ $touchpoint }}" {{ in_array($touchpoint, $currentTouchpoints, true) ? 'selected' : '' }}>
+                                        {{ $touchpoint }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            <small class="text-muted">Saved with the profile. The
+                                <a href="{{ url('/group') }}">Group</a> page shows the same assignments.</small>
+                        @else
+                            <input type="text" class="form-control"
+                                   value="{{ empty($currentTouchpoints) ? '' : implode(', ', $currentTouchpoints) }}"
+                                   placeholder="No touch point assigned" disabled>
+                            <small class="text-muted">Assigned by an administrator. The
+                                <a href="{{ url('/group') }}">Group</a> page shows the same assignments.</small>
+                        @endif
                     </div>
-                    @endif
                     <div class="col-md-6 mb-3">
                         <label>Church Type</label>
                         <select name="church_type_id" id="church_type_id" class="form-control" required>
@@ -272,7 +278,7 @@
                     </div>
                 </div>
                 
-                @if($sessionRole == 'Super User' || $sessionRole == 'Admin')
+                @if($isAdmin)
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         <label>Oversight Subgroup</label>

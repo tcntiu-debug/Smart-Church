@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * One place to read and write tiu_member.subgroup.
@@ -273,11 +274,218 @@ class SubgroupAssignmentService
      */
     public static function groupNamesForDepartment($departmentId)
     {
-        return DB::table('sub_group')
-            ->where('department_id', $departmentId)
-            ->orderBy('sub_group_name')
+        $query = DB::table('sub_group');
+        static::scopeToDepartment($query, $departmentId);
+
+        return $query->orderBy('sub_group_name')
             ->pluck('sub_group_name')
             ->all();
+    }
+
+    /**
+     * The columns the deployed `sub_group` table actually has.
+     *
+     * The original schema named the department (`department_name`), while the
+     * local database was reconciled to `department_id`. The SFTP deploy has no
+     * shell, so a server can still be running either shape - reads must not
+     * assume the id column exists.
+     *
+     * @return array<string, bool>
+     */
+    protected static function subGroupColumns()
+    {
+        static $columns = [];
+
+        $connection = DB::connection()->getName();
+
+        if (! isset($columns[$connection])) {
+            $columns[$connection] = [
+                'department_id' => static::tableHasColumn('sub_group', 'department_id'),
+                'department_name' => static::tableHasColumn('sub_group', 'department_name'),
+            ];
+        }
+
+        return $columns[$connection];
+    }
+
+    /**
+     * Schema::hasColumn() throws when the table itself is missing; on a
+     * partially imported database that must not take the whole page down.
+     *
+     * @param  string  $table
+     * @param  string  $column
+     * @return bool
+     */
+    protected static function tableHasColumn($table, $column)
+    {
+        try {
+            return Schema::hasColumn($table, $column);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Display name of a department, used when matching the legacy column.
+     *
+     * @param  int|string  $departmentId
+     * @return string|null
+     */
+    public static function departmentName($departmentId)
+    {
+        static $names = [];
+
+        $key = DB::connection()->getName() . '|' . (string) $departmentId;
+
+        if (! array_key_exists($key, $names)) {
+            $name = null;
+
+            try {
+                $name = DB::table('department')
+                    ->where('dept_id', $departmentId)
+                    ->value('dept_name');
+            } catch (\Throwable $e) {
+                // A partially imported database may not have the department
+                // table yet; the touch point name below still identifies it.
+            }
+
+            if (! $name && $key === (string) static::TOUCHPOINT_DEPARTMENT_ID) {
+                $name = static::TOUCHPOINT_DEPARTMENT_NAME;
+            }
+
+            $names[$key] = $name;
+        }
+
+        return $names[$key];
+    }
+
+    /**
+     * Restrict a sub_group query to one department in either schema shape.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  int|string  $departmentId
+     * @return \Illuminate\Database\Query\Builder
+     */
+    protected static function scopeToDepartment($query, $departmentId)
+    {
+        $columns = static::subGroupColumns();
+        $departmentName = static::departmentName($departmentId);
+
+        if ($columns['department_id'] && $columns['department_name'] && $departmentName) {
+            return $query->where(function ($nested) use ($departmentId, $departmentName) {
+                $nested->where('department_id', $departmentId)
+                    ->orWhere('department_name', $departmentName);
+            });
+        }
+
+        if ($columns['department_id']) {
+            return $query->where('department_id', $departmentId);
+        }
+
+        if ($columns['department_name'] && $departmentName) {
+            return $query->where('department_name', $departmentName);
+        }
+
+        // No usable department column: match nothing rather than every group.
+        return $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * Rank a bare legacy name so the touch-point department wins a duplicate.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  int|string  $departmentId
+     * @return \Illuminate\Database\Query\Builder
+     */
+    protected static function preferDepartment($query, $departmentId)
+    {
+        $columns = static::subGroupColumns();
+        $departmentName = static::departmentName($departmentId);
+
+        if ($columns['department_id'] && $columns['department_name'] && $departmentName) {
+            return $query->orderByRaw(
+                'CASE WHEN department_id = ? OR department_name = ? THEN 0 ELSE 1 END',
+                [$departmentId, $departmentName]
+            );
+        }
+
+        if ($columns['department_id']) {
+            return $query->orderByRaw(
+                'CASE WHEN department_id = ? THEN 0 ELSE 1 END',
+                [$departmentId]
+            );
+        }
+
+        if ($columns['department_name'] && $departmentName) {
+            return $query->orderByRaw(
+                'CASE WHEN department_name = ? THEN 0 ELSE 1 END',
+                [$departmentName]
+            );
+        }
+
+        return $query;
+    }
+
+    /**
+     * Does a sub_group row belong to the department, in either schema shape?
+     *
+     * @param  object  $group
+     * @param  int|string  $departmentId
+     * @return bool
+     */
+    public static function groupBelongsToDepartment($group, $departmentId)
+    {
+        if (! is_object($group)) {
+            return false;
+        }
+
+        if (isset($group->department_id)
+            && $group->department_id !== null
+            && (string) $group->department_id === (string) $departmentId) {
+            return true;
+        }
+
+        $departmentName = static::departmentName($departmentId);
+
+        return $departmentName !== null
+            && isset($group->department_name)
+            && (string) $group->department_name === (string) $departmentName;
+    }
+
+    /**
+     * Names this member holds inside one department.
+     *
+     * Each stored entry is checked against the real sub_group rows, so a bare
+     * legacy name is only reported for the department that owns it.
+     *
+     * @param  mixed  $raw
+     * @param  int|string  $departmentId
+     * @return array
+     */
+    public static function namesForMemberDepartment($raw, $departmentId)
+    {
+        $names = [];
+
+        foreach (static::decode($raw) as $entry) {
+            list($entryDept, $name) = static::split($entry);
+
+            if ($name === '') {
+                continue;
+            }
+
+            if ($entryDept !== null && (string) $entryDept !== (string) $departmentId) {
+                continue;
+            }
+
+            $query = DB::table('sub_group')->where('sub_group_name', $name);
+            static::scopeToDepartment($query, $departmentId);
+
+            if ($query->exists() && ! in_array($name, $names, true)) {
+                $names[] = $name;
+            }
+        }
+
+        return $names;
     }
 
     /**
@@ -409,12 +617,9 @@ class SubgroupAssignmentService
             $query = DB::table('sub_group')->where('sub_group_name', $name);
 
             if ($departmentId !== null) {
-                $query->where('department_id', $departmentId);
+                static::scopeToDepartment($query, $departmentId);
             } else {
-                $query->orderByRaw(
-                    'CASE WHEN department_id = ? THEN 0 ELSE 1 END',
-                    [static::TOUCHPOINT_DEPARTMENT_ID]
-                );
+                static::preferDepartment($query, static::TOUCHPOINT_DEPARTMENT_ID);
             }
 
             $group = $query->orderBy('subid')->first();
