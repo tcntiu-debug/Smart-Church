@@ -85,7 +85,7 @@ class MyTaskProfileModalTest extends TestCase
      * Opens the task timeline of a first timer as a member with a complete
      * profile and returns the rendered response.
      */
-    private function timeline()
+    private function timeline($firstTimer = null)
     {
         $member = $this->memberQuery()->first();
 
@@ -93,13 +93,35 @@ class MyTaskProfileModalTest extends TestCase
             $this->markTestSkipped('No member with a complete profile available to open the task timeline.');
         }
 
-        $firstTimer = $this->firstTimer();
+        $firstTimer = $firstTimer ?: $this->firstTimer();
 
         $response = $this->actingAs($member)->get('/my-tasks/' . $firstTimer->first_timer_id . '/tasks');
 
         $response->assertStatus(200);
 
         return [$response, $firstTimer];
+    }
+
+    /**
+     * A first timer that answered the two optional background questions the
+     * modal now prints. Both columns are nullable, so the newest row carrying
+     * answers is used instead of assuming every record has them.
+     */
+    private function firstTimerWithBackground()
+    {
+        $firstTimer = DB::table('first_timer')
+            ->whereNotNull('marital_status')
+            ->where('marital_status', '!=', '')
+            ->whereNotNull('how_did_you_hear')
+            ->where('how_did_you_hear', '!=', '')
+            ->orderByDesc('first_timer_id')
+            ->first();
+
+        if (! $firstTimer) {
+            $this->markTestSkipped('No first timer with a marital status and a "how did you hear" answer available.');
+        }
+
+        return $firstTimer;
     }
 
     /**
@@ -123,11 +145,45 @@ class MyTaskProfileModalTest extends TestCase
         $response->assertSee('<i class="fa fa-calendar-check"></i>Registered On</span>', false);
         $response->assertDontSee('Registered On</td>', false);
 
+        // ...and it sits beside Full Name, so the name and the join date share
+        // the first line of the card instead of the date closing the card.
+        $this->assertMatchesRegularExpression(
+            '/Full Name<\/span>\s*<span class="profile-tile-value">.*?<\/span>\s*<\/div>\s*<\/div>\s*'
+            . '<div class="col-6">\s*<div class="profile-tile">\s*'
+            . '<span class="profile-tile-label"><i class="fa fa-calendar-check"><\/i>Registered On<\/span>/s',
+            $response->getContent()
+        );
+
         $phone = trim((string) $firstTimer->phone_number);
 
         if ($phone !== '') {
             $response->assertSee('href="tel:' . $phone . '"', false);
         }
+    }
+
+    /**
+     * The background questions from the registration form ("Marital Status" and
+     * "How did you hear about us?") were stored on `first_timer` but never shown
+     * in the Bio Details modal, so a guide had to open the admin table to see
+     * them. They are tiles next to Guest Type / above Address now.
+     */
+    public function test_bio_details_modal_shows_marital_status_and_how_did_you_hear()
+    {
+        $firstTimer = $this->firstTimerWithBackground();
+
+        [$response] = $this->timeline($firstTimer);
+
+        $response->assertSee('<i class="fa fa-heart"></i>Marital Status</span>', false);
+        $response->assertSee('<i class="fa fa-bullhorn"></i>How Did You Hear</span>', false);
+
+        $response->assertSee(
+            '<span class="profile-tile-value">' . e($firstTimer->marital_status) . '</span>',
+            false
+        );
+        $response->assertSee(
+            '<span class="profile-tile-value">' . e($firstTimer->how_did_you_hear) . '</span>',
+            false
+        );
     }
 
     /**

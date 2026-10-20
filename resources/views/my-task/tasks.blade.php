@@ -290,6 +290,10 @@
         if ($ftAge === '' || in_array(strtolower($ftAge), ['select', 'n/a', 'none', '-'], true)) {
             $ftAge = null;
         }
+        // Both columns are optional on the registration form, so they are often
+        // NULL or an empty string; a tile with a blank value reads like a bug.
+        $ftMaritalStatus = trim((string) ($firstTimer->marital_status ?? ''));
+        $ftHowDidYouHear = trim((string) ($firstTimer->how_did_you_hear ?? ''));
         $ftInitials = strtoupper(mb_substr($firstTimer->first_name ?? '', 0, 1) . mb_substr($firstTimer->last_name ?? '', 0, 1));
     @endphp
 
@@ -653,10 +657,19 @@
             </div>
             <div class="modal-body profile-modal-body">
                 <div class="row">
-                    <div class="col-12">
+                    <div class="col-6">
                         <div class="profile-tile">
                             <span class="profile-tile-label"><i class="fa fa-user"></i>Full Name</span>
                             <span class="profile-tile-value">{{ $ftFullName !== '' ? $ftFullName : 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-calendar-check"></i>Registered On</span>
+                            <span class="profile-tile-value">@if($registeredAt){{ $registeredAt->format('M d, Y h:i A') }}@elseif($ftRegisterRaw !== ''){{ $ftRegisterRaw }}@else N/A @endif</span>
+                            @if($registeredAt)
+                                <span class="profile-tile-note"><i class="fa fa-clock"></i> {{ $registeredAt->diffForHumans() }}</span>
+                            @endif
                         </div>
                     </div>
                     <div class="col-6">
@@ -671,7 +684,13 @@
                             <span class="profile-tile-value">{{ $ftAge ?: 'N/A' }}</span>
                         </div>
                     </div>
-                    <div class="col-12">
+                    <div class="col-6">
+                        <div class="profile-tile">
+                            <span class="profile-tile-label"><i class="fa fa-heart"></i>Marital Status</span>
+                            <span class="profile-tile-value">{{ $ftMaritalStatus !== '' ? $ftMaritalStatus : 'N/A' }}</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
                         <div class="profile-tile">
                             <span class="profile-tile-label"><i class="fa fa-user-tag"></i>Guest Type</span>
                             <span class="profile-tile-value">{{ $firstTimer->attendant_type ?? 'N/A' }}</span>
@@ -691,17 +710,14 @@
                     </div>
                     <div class="col-12">
                         <div class="profile-tile">
-                            <span class="profile-tile-label"><i class="fa fa-map-marker"></i>Address</span>
-                            <span class="profile-tile-value">{{ trim((string) ($firstTimer->address ?? '')) !== '' ? $firstTimer->address : 'N/A' }}</span>
+                            <span class="profile-tile-label"><i class="fa fa-bullhorn"></i>How Did You Hear</span>
+                            <span class="profile-tile-value">{{ $ftHowDidYouHear !== '' ? $ftHowDidYouHear : 'N/A' }}</span>
                         </div>
                     </div>
                     <div class="col-12">
                         <div class="profile-tile">
-                            <span class="profile-tile-label"><i class="fa fa-calendar-check"></i>Registered On</span>
-                            <span class="profile-tile-value">@if($registeredAt){{ $registeredAt->format('M d, Y h:i A') }}@elseif($ftRegisterRaw !== ''){{ $ftRegisterRaw }}@else N/A @endif</span>
-                            @if($registeredAt)
-                                <span class="profile-tile-note"><i class="fa fa-clock"></i> {{ $registeredAt->diffForHumans() }}</span>
-                            @endif
+                            <span class="profile-tile-label"><i class="fa fa-map-marker"></i>Address</span>
+                            <span class="profile-tile-value">{{ trim((string) ($firstTimer->address ?? '')) !== '' ? $firstTimer->address : 'N/A' }}</span>
                         </div>
                     </div>
                 </div>
