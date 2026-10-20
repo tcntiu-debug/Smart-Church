@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Campus;
+use App\Services\SubgroupAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -108,43 +109,6 @@ class SubGroupController extends Controller
     }
 
     // ===========================================================
-    // HELPERS
-    // ===========================================================
-
-    /**
-     * Decode the subgroup column into a PHP array.
-     * Handles: null, empty string, '[]', 'unassigned', plain string (legacy), or JSON array.
-     */
-    private function decodeSubgroup($value)
-    {
-        if (empty($value) || $value === '[]' || $value === 'unassigned') {
-            return [];
-        }
-        $decoded = json_decode($value, true);
-        if (is_array($decoded)) {
-            return $decoded;
-        }
-        // Legacy plain string – wrap in array
-        return [trim($value)];
-    }
-
-    /**
-     * Encode an array to JSON. Returns '[]' if empty.
-     */
-    private function encodeSubgroup(array $array)
-    {
-        return json_encode(array_values($array));
-    }
-
-    /**
-     * Build a unique key: "deptID::SubgroupName"
-     */
-    private function subgroupKey($deptId, $subgroupName)
-    {
-        return $deptId . '::' . $subgroupName;
-    }
-
-    // ===========================================================
     // FETCH ASSIGNMENT DATA
     // ===========================================================
 
@@ -174,8 +138,19 @@ class SubGroupController extends Controller
         $columnToCheck = 'subgroup';
         $deptPrefix = $deptId . '::';
 
+        // Subgroups first: the unassigned list needs to know which legacy bare
+        // names actually count as an assignment for this department.
+        $groups = DB::table('sub_group')
+            ->where('department_id', $deptId)
+            ->forCurrentCampus('campus_id', $campusId)
+            ->orderBy('sub_group_name')
+            ->select('*')
+            ->get();
+
+        $groupNames = $groups->pluck('sub_group_name')->all();
+
         // -------------------------------------------------------
-        // Fetch unassigned members (no "deptID::" entry in subgroup)
+        // Fetch unassigned members (no assignment for this department)
         // -------------------------------------------------------
         $unassignedMembers = collect();
 
@@ -194,7 +169,7 @@ class SubGroupController extends Controller
                 ->where($notAssignedClosure)
                 ->where('status', '!=', '2')
                 ->forCurrentCampus('campus_id', $campusId)
-                ->select('tiu_member_id', 'first_name', 'last_name')
+                ->select('tiu_member_id', 'first_name', 'last_name', 'subgroup')
                 ->get();
 
         } elseif ($deptId === 22) {
@@ -205,7 +180,7 @@ class SubGroupController extends Controller
                 ->where($notAssignedClosure)
                 ->where('tiu_member.status', '!=', '2')
                 ->forCurrentCampus('tiu_member.campus_id', $campusId)
-                ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name')
+                ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name', 'tiu_member.subgroup')
                 ->get();
 
         } elseif ($deptId === 30) {
@@ -217,7 +192,7 @@ class SubGroupController extends Controller
                 ->where($notAssignedClosure)
                 ->where('tiu_member.status', '!=', '2')
                 ->forCurrentCampus('tiu_member.campus_id', $campusId)
-                ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name')
+                ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name', 'tiu_member.subgroup')
                 ->get();
 
         } elseif ($deptId === 31) {
@@ -229,7 +204,7 @@ class SubGroupController extends Controller
                 ->where($notAssignedClosure)
                 ->where('tiu_member.status', '!=', '2')
                 ->forCurrentCampus('tiu_member.campus_id', $campusId)
-                ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name')
+                ->select('tiu_member.tiu_member_id', 'tiu_member.first_name', 'tiu_member.last_name', 'tiu_member.subgroup')
                 ->get();
 
         } elseif ($deptId === 15) {
@@ -239,19 +214,17 @@ class SubGroupController extends Controller
                 ->where($notAssignedClosure)
                 ->where('status', '!=', '2')
                 ->forCurrentCampus('campus_id', $campusId)
-                ->select('tiu_member_id', 'first_name', 'last_name')
+                ->select('tiu_member_id', 'first_name', 'last_name', 'subgroup')
                 ->get();
         } else {
             return '<p class="text-danger">Configuration error for this department.</p>';
         }
 
-        // Fetch subgroups
-        $groups = DB::table('sub_group')
-            ->where('department_id', $deptId)
-            ->forCurrentCampus('campus_id', $campusId)
-            ->orderBy('sub_group_name')
-            ->select('*')
-            ->get();
+        // A bare legacy value ("Touch Point 2") is only an assignment when that
+        // name is a subgroup of this department; otherwise the member stays here.
+        $unassignedMembers = $unassignedMembers->filter(function ($member) use ($deptId, $groupNames) {
+            return !SubgroupAssignmentService::isAssignedToAny($member->subgroup, $deptId, $groupNames);
+        })->values();
 
         // -------------------------------------------------------
         // Render HTML
@@ -291,12 +264,14 @@ class SubGroupController extends Controller
                 </div>
                 <ul class="ms-list ms-droppable ms-sortable-list" id="' . e($listId) . '-list" data-update-column="subgroup" data-subgroup-name="' . e($group->sub_group_name) . '">';
 
-            // Fetch assigned members: subgroup column contains "deptID::SubgroupName"
-            $searchKey = $this->subgroupKey($deptId, $group->sub_group_name);
-            $assignedMembers = DB::table('tiu_member')
-                ->where('subgroup', 'LIKE', '%"' . $searchKey . '"%')
-                ->where('status', '!=', '2')
-                ->forCurrentCampus('campus_id', $campusId)
+            // Fetch assigned members: "deptID::SubgroupName" or a legacy bare name.
+            $assignedMembers = SubgroupAssignmentService::scopeAssignedTo(
+                DB::table('tiu_member')
+                    ->where('status', '!=', '2')
+                    ->forCurrentCampus('campus_id', $campusId),
+                $deptId,
+                $group->sub_group_name
+            )
                 ->select('tiu_member_id', 'first_name', 'last_name')
                 ->get();
 
@@ -350,36 +325,18 @@ class SubGroupController extends Controller
             return response('Invalid Member ID.', 400);
         }
 
+        if (empty($departmentId)) {
+            return response('Invalid Department ID.', 400);
+        }
+
         // Read current subgroup value
         $currentData = DB::table('tiu_member')
             ->where('tiu_member_id', $memberId)
             ->value('subgroup');
 
-        $currentArray = $this->decodeSubgroup($currentData);
-
-        // Remove ALL entries for this department (both prefixed and legacy plain-text)
-        $deptPrefix = $departmentId . '::';
-        $currentArray = array_values(array_filter($currentArray, function($item) use ($deptPrefix, $newSubgroup) {
-            // Remove any prefixed item for this department
-            if (strpos($item, $deptPrefix) === 0) {
-                return false;
-            }
-            // Also remove any plain-text entry that matches the new subgroup name (legacy cleanup)
-            $parts = explode('::', $item);
-            $plainName = end($parts);
-            if ($plainName === $newSubgroup) {
-                return false;
-            }
-            return true;
-        }));
-
-        // Add the new subgroup entry (if not dragging back to unassigned)
-        if (!empty($newSubgroup)) {
-            $newKey = $this->subgroupKey($departmentId, $newSubgroup);
-            $currentArray[] = $newKey;
-        }
-
-        $valueToSave = $this->encodeSubgroup($currentArray);
+        // Replaces this department's entry (prefixed or legacy bare name) and
+        // writes the canonical "deptID::SubgroupName" shape.
+        $valueToSave = SubgroupAssignmentService::apply($currentData, $departmentId, $newSubgroup);
 
         DB::table('tiu_member')
             ->where('tiu_member_id', $memberId)
@@ -432,9 +389,17 @@ class SubGroupController extends Controller
         DB::beginTransaction();
 
         try {
-            $currentLead = DB::table('sub_group')
+            $group = DB::table('sub_group')
                 ->where('subid', $subgroupId)
-                ->value('lead_id');
+                ->first();
+
+            if (!$group) {
+                DB::rollBack();
+
+                return response()->json(['status' => 'error', 'message' => 'Subgroup not found.'], 404);
+            }
+
+            $currentLead = $group->lead_id;
 
             if ($currentLead) {
                 DB::table('tiu_member')
@@ -442,9 +407,29 @@ class SubGroupController extends Controller
                     ->update(['member_role' => 'Member']);
             }
 
+            $member = DB::table('tiu_member')
+                ->where('tiu_member_id', $memberId)
+                ->first();
+
+            $memberUpdate = ['member_role' => 'Lead'];
+
+            // Keep the assignment column in step with the panel the member now
+            // leads, without pulling them out of a group they already belong to.
+            if ($member) {
+                $assignedNames = SubgroupAssignmentService::namesForDepartment($member->subgroup, $group->department_id);
+
+                if (empty($assignedNames) || in_array($group->sub_group_name, $assignedNames, true)) {
+                    $memberUpdate['subgroup'] = SubgroupAssignmentService::apply(
+                        $member->subgroup,
+                        $group->department_id,
+                        $group->sub_group_name
+                    );
+                }
+            }
+
             DB::table('tiu_member')
                 ->where('tiu_member_id', $memberId)
-                ->update(['member_role' => 'Lead']);
+                ->update($memberUpdate);
 
             DB::table('sub_group')
                 ->where('subid', $subgroupId)

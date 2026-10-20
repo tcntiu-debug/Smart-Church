@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\SubgroupAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -40,13 +41,15 @@ class SubGroupController extends Controller
 
         $deptId = $request->department_id;
         $subgroupName = $request->subgroup_name;
-        $searchKey = $deptId . '::' . $subgroupName;
 
-        $members = DB::table('tiu_member')
-            ->where('subgroup', 'LIKE', '%"' . $searchKey . '"%')
+        $membersQuery = DB::table('tiu_member')
             ->where('status', '!=', '2')
-            ->select('tiu_member_id', 'first_name', 'last_name', 'phone_number', 'email')
-            ->get();
+            ->select('tiu_member_id', 'first_name', 'last_name', 'phone_number', 'email');
+
+        // Matches "deptID::SubgroupName" and the legacy bare subgroup name.
+        SubgroupAssignmentService::scopeAssignedTo($membersQuery, $deptId, $subgroupName);
+
+        $members = $membersQuery->get();
 
         return response()->json(['success' => true, 'data' => $members]);
     }
@@ -63,35 +66,18 @@ class SubGroupController extends Controller
             return response()->json(['success' => true, 'data' => []]);
         }
 
-        $subgroupData = json_decode($member->subgroup, true);
-        if (!is_array($subgroupData)) {
-            return response()->json(['success' => true, 'data' => []]);
-        }
-
         $groups = [];
-        foreach ($subgroupData as $key) {
-            $parts = explode('::', $key);
-            if (count($parts) == 2) {
-                $deptId = $parts[0];
-                $groupName = $parts[1];
-                
-                $dept = DB::table('department')->where('dept_id', $deptId)->first();
-                $group = DB::table('sub_group')
-                    ->where('department_id', $deptId)
-                    ->where('sub_group_name', $groupName)
-                    ->first();
+        foreach (SubgroupAssignmentService::groupsForMember($member->subgroup) as $group) {
+            $dept = DB::table('department')->where('dept_id', $group->department_id)->first();
 
-                if ($group) {
-                    $groups[] = [
-                        'dept_id' => $deptId,
-                        'dept_name' => $dept->dept_name ?? '',
-                        'subid' => $group->subid,
-                        'sub_group_name' => $group->sub_group_name,
-                        'lead_id' => $group->lead_id,
-                        'is_lead' => ($group->lead_id == $userId)
-                    ];
-                }
-            }
+            $groups[] = [
+                'dept_id' => (string) $group->department_id,
+                'dept_name' => $dept->dept_name ?? '',
+                'subid' => $group->subid,
+                'sub_group_name' => $group->sub_group_name,
+                'lead_id' => $group->lead_id,
+                'is_lead' => ($group->lead_id == $userId)
+            ];
         }
 
         return response()->json(['success' => true, 'data' => $groups]);
