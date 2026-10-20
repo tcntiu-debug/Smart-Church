@@ -114,6 +114,29 @@ class BirthdayStatusTest extends TestCase
         );
     }
 
+    /**
+     * The page names the transport the digest will really leave on, so a dev
+     * host can tell "shared MAIL_*" from a dedicated birthday mailbox without
+     * reading .env or a log.
+     */
+    public function test_the_page_shows_the_mailer_and_from_the_digest_uses()
+    {
+        config([
+            'birthday.mailer' => 'birthday',
+            'mail.mailers.birthday.host' => 'smtp.digest.test',
+            'birthday.from.address' => 'welcome@example.test',
+            'birthday.from.name' => 'Welcome Center',
+        ]);
+
+        $this->actingAs($this->admin())
+            ->get(route('birthdays.status'))
+            ->assertOk()
+            ->assertSee('Digest mailer')
+            ->assertSee('BIRTHDAY_MAIL_MAILER')
+            ->assertSee('smtp.digest.test')
+            ->assertSee('welcome@example.test');
+    }
+
     public function test_the_dry_run_the_page_runs_sends_nothing()
     {
         // The command the page calls, isolated: same assertions, no view.

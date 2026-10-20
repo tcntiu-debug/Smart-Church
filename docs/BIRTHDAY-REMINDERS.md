@@ -75,6 +75,71 @@ with `status = 3` (deleted) are never reminded or notified. Want the non-admin
 Welcome Center workers to get the digest too? `BIRTHDAY_RECIPIENT_ROLES` =
 `Super User,Admin,Member` - no code change.
 
+## Which mailbox the digest uses
+
+By default there is **no separate birthday mail setting**: the digest goes out on
+`MAIL_MAILER`, the same transport that sends the password-reset link. A working
+password-reset e-mail therefore proves the SMTP account itself is fine.
+
+If the Welcome Center should send from its own mailbox, opt in with
+`BIRTHDAY_MAIL_MAILER=birthday` and fill in the `BIRTHDAY_MAIL_*` values. Every
+one of them falls back to the matching `MAIL_*` value, so only the keys that
+really differ have to be set:
+
+```dotenv
+MAIL_MAILER=smtp
+MAIL_HOST=mail.lit-grp.com
+MAIL_PORT=587
+MAIL_USERNAME=noreply@lit-grp.com
+MAIL_PASSWORD=...
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS="noreply@lit-grp.com"
+
+# Digest only - password reset keeps using the MAIL_* account above.
+BIRTHDAY_MAIL_MAILER=birthday
+BIRTHDAY_MAIL_HOST=mail.lit-grp.com
+BIRTHDAY_MAIL_PORT=587
+BIRTHDAY_MAIL_USERNAME=welcome@lit-grp.com
+BIRTHDAY_MAIL_PASSWORD=...
+BIRTHDAY_MAIL_ENCRYPTION=tls
+BIRTHDAY_MAIL_FROM_ADDRESS="welcome@lit-grp.com"
+BIRTHDAY_MAIL_FROM_NAME="Welcome Center"
+```
+
+The transport is the `birthday` mailer in `config/mail.php`;
+`BIRTHDAY_MAIL_MAILER` must name a mailer defined there. An unknown name makes
+every digest fail with "mailer [x] is not defined" and is reported as a warning
+on `/birthdays/status`. After editing `.env`, clear a cached config
+(`php artisan config:clear`, or run `config:cache` again).
+
+### A digest that never arrived in dev
+
+Work through `/birthdays/status` top to bottom - it shows all of this without a
+shell:
+
+1. **Warnings** - "There is no storage/logs/birthday-reminders.log yet" means the
+   scheduler has never run `birthdays:remind` on that host. The digest is only
+   as alive as the cron entry; dev has **no shell** (`docs/DEPLOY-dev.lit-grp.com.md`),
+   so the only trigger is a cPanel **Cron Jobs** entry running
+   `php artisan schedule:run` every minute.
+2. **Preview (dry run)** - lines ending `no birthdays on ...` mean nothing is due.
+   The command only sends at the `BIRTHDAY_DAYS` milestones (`3,2,1` by default),
+   and a run with no birthday in that window sends nothing at all.
+3. **Recipients** - an empty list means nobody matches
+   `BIRTHDAY_DEPARTMENT_IDS` (`28` = Welcome Center) **and**
+   `BIRTHDAY_RECIPIENT_ROLES` (`Super User,Admin`) **and** has an e-mail address.
+   This is independent of the mail transport.
+4. **Recent digests** - a `sent` row for that milestone/date means the digest
+   already went out and the duplicate guard is skipping it; re-send with
+   `php artisan birthdays:remind --days=3 --force`.
+5. **`storage/logs/laravel.log`** - SMTP errors are caught per recipient and do
+   not stop the run (the in-app bell and Telegram still deliver), so search for
+   `Birthday reminder mail failed`. That line carries the real SMTP reason
+   (authentication, sender rejected, connection refused...).
+6. **By hand** (where a shell exists) - `php artisan birthdays:remind --dry-run`
+   prints exactly what would be sent and to whom; `--days=N --force` re-sends one
+   milestone. On dev there is no shell, so use the page's preview and the cron.
+
 ## Verified against the real data (15 Oct 2026)
 
 ```

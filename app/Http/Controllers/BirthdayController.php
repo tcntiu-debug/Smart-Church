@@ -146,7 +146,12 @@ class BirthdayController extends Controller
             }
         }
 
-        $warnings = $this->reminderWarnings($logExists, $logModified, $today, $emailableRecipients);
+        // Which transport the digests actually leave on: the dedicated birthday
+        // mailer when BIRTHDAY_MAIL_MAILER is set, otherwise MAIL_MAILER.
+        $digestMailer = $service->mailerName();
+        $digestTransport = (array) config('mail.mailers.'.$digestMailer, []);
+
+        $warnings = $this->reminderWarnings($logExists, $logModified, $today, $emailableRecipients, $digestMailer);
 
         $channels = array_values((array) config('birthday.channels', ['email']));
 
@@ -163,7 +168,9 @@ class BirthdayController extends Controller
             'recipients',
             'emailableRecipients',
             'warnings',
-            'channels'
+            'channels',
+            'digestMailer',
+            'digestTransport'
         ));
     }
 
@@ -237,7 +244,7 @@ class BirthdayController extends Controller
      *
      * @return array<int, string>
      */
-    protected function reminderWarnings(bool $logExists, ?Carbon $logModified, Carbon $today, int $emailableRecipients): array
+    protected function reminderWarnings(bool $logExists, ?Carbon $logModified, Carbon $today, int $emailableRecipients, string $digestMailer = ''): array
     {
         $warnings = [];
 
@@ -248,13 +255,17 @@ class BirthdayController extends Controller
             $warnings[] = 'The last run logged on '.$lastSeen.', before today - today\'s digest has not gone out yet.';
         }
 
-        $mailer = (string) config('mail.default');
-        if (in_array($mailer, ['log', 'array'], true)) {
-            $warnings[] = 'MAIL_MAILER is "'.$mailer.'", so e-mail is written to a log instead of delivered. Set a real transport in .env.';
+        $digestMailer = $digestMailer !== '' ? $digestMailer : (string) config('mail.default');
+        $digestTransport = config('mail.mailers.'.$digestMailer);
+
+        if (! is_array($digestTransport)) {
+            $warnings[] = 'The digest mailer "'.$digestMailer.'" is not defined in config/mail.php. Check BIRTHDAY_MAIL_MAILER / MAIL_MAILER.';
+        } elseif (in_array($digestTransport['transport'] ?? '', ['log', 'array'], true)) {
+            $warnings[] = 'The digest mailer "'.$digestMailer.'" uses the "'.($digestTransport['transport'] ?? '').'" transport, so e-mail is written to a log instead of delivered. Set a real transport in .env (MAIL_MAILER, or BIRTHDAY_MAIL_MAILER=birthday for a dedicated mailbox).';
         }
 
-        if (trim((string) config('mail.from.address')) === '') {
-            $warnings[] = 'MAIL_FROM_ADDRESS is empty; many mail servers reject a message without a sender.';
+        if (trim((string) config('birthday.from.address')) === '') {
+            $warnings[] = 'The digest "From" address is empty (BIRTHDAY_MAIL_FROM_ADDRESS / MAIL_FROM_ADDRESS); many mail servers reject a message without a sender.';
         }
 
         if (in_array('telegram', (array) config('birthday.channels', []), true)

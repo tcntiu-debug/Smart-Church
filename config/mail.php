@@ -45,6 +45,23 @@ return [
             'auth_mode' => null,
         ],
 
+        /*
+         * Dedicated transport for the Welcome Center birthday digest. Only used
+         * when BIRTHDAY_MAIL_MAILER=birthday (config/birthday.php). Every value
+         * falls back to the matching MAIL_* setting, so a host that does not
+         * need a second mailbox keeps sending through the default account.
+         */
+        'birthday' => [
+            'transport' => 'smtp',
+            'host' => env('BIRTHDAY_MAIL_HOST', env('MAIL_HOST', 'smtp.mailgun.org')),
+            'port' => env('BIRTHDAY_MAIL_PORT', env('MAIL_PORT', 587)),
+            'encryption' => env('BIRTHDAY_MAIL_ENCRYPTION', env('MAIL_ENCRYPTION', 'tls')),
+            'username' => env('BIRTHDAY_MAIL_USERNAME', env('MAIL_USERNAME')),
+            'password' => env('BIRTHDAY_MAIL_PASSWORD', env('MAIL_PASSWORD')),
+            'timeout' => null,
+            'auth_mode' => null,
+        ],
+
         'ses' => [
             'transport' => 'ses',
         ],

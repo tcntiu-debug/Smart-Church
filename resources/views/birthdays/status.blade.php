@@ -173,15 +173,32 @@
             <table class="table table-sm">
                 <tbody>
                     <tr>
-                        <th style="width:240px;">Mail transport</th>
+                        <th style="width:240px;">Digest mailer</th>
                         <td>
-                            <code>{{ config('mail.default') }}</code>
-                            ({{ config('mail.mailers.'.config('mail.default').'.host', 'n/a') }}:{{ config('mail.mailers.'.config('mail.default').'.port', 'n/a') }})
+                            <code>{{ $digestMailer }}</code>
+                            @if(trim((string) config('birthday.mailer', '')) !== '')
+                                <span class="text-muted">(BIRTHDAY_MAIL_MAILER)</span>
+                            @else
+                                <span class="text-muted">(default - MAIL_MAILER)</span>
+                            @endif
+                            <br>
+                            <span class="text-muted">
+                                {{ $digestTransport['host'] ?? 'n/a' }}:{{ $digestTransport['port'] ?? 'n/a' }}
+                                @if(!empty($digestTransport['encryption']))
+                                    &middot; {{ $digestTransport['encryption'] }}
+                                @endif
+                                @if(!empty($digestTransport['transport']))
+                                    &middot; {{ $digestTransport['transport'] }} transport
+                                @endif
+                            </span>
                         </td>
                     </tr>
                     <tr>
                         <th>From</th>
-                        <td>{{ config('mail.from.name') }} &lt;{{ config('mail.from.address') ?: 'not set' }}&gt;</td>
+                        <td>
+                            {{ config('birthday.from.name') ?: config('mail.from.name') }}
+                            &lt;{{ config('birthday.from.address') ?: 'not set' }}&gt;
+                        </td>
                     </tr>
                     <tr>
                         <th>Recipient roles</th>

@@ -49,9 +49,21 @@ class BirthdayReminderMail extends Mailable
             $when = 'in '.$this->daysBefore.' days ('.$target.')';
         }
 
-        return $this
+        $message = $this
             ->subject(sprintf('🎂 %d birthday%s %s — %s Campus', $count, $count === 1 ? '' : 's', $when, $this->campusName))
             ->view('emails.birthday-reminder')
             ->text('emails.birthday-reminder-text');
+
+        // BIRTHDAY_MAIL_FROM_* when the digest has its own mailbox, otherwise
+        // the global MAIL_FROM_* (unchanged behaviour).
+        $fromAddress = trim((string) config('birthday.from.address', ''));
+
+        if ($fromAddress !== '') {
+            $fromName = trim((string) config('birthday.from.name', ''));
+
+            $message->from($fromAddress, $fromName !== '' ? $fromName : null);
+        }
+
+        return $message;
     }
 }

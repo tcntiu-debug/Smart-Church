@@ -133,6 +133,35 @@ class BirthdayReminderService
     }
 
     /**
+     * Mailer the digest goes out on.
+     *
+     * BIRTHDAY_MAIL_MAILER when the digest has its own mailbox, otherwise the
+     * application's default mailer - the one password reset uses too.
+     */
+    public function mailerName(): string
+    {
+        $configured = trim((string) config('birthday.mailer', ''));
+
+        return $configured !== '' ? $configured : (string) config('mail.default');
+    }
+
+    /**
+     * Transport for one digest recipient.
+     *
+     * A fresh pending mail per recipient is deliberate: PendingMail keeps the
+     * addresses it was given, so reusing one instance would add every recipient
+     * of the loop to the next message.
+     *
+     * @return \Illuminate\Contracts\Mail\Mailer
+     */
+    protected function pendingMail()
+    {
+        $configured = trim((string) config('birthday.mailer', ''));
+
+        return $configured !== '' ? Mail::mailer($configured) : Mail::mailer();
+    }
+
+    /**
      * Campuses to process.
      *
      * In single campus mode this is the one campus the church runs, so the
@@ -452,7 +481,7 @@ class BirthdayReminderService
 
                 foreach ($emails as $email => $name) {
                     try {
-                        Mail::to($email, $name)->send(
+                        $this->pendingMail()->to($email, $name)->send(
                             new BirthdayReminderMail($campusName, $daysBefore, $target->toDateString(), $birthdays)
                         );
                         $sentTo++;

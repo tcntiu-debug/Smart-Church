@@ -54,6 +54,19 @@ return [
         array_map('trim', explode(',', (string) env('BIRTHDAY_EXTRA_EMAILS', '')))
     )),
 
+    // Mailer the digest goes out on. Empty = the application's default mailer
+    // (MAIL_MAILER), which is also what password reset uses. Set it to
+    // "birthday" to send from a dedicated mailbox instead: the transport lives
+    // in config/mail.php and reads BIRTHDAY_MAIL_* (falling back to MAIL_*).
+    'mailer' => env('BIRTHDAY_MAIL_MAILER', ''),
+
+    // "From" header for the digest. Falls back to MAIL_FROM_* so nothing
+    // changes unless a dedicated address is configured.
+    'from' => [
+        'address' => env('BIRTHDAY_MAIL_FROM_ADDRESS', env('MAIL_FROM_ADDRESS')),
+        'name' => env('BIRTHDAY_MAIL_FROM_NAME', env('MAIL_FROM_NAME')),
+    ],
+
     // Telegram push - re-uses the bot already configured for airtime alerts.
     // Falls back to TELEGRAM_CHAT_ID when no birthday specific chat is set.
     'telegram' => [
