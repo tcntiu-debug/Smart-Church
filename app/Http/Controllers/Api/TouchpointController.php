@@ -27,11 +27,11 @@ class TouchpointController extends Controller
                 SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
             );
 
-            $groups = DB::table('sub_group')
-                ->where('department_id', SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID)
-                ->whereIn('sub_group_name', $groupNames)
-                ->orderBy('sub_group_name')
-                ->get();
+            $groups = SubgroupAssignmentService::groupsForDepartment(
+                SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
+            )->filter(function ($group) use ($groupNames) {
+                return in_array($group->sub_group_name, $groupNames, true);
+            });
 
             foreach ($groups as $group) {
                 $membersQuery = DB::table('tiu_member')
@@ -40,7 +40,11 @@ class TouchpointController extends Controller
                     ->orderBy('last_name')
                     ->select('tiu_member_id', 'first_name', 'last_name', 'phone_number');
 
-                SubgroupAssignmentService::scopeAssignedTo($membersQuery, $group->department_id, $group->sub_group_name);
+                SubgroupAssignmentService::scopeAssignedTo(
+                    $membersQuery,
+                    SubgroupAssignmentService::departmentIdForGroup($group) ?? SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID,
+                    $group->sub_group_name
+                );
 
                 $members = $membersQuery->get();
 

@@ -121,6 +121,33 @@ SET @sql := IF(
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------------
+-- 6. sub_group.department_id - the reconciliation added the column with
+--    DEFAULT 0 and never filled it, so every read that filters by the id
+--    (/group panels, the Touch Point select on /profile, the mobile subgroup
+--    API) returned nothing on the live database.
+--
+-- The dump only names the department in the legacy department_name column.
+-- Copy it across, accepting a leading "The" (the dump says "Switch", the
+-- department table says "The Switch"). Safe to run twice: only rows still at
+-- 0/NULL are touched. The department-less "Touch Point 11..18" rows stay at 0
+-- on purpose - no member is assigned to them and no department owns them.
+-- ---------------------------------------------------------------------------
+UPDATE `sub_group` AS sg
+  JOIN `department` AS d
+    ON TRIM(LOWER(d.dept_name)) = TRIM(LOWER(sg.department_name))
+    OR TRIM(LOWER(d.dept_name)) = CONCAT('the ', TRIM(LOWER(sg.department_name)))
+   SET sg.department_id = d.dept_id
+ WHERE (sg.department_id IS NULL OR sg.department_id = 0)
+   AND TRIM(COALESCE(sg.department_name, '')) <> '';
+
+-- The other direction, for rows the new code created (id only).
+UPDATE `sub_group` AS sg
+  JOIN `department` AS d ON d.dept_id = sg.department_id
+   SET sg.department_name = d.dept_name
+ WHERE (sg.department_name IS NULL OR sg.department_name = '')
+   AND sg.department_id > 0;
+
+-- ---------------------------------------------------------------------------
 -- Not fixed here, on purpose
 --
 --   tiu_member.campus_id is NOT NULL in the dump. `php artisan app:sync-schema`

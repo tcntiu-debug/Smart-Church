@@ -97,6 +97,15 @@ The three feature tables are created by `php artisan app:sync-schema`
 | `first_timers_updates` | `house_fellowship` (production spells it `house_felloship`) |
 | all `children_church*` / `child_ceremonies` | whole table missing (see above) |
 
+`sub_group.department_id` needs data as well as the column: the reconciliation
+adds it with `DEFAULT 0`, and an imported row only names its department in
+`department_name`. Until the two are reconciled, every reader that filters by
+the id - the `/group` panels, the Touch Point select on `/profile`, the mobile
+subgroup API - comes up empty. Section 6 of
+`scripts/sql/prod-post-import-fixes.sql` copies the id across;
+`scripts/sql/prod-subgroup-department-backfill.sql` is the same repair as a
+one-off for a database that has already been reconciled.
+
 ## 4. Why `php artisan migrate` is not the way to fix production
 
 Production has no `migrations` table, so a plain `migrate` would try to replay

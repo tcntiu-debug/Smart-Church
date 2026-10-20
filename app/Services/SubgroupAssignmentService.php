@@ -270,16 +270,85 @@ class SubgroupAssignmentService
      * authenticated user's campus, exactly like the assignment screens.
      *
      * @param  int|string  $departmentId
+     * @param  int|string|null  $campusId
      * @return array
      */
-    public static function groupNamesForDepartment($departmentId)
+    public static function groupNamesForDepartment($departmentId, $campusId = null)
+    {
+        return static::groupsForDepartment($departmentId, $campusId)
+            ->pluck('sub_group_name')
+            ->all();
+    }
+
+    /**
+     * The sub_group rows of one department, in either schema shape.
+     *
+     * Production was imported with `department_id = 0` while the department
+     * stayed in the legacy `department_name` column, so a plain
+     * `where('department_id', ...)` - what /group used to run - rendered empty
+     * panels on the live site even though the rows were there.
+     *
+     * @param  int|string  $departmentId
+     * @param  int|string|null  $campusId  Pass the viewer's campus to keep the
+     *                                     per-campus filter; null reads every
+     *                                     campus (the assignment screens).
+     * @return \Illuminate\Support\Collection
+     */
+    public static function groupsForDepartment($departmentId, $campusId = null)
     {
         $query = DB::table('sub_group');
         static::scopeToDepartment($query, $departmentId);
 
-        return $query->orderBy('sub_group_name')
-            ->pluck('sub_group_name')
-            ->all();
+        if ($campusId !== null && $campusId !== '' && static::subGroupHasColumn('campus_id')) {
+            $query->forCurrentCampus('campus_id', $campusId);
+        }
+
+        return $query->orderBy('sub_group_name')->get();
+    }
+
+    /**
+     * The department a sub_group row really belongs to.
+     *
+     * Imported rows carry `department_id = 0` (or have no id column at all) and
+     * only name the department in `department_name`. Returns null when neither
+     * identifies a real department, so callers can leave an assignment alone
+     * instead of writing a "0::Name" entry.
+     *
+     * @param  object|array|null  $group
+     * @return int|null
+     */
+    public static function departmentIdForGroup($group)
+    {
+        if (is_array($group)) {
+            $group = (object) $group;
+        }
+
+        if (! is_object($group)) {
+            return null;
+        }
+
+        $departmentId = isset($group->department_id) ? (int) $group->department_id : 0;
+
+        if ($departmentId > 0) {
+            return $departmentId;
+        }
+
+        $name = isset($group->department_name) ? trim((string) $group->department_name) : '';
+
+        return $name === '' ? null : static::departmentIdByName($name);
+    }
+
+    /**
+     * Does the deployed `sub_group` table have this column?
+     *
+     * @param  string  $column
+     * @return bool
+     */
+    public static function subGroupHasColumn($column)
+    {
+        $columns = static::subGroupColumns();
+
+        return ! empty($columns[$column]);
     }
 
     /**
@@ -302,6 +371,7 @@ class SubgroupAssignmentService
             $columns[$connection] = [
                 'department_id' => static::tableHasColumn('sub_group', 'department_id'),
                 'department_name' => static::tableHasColumn('sub_group', 'department_name'),
+                'campus_id' => static::tableHasColumn('sub_group', 'campus_id'),
             ];
         }
 
@@ -349,7 +419,7 @@ class SubgroupAssignmentService
                 // table yet; the touch point name below still identifies it.
             }
 
-            if (! $name && $key === (string) static::TOUCHPOINT_DEPARTMENT_ID) {
+            if (! $name && (string) $departmentId === (string) static::TOUCHPOINT_DEPARTMENT_ID) {
                 $name = static::TOUCHPOINT_DEPARTMENT_NAME;
             }
 
@@ -357,6 +427,109 @@ class SubgroupAssignmentService
         }
 
         return $names[$key];
+    }
+
+    /**
+     * Resolve a legacy department name to its id.
+     *
+     * The import kept whatever the old app wrote - "Switch" for the department
+     * table's "The Switch" - so an exact comparison is not enough.
+     *
+     * @param  string  $name
+     * @return int|null
+     */
+    protected static function departmentIdByName($name)
+    {
+        static $departments = [];
+
+        $needle = static::normaliseName($name);
+
+        if ($needle === '') {
+            return null;
+        }
+
+        $connection = DB::connection()->getName();
+
+        if (! isset($departments[$connection])) {
+            $departments[$connection] = [];
+
+            try {
+                foreach (DB::table('department')->get(['dept_id', 'dept_name']) as $department) {
+                    $normalised = static::normaliseName($department->dept_name);
+
+                    if ($normalised !== '' && ! isset($departments[$connection][$normalised])) {
+                        $departments[$connection][$normalised] = (int) $department->dept_id;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Partially imported database: nothing to resolve against.
+            }
+        }
+
+        return isset($departments[$connection][$needle])
+            ? $departments[$connection][$needle]
+            : null;
+    }
+
+    /**
+     * Compare department names without case, padding or a leading "The".
+     *
+     * @param  string  $name
+     * @return string
+     */
+    protected static function normaliseName($name)
+    {
+        $name = strtolower(trim((string) $name));
+        $name = preg_replace('/^the\s+/', '', $name);
+
+        return preg_replace('/\s+/', ' ', $name);
+    }
+
+    /**
+     * Every name the department has been stored under in the legacy column.
+     *
+     * Imported rows kept the old spelling ("Switch", "the switch"), so the
+     * canonical `department.dept_name` alone misses them. Only the handful of
+     * distinct values in `sub_group` is inspected, then cached per request.
+     *
+     * @param  int|string  $departmentId
+     * @return array
+     */
+    protected static function departmentNameVariants($departmentId)
+    {
+        static $variants = [];
+
+        $key = DB::connection()->getName() . '|' . (string) $departmentId;
+
+        if (! array_key_exists($key, $variants)) {
+            $names = [];
+            $canonical = static::departmentName($departmentId);
+
+            if ($canonical !== null && trim((string) $canonical) !== '') {
+                $names[] = $canonical;
+                $needle = static::normaliseName($canonical);
+
+                try {
+                    $storedNames = DB::table('sub_group')
+                        ->distinct()
+                        ->pluck('department_name');
+
+                    foreach ($storedNames as $storedName) {
+                        $storedName = trim((string) $storedName);
+
+                        if ($storedName !== '' && static::normaliseName($storedName) === $needle) {
+                            $names[] = $storedName;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // No legacy column (or no table): the canonical name is enough.
+                }
+            }
+
+            $variants[$key] = array_values(array_unique($names));
+        }
+
+        return $variants[$key];
     }
 
     /**
@@ -372,9 +545,11 @@ class SubgroupAssignmentService
         $departmentName = static::departmentName($departmentId);
 
         if ($columns['department_id'] && $columns['department_name'] && $departmentName) {
-            return $query->where(function ($nested) use ($departmentId, $departmentName) {
+            $variants = static::departmentNameVariants($departmentId);
+
+            return $query->where(function ($nested) use ($departmentId, $variants) {
                 $nested->where('department_id', $departmentId)
-                    ->orWhere('department_name', $departmentName);
+                    ->orWhereIn('department_name', $variants);
             });
         }
 
@@ -383,7 +558,7 @@ class SubgroupAssignmentService
         }
 
         if ($columns['department_name'] && $departmentName) {
-            return $query->where('department_name', $departmentName);
+            return $query->whereIn('department_name', static::departmentNameVariants($departmentId));
         }
 
         // No usable department column: match nothing rather than every group.
@@ -449,7 +624,7 @@ class SubgroupAssignmentService
 
         return $departmentName !== null
             && isset($group->department_name)
-            && (string) $group->department_name === (string) $departmentName;
+            && in_array((string) $group->department_name, static::departmentNameVariants($departmentId), true);
     }
 
     /**

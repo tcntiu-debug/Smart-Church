@@ -275,4 +275,85 @@ class SubgroupAssignmentServiceTest extends TestCase
             DB::purge('legacy_sub_group_test');
         }
     }
+
+    /**
+     * The production shape after reconciliation: `department_id` exists but the
+     * import left every row at 0, with the department only named in the legacy
+     * column. /group used to run a plain where('department_id') and rendered no
+     * panels; the profile select rendered no options.
+     */
+    public function test_it_reads_groups_when_the_import_left_department_id_at_zero()
+    {
+        $originalConnection = DB::getDefaultConnection();
+
+        config(['database.connections.imported_sub_group_test' => [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+        ]]);
+
+        DB::purge('imported_sub_group_test');
+        DB::setDefaultConnection('imported_sub_group_test');
+
+        try {
+            Schema::create('department', function (Blueprint $table) {
+                $table->integer('dept_id');
+                $table->string('dept_name');
+            });
+
+            Schema::create('sub_group', function (Blueprint $table) {
+                $table->increments('subid');
+                $table->integer('department_id')->default(0);
+                $table->string('department_name')->default('');
+                $table->string('sub_group_name');
+                $table->integer('lead_id')->nullable();
+                $table->integer('campus_id')->nullable();
+            });
+
+            DB::table('department')->insert([
+                ['dept_id' => 22, 'dept_name' => 'The Switch'],
+                ['dept_id' => 23, 'dept_name' => 'Tracking and Integration'],
+                ['dept_id' => 31, 'dept_name' => 'Pearls'],
+            ]);
+
+            DB::table('sub_group')->insert([
+                ['department_id' => 0, 'department_name' => 'Tracking and Integration', 'sub_group_name' => 'Touch Point 1', 'lead_id' => 12, 'campus_id' => null],
+                ['department_id' => 0, 'department_name' => 'Tracking and Integration', 'sub_group_name' => 'Touch Point 2', 'lead_id' => 7, 'campus_id' => null],
+                ['department_id' => 0, 'department_name' => 'Switch', 'sub_group_name' => 'Switch', 'lead_id' => null, 'campus_id' => null],
+                ['department_id' => 0, 'department_name' => 'Pearls', 'sub_group_name' => 'pears', 'lead_id' => null, 'campus_id' => null],
+                ['department_id' => 0, 'department_name' => '', 'sub_group_name' => 'Touch Point 11', 'lead_id' => null, 'campus_id' => null],
+            ]);
+
+            // What the live /group query saw before this fix.
+            $this->assertSame(0, DB::table('sub_group')->where('department_id', 23)->count());
+
+            $this->assertSame(['Touch Point 1', 'Touch Point 2'], SubgroupAssignmentService::groupNamesForDepartment(23));
+            $this->assertSame(
+                ['Touch Point 1', 'Touch Point 2'],
+                SubgroupAssignmentService::groupsForDepartment(23)->pluck('sub_group_name')->all()
+            );
+
+            // The import kept the old spelling: "Switch" is department 22.
+            $this->assertSame(['Switch'], SubgroupAssignmentService::groupNamesForDepartment(22));
+            $this->assertSame(22, SubgroupAssignmentService::departmentIdForGroup(
+                (object) ['department_id' => 0, 'department_name' => 'Switch']
+            ));
+            $this->assertTrue(SubgroupAssignmentService::groupBelongsToDepartment(
+                (object) ['department_id' => 0, 'department_name' => 'Switch'],
+                22
+            ));
+
+            // Rows with no department at all belong to nobody.
+            $this->assertSame([], SubgroupAssignmentService::groupNamesForDepartment(15));
+            $this->assertNull(SubgroupAssignmentService::departmentIdForGroup(
+                (object) ['department_id' => 0, 'department_name' => '']
+            ));
+
+            // The member's bare legacy value still resolves to its real group.
+            $this->assertSame(['Touch Point 1'], SubgroupAssignmentService::namesForMemberDepartment('Touch Point 1', 23));
+        } finally {
+            DB::setDefaultConnection($originalConnection);
+            DB::purge('imported_sub_group_test');
+        }
+    }
 }

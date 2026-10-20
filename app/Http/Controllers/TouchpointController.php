@@ -50,7 +50,11 @@ class TouchpointController extends Controller
                     ->orderBy('last_name')
                     ->select('tiu_member_id', 'first_name', 'last_name', 'phone_number');
 
-                SubgroupAssignmentService::scopeAssignedTo($membersQuery, $group->department_id, $group->sub_group_name);
+                SubgroupAssignmentService::scopeAssignedTo(
+                    $membersQuery,
+                    SubgroupAssignmentService::departmentIdForGroup($group) ?? 0,
+                    $group->sub_group_name
+                );
 
                 $myGroups[] = [
                     'group_name' => $group->sub_group_name,

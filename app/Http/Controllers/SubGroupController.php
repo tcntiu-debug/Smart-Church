@@ -65,21 +65,31 @@ class SubGroupController extends Controller
 
         $campusId = Auth::user()->campus_id ?? 1;
 
-        $existing = DB::table('sub_group')
-            ->where('department_id', $departmentId)
-            ->where('sub_group_name', $subGroupName)
-            ->forCurrentCampus('campus_id', $campusId)
-            ->first();
-
-        if ($existing) {
-            return response()->json(['status' => 'error', 'message' => 'This subgroup already exists for the selected department.']);
+        // Compare names, not ids: imported rows still have department_id = 0 and
+        // are only identified by their legacy department_name.
+        foreach (SubgroupAssignmentService::groupNamesForDepartment($departmentId, $campusId) as $existingName) {
+            if (strcasecmp($existingName, $subGroupName) === 0) {
+                return response()->json(['status' => 'error', 'message' => 'This subgroup already exists for the selected department.']);
+            }
         }
 
-        DB::table('sub_group')->insert([
-            'department_id' => $departmentId,
-            'sub_group_name' => $subGroupName,
-            'campus_id' => Campus::writeId($campusId),
-        ]);
+        $row = ['sub_group_name' => $subGroupName];
+
+        // Write every department shape the table has, so legacy readers (and a
+        // deploy that has not picked up this code yet) still find the row.
+        if (SubgroupAssignmentService::subGroupHasColumn('department_id')) {
+            $row['department_id'] = $departmentId;
+        }
+
+        if (SubgroupAssignmentService::subGroupHasColumn('department_name')) {
+            $row['department_name'] = $dept->dept_name;
+        }
+
+        if (SubgroupAssignmentService::subGroupHasColumn('campus_id')) {
+            $row['campus_id'] = Campus::writeId($campusId);
+        }
+
+        DB::table('sub_group')->insert($row);
 
         return response()->json(['status' => 'success', 'message' => 'Subgroup created successfully!']);
     }
@@ -140,12 +150,11 @@ class SubGroupController extends Controller
 
         // Subgroups first: the unassigned list needs to know which legacy bare
         // names actually count as an assignment for this department.
-        $groups = DB::table('sub_group')
-            ->where('department_id', $deptId)
-            ->forCurrentCampus('campus_id', $campusId)
-            ->orderBy('sub_group_name')
-            ->select('*')
-            ->get();
+        //
+        // Read through the service: production still identifies these rows by
+        // the legacy department_name column (department_id = 0), which a plain
+        // where('department_id') silently skips.
+        $groups = SubgroupAssignmentService::groupsForDepartment($deptId, $campusId);
 
         $groupNames = $groups->pluck('sub_group_name')->all();
 
@@ -416,14 +425,20 @@ class SubGroupController extends Controller
             // Keep the assignment column in step with the panel the member now
             // leads, without pulling them out of a group they already belong to.
             if ($member) {
-                $assignedNames = SubgroupAssignmentService::namesForDepartment($member->subgroup, $group->department_id);
+                $departmentId = SubgroupAssignmentService::departmentIdForGroup($group);
 
-                if (empty($assignedNames) || in_array($group->sub_group_name, $assignedNames, true)) {
-                    $memberUpdate['subgroup'] = SubgroupAssignmentService::apply(
-                        $member->subgroup,
-                        $group->department_id,
-                        $group->sub_group_name
-                    );
+                // Imported rows may not name a real department; leave the
+                // assignment untouched rather than writing a "0::Name" entry.
+                if ($departmentId !== null) {
+                    $assignedNames = SubgroupAssignmentService::namesForDepartment($member->subgroup, $departmentId);
+
+                    if (empty($assignedNames) || in_array($group->sub_group_name, $assignedNames, true)) {
+                        $memberUpdate['subgroup'] = SubgroupAssignmentService::apply(
+                            $member->subgroup,
+                            $departmentId,
+                            $group->sub_group_name
+                        );
+                    }
                 }
             }
 

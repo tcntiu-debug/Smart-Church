@@ -20,11 +20,7 @@ class SubGroupController extends Controller
         $user = DB::selectOne("SELECT campus_id FROM tiu_member WHERE tiu_member_id = ?", [$userId]);
         $campusId = $user->campus_id ?? 1;
 
-        $groups = DB::table('sub_group')
-            ->where('department_id', $request->department_id)
-            ->forCurrentCampus('campus_id', $campusId)
-            ->orderBy('sub_group_name')
-            ->get();
+        $groups = SubgroupAssignmentService::groupsForDepartment($request->department_id, $campusId);
 
         return response()->json(['success' => true, 'data' => $groups]);
     }
@@ -68,10 +64,14 @@ class SubGroupController extends Controller
 
         $groups = [];
         foreach (SubgroupAssignmentService::groupsForMember($member->subgroup) as $group) {
-            $dept = DB::table('department')->where('dept_id', $group->department_id)->first();
+            // Imported rows may only carry the legacy department name.
+            $departmentId = SubgroupAssignmentService::departmentIdForGroup($group);
+            $dept = $departmentId
+                ? DB::table('department')->where('dept_id', $departmentId)->first()
+                : null;
 
             $groups[] = [
-                'dept_id' => (string) $group->department_id,
+                'dept_id' => (string) ($departmentId ?? ($group->department_id ?? '')),
                 'dept_name' => $dept->dept_name ?? '',
                 'subid' => $group->subid,
                 'sub_group_name' => $group->sub_group_name,
