@@ -163,12 +163,12 @@ class WeekListController extends Controller
         // ------------------------------------------------------------------
         // Weekly Call List (caller assignment for the selected touch points)
         // ------------------------------------------------------------------
-        [$callers, $callerNames, $assignments, $groupedForPrint] = $this->buildCallerData($rows, $selectedTouchpoints);
+        [$callers, $callerNames, $assignments, $groupedForPrint, $callerWhatsApp] = $this->buildCallerData($rows, $selectedTouchpoints);
 
         return view('weeklist.index', array_merge(
             compact('rows', 'page_title', 'guestTypes', 'churchTypes',
                 'start_date_filter', 'end_date_filter', 'guest_type_filter', 'church_type_id_filter', 'member_role',
-                'callers', 'callerNames', 'assignments', 'groupedForPrint',
+                'callers', 'callerNames', 'assignments', 'groupedForPrint', 'callerWhatsApp',
                 'touchpointOptions', 'selectedTouchpoints'),
             ['isAdmin' => $this->canManageAssignments($member_role)]
         ));
@@ -326,7 +326,7 @@ class WeekListController extends Controller
      *
      * @param  array  $rows
      * @param  array<int, string>  $touchpointNames  Touch points chosen in the filter
-     * @return array{0: \Illuminate\Support\Collection, 1: array, 2: array, 3: array}
+     * @return array{0: \Illuminate\Support\Collection, 1: array, 2: array, 3: array, 4: array}
      */
     private function buildCallerData(array $rows, array $touchpointNames = []): array
     {
@@ -352,10 +352,11 @@ class WeekListController extends Controller
         $callers = $query
             ->orderBy('first_name')
             ->orderBy('last_name')
-            ->get(['tiu_member_id', 'first_name', 'last_name', 'gender']);
+            ->get(['tiu_member_id', 'first_name', 'last_name', 'gender', 'phone_number']);
 
         $callerNames = [];
         $callerIds = [];
+        $callerContacts = [];
         $maleCallers = [];
         $femaleCallers = [];
         $allCallers = [];
@@ -368,6 +369,12 @@ class WeekListController extends Controller
 
             // Each gender gets its own round-robin lane.
             $gender = $this->normalizeGender($caller->gender);
+
+            // Kept for the WhatsApp buttons on the printed call list.
+            $callerContacts[(int) $caller->tiu_member_id] = [
+                'phone'  => $this->formatCallerPhone($caller->phone_number),
+                'gender' => $gender,
+            ];
 
             if ($gender === 'male') {
                 $maleCallers[] = $caller->tiu_member_id;
@@ -393,6 +400,7 @@ class WeekListController extends Controller
 
         $assignments = [];      // first_timer_id => caller tiu_member_id (int|null)
         $groupedForPrint = [];  // caller name => list of people to call
+        $callerIdByGroup = [];  // printed caller name => caller tiu_member_id
         $maleIdx = 0;
         $femaleIdx = 0;
         $otherIdx = 0;
@@ -431,6 +439,10 @@ class WeekListController extends Controller
 
             $assignments[$ftId] = $callerId;
 
+            if ($callerId) {
+                $callerIdByGroup[$callerName] = (int) $callerId;
+            }
+
             $groupedForPrint[$callerName][] = [
                 'name'       => trim($row->first_name . ' ' . $row->last_name),
                 'phone'      => $row->phone_number,
@@ -440,7 +452,107 @@ class WeekListController extends Controller
             ];
         }
 
-        return [$callers, $callerNames, $assignments, $groupedForPrint];
+        // One-click WhatsApp buttons for the printed call list: the caller's
+        // own greeting plus the first timers this list handed them.
+        $callerWhatsApp = $this->buildCallerWhatsAppLinks($groupedForPrint, $callerIdByGroup, $callerContacts);
+
+        return [$callers, $callerNames, $assignments, $groupedForPrint, $callerWhatsApp];
+    }
+
+    /**
+     * Build the pre-filled WhatsApp links shown beside every caller on the
+     * printed call list ("Print List" in the Weekly Call List modal).
+     *
+     * @param  array<string, array<int, array<string, mixed>>>  $groupedForPrint
+     * @param  array<string, int>  $callerIdByGroup  Printed caller name => tiu_member_id
+     * @param  array<int, array{phone: string, gender: string}>  $callerContacts
+     * @return array<string, array{phone: string, url: string}>
+     */
+    private function buildCallerWhatsAppLinks(array $groupedForPrint, array $callerIdByGroup, array $callerContacts): array
+    {
+        $links = [];
+
+        foreach ($groupedForPrint as $callerName => $persons) {
+            $callerId = $callerIdByGroup[$callerName] ?? null;
+            $contact = $callerId !== null ? ($callerContacts[$callerId] ?? null) : null;
+
+            // No number on file (or an "Unassigned" group): the printed list
+            // simply shows no button for that caller.
+            if (!$contact || $contact['phone'] === '') {
+                continue;
+            }
+
+            $names = [];
+            foreach ($persons as $person) {
+                $name = trim((string) ($person['name'] ?? ''));
+                if ($name !== '') {
+                    $names[] = $name;
+                }
+            }
+
+            $message = $this->buildCallerWhatsAppMessage($callerName, $contact['gender'], $names);
+
+            $links[$callerName] = [
+                'phone' => $contact['phone'],
+                'url'   => 'https://wa.me/' . $contact['phone'] . '?text=' . urlencode($message),
+            ];
+        }
+
+        return $links;
+    }
+
+    /**
+     * The message behind a caller's WhatsApp button.
+     *
+     * The greeting follows the gender the caller stored on the system: "Good
+     * day Sir" for male, "Good day Ma" for female, and "Good day <name>" only
+     * when the profile still has no gender. The body names the first timers
+     * assigned to that caller, points them to the TIU app, reminds them about
+     * the airtime top-up and feedback, and closes with a blessing.
+     *
+     * @param  array<int, string>  $firstTimerNames
+     */
+    private function buildCallerWhatsAppMessage(string $callerName, string $gender, array $firstTimerNames): string
+    {
+        $greeting = $gender === 'male'
+            ? 'Good day Sir'
+            : ($gender === 'female' ? 'Good day Ma' : 'Good day ' . $callerName);
+
+        $count = count($firstTimerNames);
+
+        if ($count === 0) {
+            $assigned = 'First timers have been assigned to you.';
+        } elseif ($count === 1) {
+            $assigned = $firstTimerNames[0] . ' has been assigned to you.';
+        } else {
+            $last = array_pop($firstTimerNames);
+            $assigned = implode(', ', $firstTimerNames) . ' and ' . $last . ' have been assigned to you.';
+        }
+
+        return $greeting . ",\n"
+            . "I hope this meets you well\n"
+            . $assigned . "\n"
+            . "Please log in to the TIU app for details and follow up.\n"
+            . "Please remember airtime topup on the app is available.\n"
+            . "Kindly give feedback on the app after each call.\n"
+            . 'God bless you.';
+    }
+
+    /**
+     * Normalise a caller's stored phone number for a wa.me link.
+     *
+     * Mirrors MemberController::formatWhatsAppPhone(): strip punctuation and
+     * turn a local 0-prefixed number into its 234 international form.
+     */
+    private function formatCallerPhone($phoneNumber): string
+    {
+        $digits = preg_replace('/[^0-9]/', '', (string) $phoneNumber);
+
+        if ($digits === '') {
+            return '';
+        }
+
+        return substr($digits, 0, 1) === '0' ? '234' . substr($digits, 1) : $digits;
     }
 
     /**

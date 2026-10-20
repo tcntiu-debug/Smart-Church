@@ -103,7 +103,7 @@ class WeekListCallerAssignmentTest extends TestCase
         return $query
             ->orderBy('first_name')
             ->orderBy('last_name')
-            ->get(['tiu_member_id', 'first_name', 'last_name', 'gender']);
+            ->get(['tiu_member_id', 'first_name', 'last_name', 'gender', 'phone_number']);
     }
 
     /**
@@ -159,6 +159,19 @@ class WeekListCallerAssignmentTest extends TestCase
         preg_match('/var groupedPrintData = (.+?);\r?\n\s*var printTitle/s', $html, $matches);
 
         $this->assertNotEmpty($matches, 'Could not find the groupedPrintData payload in the week list.');
+
+        return json_decode($matches[1], true) ?: [];
+    }
+
+    /**
+     * The `callerWhatsApp` payload the modal's "Print List" button renders the
+     * green WhatsApp buttons from: caller name => [phone, url].
+     */
+    private function callerWhatsAppData(string $html): array
+    {
+        preg_match('/var callerWhatsApp = (.+?);\r?\n/', $html, $matches);
+
+        $this->assertNotEmpty($matches, 'Could not find the callerWhatsApp payload in the week list.');
 
         return json_decode($matches[1], true) ?: [];
     }
@@ -592,6 +605,97 @@ class WeekListCallerAssignmentTest extends TestCase
                 max($counts) - min($counts),
                 'The ' . $lane . ' lane is not a round-robin: ' . json_encode($counts)
             );
+        }
+    }
+
+    /**
+     * The printed call list carries one WhatsApp button per caller. Its message
+     * greets the caller by the gender stored on their profile ("Good day Sir" /
+     * "Good day Ma", or the plain name when it is still blank), names the first
+     * timers that caller was handed, and reminds them about the TIU app, the
+     * airtime top-up, feedback, and closes with a blessing.
+     */
+    public function test_every_caller_gets_a_prefilled_whatsapp_message_on_the_printed_list()
+    {
+        $callers = $this->callers()->keyBy(function ($caller) {
+            return $this->fullName($caller);
+        });
+
+        if ($callers->isEmpty()) {
+            $this->markTestSkipped('No members in the "' . self::CALLER_SUBGROUP . '" subgroup available.');
+        }
+
+        $html = $this->weekListResponse()->getContent();
+        $groups = $this->groupedPrintData($html);
+        $links = $this->callerWhatsAppData($html);
+
+        if ($groups === []) {
+            $this->markTestSkipped('The call list is empty for the whole window.');
+        }
+
+        $this->assertNotEmpty($links, 'No caller got a WhatsApp button on the printed list.');
+
+        foreach ($groups as $callerName => $persons) {
+            if ($callerName === 'Unassigned') {
+                $this->assertArrayNotHasKey($callerName, $links, '"Unassigned" must not get a WhatsApp button.');
+                continue;
+            }
+
+            $caller = $callers->get($callerName);
+            $this->assertNotNull($caller, '"' . $callerName . '" is not in the caller pool.');
+
+            $digits = preg_replace('/[^0-9]/', '', (string) $caller->phone_number);
+
+            if ($digits === '') {
+                $this->assertArrayNotHasKey(
+                    $callerName,
+                    $links,
+                    'A caller without a phone number should not get a WhatsApp button.'
+                );
+                continue;
+            }
+
+            $expectedPhone = substr($digits, 0, 1) === '0' ? '234' . substr($digits, 1) : $digits;
+
+            $this->assertArrayHasKey($callerName, $links, 'No WhatsApp button for ' . $callerName . '.');
+            $this->assertSame($expectedPhone, $links[$callerName]['phone']);
+            $this->assertStringStartsWith(
+                'https://wa.me/' . $expectedPhone . '?text=',
+                $links[$callerName]['url']
+            );
+
+            parse_str((string) parse_url($links[$callerName]['url'], PHP_URL_QUERY), $query);
+            $message = (string) ($query['text'] ?? '');
+
+            $gender = strtolower(trim((string) $caller->gender));
+            $greeting = $gender === 'male'
+                ? 'Good day Sir'
+                : ($gender === 'female' ? 'Good day Ma' : 'Good day ' . $callerName);
+
+            $this->assertStringStartsWith(
+                $greeting . ",\nI hope this meets you well\n",
+                $message,
+                $callerName . ' is not greeted by the gender on their profile.'
+            );
+
+            foreach ($persons as $person) {
+                $this->assertStringContainsString(
+                    $person['name'],
+                    $message,
+                    $person['name'] . ' is missing from ' . $callerName . "'s WhatsApp message."
+                );
+            }
+
+            $this->assertStringContainsString('Please log in to the TIU app for details and follow up.', $message);
+            $this->assertStringContainsString(
+                'Please remember airtime topup on the app is available.',
+                $message
+            );
+            $this->assertStringContainsString(
+                'Kindly give feedback on the app after each call.',
+                $message
+            );
+            $this->assertStringEndsWith('God bless you.', $message);
         }
     }
 }
