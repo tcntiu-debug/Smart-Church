@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\SubgroupAssignmentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -10,9 +11,10 @@ use Tests\TestCase;
  * Weekly Call List (`/weeklist` -> "View Call List" modal).
  *
  * Every first timer inside the selected window is handed to a caller from the
- * "Touch Point 7" team, round-robin and gender-matched: male first timers
- * rotate through the male callers, female first timers through the female
- * callers (see WeekListController::buildCallerData()).
+ * touch points chosen in the page's multi-select filter (Touch Point 7 by
+ * default), round-robin and gender-matched: male first timers rotate through
+ * the male callers, female first timers through the female callers (see
+ * WeekListController::buildCallerData()).
  *
  * Read-only on purpose: the suite runs against the application's real
  * connection, so these tests never POST (that would rewrite
@@ -21,7 +23,7 @@ use Tests\TestCase;
 class WeekListCallerAssignmentTest extends TestCase
 {
     /**
-     * Sub-group whose members staff the weekly call list.
+     * Sub-group offered when no touch point is chosen (first visit / Reset).
      */
     private const CALLER_SUBGROUP = 'Touch Point 7';
 
@@ -78,15 +80,44 @@ class WeekListCallerAssignmentTest extends TestCase
     }
 
     /**
-     * The caller pool the modal is supposed to offer, in round-robin order.
+     * The caller pool the modal is supposed to offer, in round-robin order,
+     * for one or more touch points.
+     *
+     * @param  array<int, string>  $touchpoints
      */
-    private function callers()
+    private function callers(array $touchpoints = [self::CALLER_SUBGROUP])
     {
-        return DB::table('tiu_member')
-            ->where('subgroup', 'like', '%' . self::CALLER_SUBGROUP . '%')
+        $query = DB::table('tiu_member');
+
+        $query->where(function ($nested) use ($touchpoints) {
+            foreach ($touchpoints as $touchpoint) {
+                foreach (SubgroupAssignmentService::likePatterns(
+                    SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID,
+                    $touchpoint
+                ) as $pattern) {
+                    $nested->orWhere('subgroup', 'like', $pattern);
+                }
+            }
+        });
+
+        return $query
             ->orderBy('first_name')
             ->orderBy('last_name')
             ->get(['tiu_member_id', 'first_name', 'last_name', 'gender']);
+    }
+
+    /**
+     * Touch points the filter is supposed to list, straight from sub_group.
+     *
+     * @return array<int, string>
+     */
+    private function touchpointNames(): array
+    {
+        return DB::table('sub_group')
+            ->where('department_id', SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID)
+            ->orderBy('subid')
+            ->pluck('sub_group_name')
+            ->all();
     }
 
     private function fullName($member): string
@@ -152,10 +183,113 @@ class WeekListCallerAssignmentTest extends TestCase
         return $ids;
     }
 
-    private function weekListResponse()
+    /**
+     * The multi-select touch point filter: option value => is it selected?
+     *
+     * @return array<string, bool>
+     */
+    private function touchpointFilterOptions(string $html): array
     {
+        preg_match('/<select[^>]*name="touchpoints\[\]"[^>]*>([\s\S]*?)<\/select>/', $html, $select);
+
+        $this->assertNotEmpty($select, 'The touch point filter was not rendered.');
+
+        preg_match_all('/<option value="([^"]*)"([^>]*)>/', $select[1], $matches, PREG_SET_ORDER);
+
+        $options = [];
+        foreach ($matches as $match) {
+            $options[$match[1]] = strpos($match[2], 'selected') !== false;
+        }
+
+        return $options;
+    }
+
+    /**
+     * The multi-select guest type filter: option value => is it selected?
+     *
+     * @return array<string, bool>
+     */
+    private function guestTypeFilterOptions(string $html): array
+    {
+        preg_match('/<select[^>]*name="guest_type\[\]"[^>]*>([\s\S]*?)<\/select>/', $html, $select);
+
+        $this->assertNotEmpty($select, 'The guest type filter was not rendered.');
+
+        preg_match_all('/<option value="([^"]*)"([^>]*)>/', $select[1], $matches, PREG_SET_ORDER);
+
+        $options = [];
+        foreach ($matches as $match) {
+            $options[html_entity_decode($match[1])] = strpos($match[2], 'selected') !== false;
+        }
+
+        return $options;
+    }
+
+    /**
+     * The guest types of the rows the first timer table is showing.
+     *
+     * String parsing on purpose: the week list can hold thousands of rows, and a
+     * regex over that much HTML blows through pcre.backtrack_limit.
+     *
+     * @return array<int, string>
+     */
+    private function firstTableGuestTypes(string $html): array
+    {
+        $start = strpos($html, '<table id="first-timers-table"');
+
+        $this->assertNotFalse($start, 'The first timer table was not rendered.');
+
+        $end = strpos($html, '</table>', $start);
+
+        $this->assertNotFalse($end, 'The first timer table was not closed.');
+
+        $table = substr($html, $start, $end - $start);
+
+        $types = [];
+        foreach (explode('<tr', $table) as $row) {
+            if (substr_count($row, '<td') < 3) {
+                continue; // header row
+            }
+
+            // The third cell is the guest type column.
+            $cells = explode('<td', $row);
+            $cell = $cells[3] ?? '';
+
+            $tagEnd = strpos($cell, '>');
+            $cellEnd = strpos($cell, '</td>');
+
+            if ($tagEnd === false || $cellEnd === false) {
+                continue;
+            }
+
+            $value = trim(strip_tags(substr($cell, $tagEnd + 1, $cellEnd - $tagEnd - 1)));
+
+            if ($value !== '') {
+                $types[] = html_entity_decode($value);
+            }
+        }
+
+        return $types;
+    }
+
+    /**
+     * @param  array<int, string>  $touchpoints
+     * @param  array<int, string>  $guestTypes
+     */
+    private function weekListResponse(array $touchpoints = [], array $guestTypes = [])
+    {
+        $query = self::WINDOW;
+
+        if ($touchpoints !== []) {
+            $query['touchpoints'] = $touchpoints;
+        }
+
+        if ($guestTypes !== []) {
+            $query['guest_type'] = $guestTypes;
+        }
+
         $response = $this->actingAs($this->viewer())
-            ->get('/weeklist?' . http_build_query(self::WINDOW));
+            ->get('/weeklist?' . http_build_query($query));
 
         $response->assertStatus(200);
 
@@ -163,8 +297,203 @@ class WeekListCallerAssignmentTest extends TestCase
     }
 
     /**
-     * The dropdown - i.e. what a worker can pick manually - is the Touch Point
-     * 7 team and nothing else.
+     * The page offers every touch point of the department, and Touch Point 7 is
+     * what a first visit (or Reset) still gets.
+     */
+    public function test_the_filter_lists_every_touch_point_and_defaults_to_touch_point_7()
+    {
+        $expected = $this->touchpointNames();
+
+        if ($expected === []) {
+            $this->markTestSkipped('No touch points (department 23 sub groups) available.');
+        }
+
+        $options = $this->touchpointFilterOptions($this->weekListResponse()->getContent());
+
+        $this->assertEqualsCanonicalizing($expected, array_keys($options));
+
+        $selected = array_keys(array_filter($options));
+
+        $this->assertSame(
+            [self::CALLER_SUBGROUP],
+            $selected,
+            'Only the default team should be selected on a first visit.'
+        );
+    }
+
+    /**
+     * The touch point filter is a chip-style dropdown, not a native list box:
+     * Select2 is loaded and wired to the picker, and the markup keeps the
+     * removable-chip wrapper the page styles (dark twins included).
+     */
+    public function test_the_touch_point_filter_renders_as_chips()
+    {
+        $response = $this->weekListResponse();
+        $html = $response->getContent();
+
+        $response->assertSee('select2.min.css', false);
+        $response->assertSee('select2.min.js', false);
+        $response->assertSee("$('#touchpoints').select2(", false);
+        $this->assertMatchesRegularExpression(
+            '/<div class="chip-picker">\s*<select[^>]*name="touchpoints\[\]"[^>]*multiple/',
+            $html
+        );
+        $this->assertStringContainsString('data-placeholder="Select touch point(s)"', $html);
+    }
+
+    /**
+     * Guest Type is a chip-style multi-select too: the native select accepts
+     * several values and Select2 turns them into the same removable chips.
+     */
+    public function test_the_guest_type_filter_renders_as_chips()
+    {
+        $response = $this->weekListResponse();
+        $html = $response->getContent();
+
+        $response->assertSee("$('#guest_type').select2(", false);
+        $this->assertMatchesRegularExpression(
+            '/<div class="chip-picker">\s*<select[^>]*name="guest_type\[\]"[^>]*multiple/',
+            $html
+        );
+        $this->assertStringContainsString('data-placeholder="All Guest Types"', $html);
+    }
+
+    /**
+     * One or more guest types can be filtered at once: only the chosen types
+     * are listed, and both chips are selected in the dropdown.
+     */
+    public function test_multiple_guest_types_can_be_filtered_at_once()
+    {
+        $available = array_values(array_unique(array_filter(
+            $this->firstTableGuestTypes($this->weekListResponse()->getContent())
+        )));
+
+        if (count($available) < 2) {
+            $this->markTestSkipped('Fewer than two guest types are visible in the week list window.');
+        }
+
+        $chosen = array_slice($available, 0, 2);
+
+        $html = $this->weekListResponse([], $chosen)->getContent();
+
+        $shown = array_values(array_unique($this->firstTableGuestTypes($html)));
+        sort($shown);
+        sort($chosen);
+
+        $this->assertSame($chosen, $shown, 'The list should show exactly the chosen guest types.');
+
+        $options = $this->guestTypeFilterOptions($html);
+
+        foreach ($chosen as $type) {
+            $this->assertArrayHasKey($type, $options, '"' . $type . '" is missing from the guest type filter.');
+            $this->assertTrue($options[$type], '"' . $type . '" is not shown as selected.');
+        }
+
+        $this->assertCount(
+            2,
+            array_keys(array_filter($options)),
+            'Only the chosen guest types should be selected.'
+        );
+    }
+
+    /**
+     * Old links that carry a single `guest_type` value keep filtering.
+     */
+    public function test_a_single_guest_type_link_still_filters()
+    {
+        $available = array_values(array_unique(array_filter(
+            $this->firstTableGuestTypes($this->weekListResponse()->getContent())
+        )));
+
+        if ($available === []) {
+            $this->markTestSkipped('No guest types are visible in the week list window.');
+        }
+
+        $type = $available[0];
+
+        $response = $this->actingAs($this->viewer())->get(
+            '/weeklist?' . http_build_query(self::WINDOW + ['guest_type' => $type])
+        );
+
+        $response->assertOk();
+
+        $this->assertSame(
+            [$type],
+            array_values(array_unique($this->firstTableGuestTypes($response->getContent()))),
+            'A single guest type in the URL should still filter to that type.'
+        );
+    }
+
+    /**
+     * Picking another team really switches the caller pool: the modal offers
+     * that team's members and none of the default team's.
+     */
+    public function test_choosing_another_touch_point_switches_the_caller_pool()
+    {
+        $touchpoints = $this->touchpointNames();
+
+        if (! in_array('Touch Point 6', $touchpoints, true)) {
+            $this->markTestSkipped('"Touch Point 6" is not available to test the filter with.');
+        }
+
+        $callers = $this->callers(['Touch Point 6']);
+
+        if ($callers->isEmpty()) {
+            $this->markTestSkipped('No members in the "Touch Point 6" touch point available.');
+        }
+
+        $response = $this->weekListResponse(['Touch Point 6']);
+        $html = $response->getContent();
+
+        $expected = $callers->pluck('tiu_member_id')->map('intval')->sort()->values()->all();
+        $this->assertSame($expected, $this->callerOptionIds($html));
+
+        $options = $this->touchpointFilterOptions($html);
+        $this->assertTrue($options['Touch Point 6'], 'The chosen team is not shown as selected.');
+        $this->assertFalse($options[self::CALLER_SUBGROUP], 'The default team is still selected.');
+
+        $response->assertSee('Caller team:');
+        $response->assertSee('Touch Point 6');
+    }
+
+    /**
+     * More than one team can staff the call list at the same time; the pool is
+     * the union of the selected touch points.
+     */
+    public function test_multiple_touch_points_are_combined_into_one_pool()
+    {
+        $touchpoints = $this->touchpointNames();
+
+        if (! in_array('Touch Point 6', $touchpoints, true)) {
+            $this->markTestSkipped('"Touch Point 6" is not available to test the filter with.');
+        }
+
+        $chosen = ['Touch Point 6', self::CALLER_SUBGROUP];
+        $callers = $this->callers($chosen);
+
+        if ($callers->isEmpty()) {
+            $this->markTestSkipped('No members in the selected touch points available.');
+        }
+
+        $html = $this->weekListResponse($chosen)->getContent();
+
+        $expected = $callers->pluck('tiu_member_id')->map('intval')->sort()->values()->all();
+        $this->assertSame($expected, $this->callerOptionIds($html));
+
+        $options = $this->touchpointFilterOptions($html);
+        $this->assertTrue($options['Touch Point 6']);
+        $this->assertTrue($options[self::CALLER_SUBGROUP]);
+
+        $this->assertCount(
+            count(array_filter($options)),
+            array_unique(array_map('strval', $chosen)),
+            'The page should not add a team that was not chosen.'
+        );
+    }
+
+    /**
+     * The dropdown - i.e. what a worker can pick manually - defaults to the
+     * Touch Point 7 team and nothing else.
      */
     public function test_the_modal_only_offers_the_touch_point_7_team()
     {
@@ -178,9 +507,6 @@ class WeekListCallerAssignmentTest extends TestCase
         $expected = $callers->pluck('tiu_member_id')->map('intval')->sort()->values()->all();
 
         $this->assertSame($expected, $this->callerOptionIds($response->getContent()));
-
-        // The team the feature used to rely on must no longer be offered.
-        $response->assertDontSee('Touch Point 6');
     }
 
     /**

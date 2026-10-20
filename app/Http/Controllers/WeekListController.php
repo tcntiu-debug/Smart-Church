@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\GuideArchiveService;
 use App\Services\NotificationService;
+use App\Services\SubgroupAssignmentService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,9 +16,13 @@ use Carbon\Carbon;
 class WeekListController extends Controller
 {
     /**
-     * Members of this sub-group make up the weekly call list callers.
+     * Team offered on the first visit and after Reset.
+     *
+     * The team staffing the call list is no longer fixed: /weeklist has a
+     * multi-select touch point filter (resolveTouchpoints()) because the team
+     * in charge of the weekly calls rotates from time to time.
      */
-    private const CALLER_SUBGROUP = 'Touch Point 7';
+    private const DEFAULT_CALLER_SUBGROUP = 'Touch Point 7';
 
     /**
      * Writes the "you have been given first timers to call" alerts (item 5(b)).
@@ -50,8 +55,14 @@ class WeekListController extends Controller
         // Get filter parameters
         // The default window is the current week (Sunday to Saturday).
         [$start_date_filter, $end_date_filter, $defaultWindow] = $this->resolveWindow($request);
-        $guest_type_filter = $request->get('guest_type', '');
+        // One or more guest types can be combined (`guest_type[]`).
+        $guest_type_filter = $this->resolveGuestTypes($request);
         $church_type_id_filter = $request->get('church_type_id', '');
+
+        // Which touch point(s) staff the call list. The visitor picks them by
+        // hand, because the team on call rotates from time to time.
+        $touchpointOptions = $this->touchpointOptions();
+        $selectedTouchpoints = $this->resolveTouchpoints($request, $touchpointOptions);
 
         $page_title = $defaultWindow
             ? "Weekly Prayer List (" . date('M d', strtotime($start_date_filter)) . " - " . date('M d, Y', strtotime($end_date_filter)) . ")"
@@ -150,43 +161,201 @@ class WeekListController extends Controller
         }
 
         // ------------------------------------------------------------------
-        // Weekly Call List (caller assignment for the Touch Point 7 team)
+        // Weekly Call List (caller assignment for the selected touch points)
         // ------------------------------------------------------------------
-        [$callers, $callerNames, $assignments, $groupedForPrint] = $this->buildCallerData($rows);
+        [$callers, $callerNames, $assignments, $groupedForPrint] = $this->buildCallerData($rows, $selectedTouchpoints);
 
         return view('weeklist.index', array_merge(
             compact('rows', 'page_title', 'guestTypes', 'churchTypes',
                 'start_date_filter', 'end_date_filter', 'guest_type_filter', 'church_type_id_filter', 'member_role',
-                'callers', 'callerNames', 'assignments', 'groupedForPrint'),
-            ['callerSubgroup' => self::CALLER_SUBGROUP, 'isAdmin' => $this->canManageAssignments($member_role)]
+                'callers', 'callerNames', 'assignments', 'groupedForPrint',
+                'touchpointOptions', 'selectedTouchpoints'),
+            ['isAdmin' => $this->canManageAssignments($member_role)]
         ));
+    }
+
+    /**
+     * Touch points that may staff the weekly call list.
+     *
+     * Read from the real sub_group table (department 23), so a new touch point
+     * shows up in the filter without a code change. When that lookup fails on a
+     * half-migrated host, the names actually stored on members are used.
+     *
+     * @return array<int, string>
+     */
+    private function touchpointOptions(): array
+    {
+        $names = [];
+
+        try {
+            $names = SubgroupAssignmentService::groupNamesForDepartment(
+                SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
+            );
+        } catch (\Throwable $e) {
+            Log::error('Could not load the week list touch points: ' . $e->getMessage());
+        }
+
+        if ($names === []) {
+            try {
+                $names = DB::table('tiu_member')
+                    ->whereNotNull('subgroup')
+                    ->where('subgroup', '!=', '')
+                    ->pluck('subgroup')
+                    ->flatMap(function ($raw) {
+                        return SubgroupAssignmentService::namesForDepartment(
+                            $raw,
+                            SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
+                        );
+                    })
+                    ->all();
+            } catch (\Throwable $e) {
+                Log::error('Could not derive the week list touch points: ' . $e->getMessage());
+            }
+        }
+
+        $options = [];
+        foreach ($names as $name) {
+            $name = trim((string) $name);
+
+            if ($name !== '' && !in_array($name, $options, true)) {
+                $options[] = $name;
+            }
+        }
+
+        sort($options, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $options;
+    }
+
+    /**
+     * The touch point filter the visitor submitted, limited to real groups.
+     *
+     * The form posts `touchpoints[]`; `touchpoint` is accepted as well so old
+     * links keep working. An empty or unknown selection falls back to the
+     * team the page used before the filter existed (Touch Point 7, or the first
+     * group on file when that one is gone).
+     *
+     * @param  array<int, string>  $options
+     * @return array<int, string>
+     */
+    private function resolveTouchpoints(Request $request, array $options): array
+    {
+        $requested = $request->input('touchpoints', $request->input('touchpoint', []));
+
+        if (!is_array($requested)) {
+            $requested = [$requested];
+        }
+
+        $lookup = [];
+        foreach ($options as $option) {
+            $lookup[strtolower($option)] = $option;
+        }
+
+        $selected = [];
+        foreach ($requested as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+
+            $key = strtolower(trim($value));
+
+            if (isset($lookup[$key]) && !in_array($lookup[$key], $selected, true)) {
+                $selected[] = $lookup[$key];
+            }
+        }
+
+        if ($selected !== []) {
+            return $selected;
+        }
+
+        $default = strtolower(self::DEFAULT_CALLER_SUBGROUP);
+        if (isset($lookup[$default])) {
+            return [$lookup[$default]];
+        }
+
+        return $options === [] ? [] : [$options[0]];
+    }
+
+    /**
+     * The guest type filter the visitor submitted.
+     *
+     * The form posts `guest_type[]`, so several guest types can be combined; a
+     * plain `guest_type` string (old links and the mobile API) is still
+     * understood. Blank values are dropped, and an empty result means "every
+     * guest type" - the filter is simply not applied.
+     *
+     * @return array<int, string>
+     */
+    private function resolveGuestTypes(Request $request): array
+    {
+        $requested = $request->input('guest_type', []);
+
+        if (!is_array($requested)) {
+            $requested = [$requested];
+        }
+
+        $types = [];
+        foreach ($requested as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+
+            $value = trim($value);
+
+            if ($value !== '' && !in_array($value, $types, true)) {
+                $types[] = $value;
+            }
+        }
+
+        return $types;
     }
 
     /**
      * Build the caller list and the per first-timer assignments used by the
      * Weekly Call List modal.
      *
-     * Callers are TIU members whose subgroup matches self::CALLER_SUBGROUP
-     * ("Touch Point 7"). The subgroup column is stored either as plain text
-     * ("Touch Point 7") or as a JSON list of "<department_id>::<name>" entries
-     * (e.g. '["23::Touch Point 7"]'), so a LIKE match covers both formats.
+     * Callers are TIU members assigned to at least one of the touch points the
+     * filter on the page is set to. The subgroup column is stored either as
+     * plain text ("Touch Point 7") or as a JSON list of
+     * "<department_id>::<name>" entries (e.g. '["23::Touch Point 7"]'), so
+     * SubgroupAssignmentService::likePatterns() covers both shapes.
      *
      * Every first timer in the selected window is then handed to a caller by a
      * round-robin that keeps genders together: male first timers rotate through
      * the male callers, female first timers through the female callers.
      *
      * @param  array  $rows
+     * @param  array<int, string>  $touchpointNames  Touch points chosen in the filter
      * @return array{0: \Illuminate\Support\Collection, 1: array, 2: array, 3: array}
      */
-    private function buildCallerData(array $rows): array
+    private function buildCallerData(array $rows, array $touchpointNames = []): array
     {
-        $callers = DB::table('tiu_member')
-            ->where('subgroup', 'like', '%' . self::CALLER_SUBGROUP . '%')
+        $query = DB::table('tiu_member');
+
+        if ($touchpointNames === []) {
+            // Nothing selected and nothing on file: offer no caller, so every
+            // row falls back to "Unassigned" instead of a stale team.
+            $query->whereRaw('1 = 0');
+        } else {
+            $query->where(function ($nested) use ($touchpointNames) {
+                foreach ($touchpointNames as $touchpointName) {
+                    foreach (SubgroupAssignmentService::likePatterns(
+                        SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID,
+                        $touchpointName
+                    ) as $pattern) {
+                        $nested->orWhere('subgroup', 'LIKE', $pattern);
+                    }
+                }
+            });
+        }
+
+        $callers = $query
             ->orderBy('first_name')
             ->orderBy('last_name')
             ->get(['tiu_member_id', 'first_name', 'last_name', 'gender']);
 
         $callerNames = [];
+        $callerIds = [];
         $maleCallers = [];
         $femaleCallers = [];
         $allCallers = [];
@@ -194,6 +363,7 @@ class WeekListController extends Controller
         foreach ($callers as $caller) {
             $caller->full_name = trim($caller->first_name . ' ' . $caller->last_name);
             $callerNames[$caller->tiu_member_id] = $caller->full_name;
+            $callerIds[(int) $caller->tiu_member_id] = true;
             $allCallers[] = $caller->tiu_member_id;
 
             // Each gender gets its own round-robin lane.
@@ -207,8 +377,14 @@ class WeekListController extends Controller
         }
 
         // Manual overrides saved from the modal, keyed by first_timer_id.
+        // A pick that belongs to a team outside the current filter is ignored,
+        // so switching touch points really does switch the call list.
         $manual = [];
         foreach ($this->getCallerAssignments() as $assignment) {
+            if (!isset($callerIds[(int) $assignment->caller_member_id])) {
+                continue;
+            }
+
             $manual[$assignment->first_timer_id] = [
                 'id'   => $assignment->caller_member_id,
                 'name' => $assignment->caller_name,
@@ -385,6 +561,21 @@ class WeekListController extends Controller
             $caller = DB::table('tiu_member')->where('tiu_member_id', $callerId)->first();
             if (!$caller) {
                 return response()->json(['success' => false, 'message' => 'Selected caller not found'], 422);
+            }
+
+            // The dropdown only lists the selected teams; reject a crafted
+            // request that picks somebody outside them.
+            $touchpoints = $this->resolveTouchpoints($request, $this->touchpointOptions());
+
+            if (!SubgroupAssignmentService::isAssignedToAny(
+                $caller->subgroup ?? null,
+                SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID,
+                $touchpoints
+            )) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'That member is not in the selected touch point(s): ' . implode(', ', $touchpoints),
+                ], 422);
             }
 
             $callerName = trim($caller->first_name . ' ' . $caller->last_name);
@@ -640,7 +831,7 @@ class WeekListController extends Controller
 
     /**
      * The first timers the week list is showing, with the filters the page
-     * applies (campus scope, date window, guest type, church type).
+     * applies (campus scope, date window, guest type(s), church type).
      *
      * Shared by the page and the admin bulk actions so a button always acts on
      * exactly what the admin can see.
@@ -661,9 +852,9 @@ class WeekListController extends Controller
 
         $query->whereBetween('ft.register_date', [$start . ' 00:00:00', $end . ' 23:59:59']);
 
-        $guestType = (string) $request->get('guest_type', '');
-        if ($guestType !== '') {
-            $query->where('ft.attendant_type', $guestType);
+        $guestTypes = $this->resolveGuestTypes($request);
+        if ($guestTypes !== []) {
+            $query->whereIn('ft.attendant_type', $guestTypes);
         }
 
         $churchTypeId = (string) $request->get('church_type_id', '');
@@ -696,6 +887,10 @@ class WeekListController extends Controller
         [$start, $end] = $this->resolveWindow($request);
         $rows = $this->windowRows($request, $start, $end, $member_role, $user->campus_id ?? 0);
 
+        // Exactly the team the modal is showing, so one click cannot hand the
+        // list to a touch point the admin did not select.
+        $selectedTouchpoints = $this->resolveTouchpoints($request, $this->touchpointOptions());
+
         if ($rows->isEmpty()) {
             return response()->json(['success' => true, 'assigned' => 0, 'skipped' => 0, 'message' => 'No first timers in this window.']);
         }
@@ -704,7 +899,7 @@ class WeekListController extends Controller
             $this->ensureCallerAssignmentsTable();
 
             // The same round-robin the modal renders, manual overrides included.
-            [, $callerNames, $assignments] = $this->buildCallerData($rows->values()->all());
+            [, $callerNames, $assignments] = $this->buildCallerData($rows->values()->all(), $selectedTouchpoints);
 
             $assigned = 0;
             $skipped = 0;
@@ -810,6 +1005,9 @@ class WeekListController extends Controller
         [$start, $end] = $this->resolveWindow($request);
         $rows = $this->windowRows($request, $start, $end, $member_role, $user->campus_id ?? 0);
 
+        // The same touch point filter the modal was built with.
+        $selectedTouchpoints = $this->resolveTouchpoints($request, $this->touchpointOptions());
+
         if ($rows->isEmpty()) {
             return response()->json(['success' => true, 'assigned' => 0, 'reassigned' => 0, 'skipped' => 0, 'notified' => 0, 'message' => 'No first timers in this window.']);
         }
@@ -817,7 +1015,7 @@ class WeekListController extends Controller
         try {
             // Exactly what the modal is showing: manual pick first, round-robin
             // for everything else, gender lanes kept.
-            [, $callerNames, $assignments] = $this->buildCallerData($rows->values()->all());
+            [, $callerNames, $assignments] = $this->buildCallerData($rows->values()->all(), $selectedTouchpoints);
 
             $firstTimerIds = $rows->pluck('first_timer_id')->map('intval')->filter()->unique()->values()->all();
 

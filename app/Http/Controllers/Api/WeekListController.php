@@ -32,7 +32,8 @@ class WeekListController extends Controller
         // Get filter parameters
         $start_date_filter = $request->get('start_date', '');
         $end_date_filter = $request->get('end_date', '');
-        $guest_type_filter = $request->get('guest_type', '');
+        // One or more guest types can be combined; a single value keeps working.
+        $guest_type_filter = $this->guestTypes($request);
         $church_type_id_filter = $request->get('church_type_id', '');
 
         // Set default date range (current week: Sunday to Saturday)
@@ -60,9 +61,9 @@ class WeekListController extends Controller
             $query->whereBetween('ft.register_date', [$start_date_filter . ' 00:00:00', $end_date_filter . ' 23:59:59']);
         }
 
-        // Guest type filter
-        if ($guest_type_filter) {
-            $query->where('ft.attendant_type', $guest_type_filter);
+        // Guest type filter - every selected type is included
+        if ($guest_type_filter !== []) {
+            $query->whereIn('ft.attendant_type', $guest_type_filter);
         }
 
         // Church type filter
@@ -80,5 +81,37 @@ class WeekListController extends Controller
             'end_date' => $end_date_filter,
             'data' => $rows,
         ]);
+    }
+
+    /**
+     * The guest type filter as a clean list of names.
+     *
+     * Accepts `guest_type[]=...` (multi-select) as well as the old
+     * `guest_type=...` value; blank entries are ignored.
+     *
+     * @return array<int, string>
+     */
+    private function guestTypes(Request $request): array
+    {
+        $requested = $request->input('guest_type', []);
+
+        if (!is_array($requested)) {
+            $requested = [$requested];
+        }
+
+        $types = [];
+        foreach ($requested as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+
+            $value = trim($value);
+
+            if ($value !== '' && !in_array($value, $types, true)) {
+                $types[] = $value;
+            }
+        }
+
+        return $types;
     }
 }
