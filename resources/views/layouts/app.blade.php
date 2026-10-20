@@ -573,82 +573,11 @@
         @include('partials.notification-modal')
     @endauth
 
-    <!-- Airtime Topup Modal -->
-    <div id="airtimeModalContainer" style="display:none;">
-        <div class="modal fade" id="airtimeModal" tabindex="-1" role="dialog" aria-labelledby="airtimeModalLabel" aria-hidden="true">
-            <div class="modal-dialog" role="document">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="airtimeModalLabel">Airtime Topup Available 1pm-5pm</h5>
-                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                            <span aria-hidden="true">&times;</span>
-                        </button>
-                    </div>
-                    <div class="modal-body">
-                        <p>You will be credited with <strong>N200</strong> airtime.</p>
-                        <p>This may take a few minutes. Only one request per week is allowed.</p>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-primary" id="confirmAirtimeBtn">Continue</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    {{-- The airtime top-up button, modal and click handler all live in
+         partials/nav, next to the button that opens them. Do not add a second
+         copy here: two handlers posted the request twice, and the second insert
+         lost against airtime_history.unique_user_week (a raw SQLSTATE alert). --}}
 
-    <script>
-        (function() {
-            function initAirtimeFeature() {
-                if (typeof jQuery === 'undefined' || typeof jQuery.fn.modal === 'undefined') {
-                    setTimeout(initAirtimeFeature, 100);
-                    return;
-                }
-
-                var $ = jQuery;
-
-                var modalContainer = $('#airtimeModalContainer');
-                if (modalContainer.length && !$('#airtimeModal').parent().is('body')) {
-                    modalContainer.children().appendTo('body');
-                    modalContainer.remove();
-                }
-
-                $(document).on('click', '#airtimeTopupBtn', function(e) {
-                    e.preventDefault();
-                    $('#airtimeModal').modal('show');
-                });
-
-                $(document).on('click', '#confirmAirtimeBtn', function() {
-                    var btn = $(this);
-                    btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Processing...');
-                    $.ajax({
-                        url: '{{ url("/airtime-request") }}',
-                        type: 'POST',
-                        data: {
-                            _token: '{{ csrf_token() }}'
-                        },
-                        dataType: 'json',
-                        success: function(response) {
-                            if (response.success) {
-                                alert(response.message);
-                                $('#airtimeModal').modal('hide');
-                            } else {
-                                alert('Error: ' + response.message);
-                            }
-                        },
-                        error: function() {
-                            alert('Server error. Please try again.');
-                        },
-                        complete: function() {
-                            btn.prop('disabled', false).html('Continue');
-                        }
-                    });
-                });
-            }
-
-            initAirtimeFeature();
-        })();
-    </script>
 </body>
 
 </html>

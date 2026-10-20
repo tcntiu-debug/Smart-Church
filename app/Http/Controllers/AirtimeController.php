@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
@@ -10,6 +11,16 @@ use Illuminate\Support\Facades\Log;
 
 class AirtimeController extends Controller
 {
+    /**
+     * Daily top-up window, WAT (Africa/Lagos): 7AM until 6PM. The end hour is
+     * exclusive, so the last request slot is 5:59 PM and 6:00 PM is closed.
+     * Used by both the request endpoint and the availability check.
+     */
+    private const WINDOW_START_HOUR = 7;
+    private const WINDOW_END_HOUR = 18;
+    private const WINDOW_LABEL = '7AM and 6PM (WAT)';
+    private const WINDOW_OPENS_AT = '7:00 AM';
+
     public function request(Request $request)
     {
         // Get user_id: first try from request param (API), then fallback to Auth (web)
@@ -45,11 +56,11 @@ class AirtimeController extends Controller
         $current_hour = (int) date('H');
         $current_time = date('h:i A');
         
-        // Restrict between 1PM and 5PM (13:00 - 17:00)
-        if ($current_hour < 13 || $current_hour >= 17) {
+        // Restrict between 7AM and 6PM (07:00 - 18:00)
+        if (! $this->isWithinRequestWindow($current_hour)) {
             return response()->json([
                 'success' => false,
-                'message' => "Airtime requests are only allowed between 1PM and 5PM (WAT). Current time: {$current_time}"
+                'message' => 'Airtime requests are only allowed between ' . self::WINDOW_LABEL . ". Current time: {$current_time}"
             ]);
         }
         
@@ -64,10 +75,7 @@ class AirtimeController extends Controller
             ->exists();
         
         if ($exists) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You have already requested airtime this week. Only one request per week is allowed.'
-            ]);
+            return $this->alreadyRequestedResponse();
         }
         
         try {
@@ -90,12 +98,68 @@ class AirtimeController extends Controller
             ]);
             
         } catch (\Exception $e) {
-            Log::error('Airtime request error: ' . $e->getMessage());
+            // The check above cannot stop two requests that arrive together (a
+            // double click, a second tab, the app and the browser): both read
+            // "no row" and both insert. `unique_user_week` keeps the first row
+            // and rejects the second with a duplicate-key error - that is the
+            // weekly limit doing its job, so answer it like any other repeat
+            // request instead of echoing the SQLSTATE to the member.
+            if ($e instanceof QueryException && $this->isDuplicateWeek($e)) {
+                Log::info('Airtime request blocked by unique_user_week', [
+                    'user_id' => $userId,
+                    'year' => $current_year,
+                    'week' => $current_week,
+                ]);
+
+                return $this->alreadyRequestedResponse();
+            }
+
+            Log::error('Airtime request error: ' . $e->getMessage(), ['user_id' => $userId]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Database error: ' . $e->getMessage()
+                'message' => 'We could not submit your airtime request right now. Please try again in a moment.'
             ]);
         }
+    }
+
+    /**
+     * The member already has a row for this year and ISO week.
+     */
+    private function alreadyRequestedResponse()
+    {
+        return response()->json([
+            'success' => false,
+            'message' => 'You have already requested airtime this week. Only one request per week is allowed.'
+        ]);
+    }
+
+    /**
+     * Whether a wall-clock hour (WAT) falls inside the daily top-up window.
+     *
+     * Kept in one place so the request endpoint and `/airtime-check` can never
+     * advertise a different window from the one that actually accepts requests.
+     *
+     * @param  int  $hour  24-hour clock, e.g. 7 for 7AM and 17 for 5PM
+     * @return bool
+     */
+    private function isWithinRequestWindow($hour)
+    {
+        return $hour >= self::WINDOW_START_HOUR && $hour < self::WINDOW_END_HOUR;
+    }
+
+    /**
+     * MySQL reports a duplicate key as SQLSTATE 23000 / driver error 1062 with
+     * the index in the message; SQLite (throwaway databases) only says
+     * "UNIQUE constraint failed".
+     */
+    private function isDuplicateWeek(QueryException $e)
+    {
+        $message = $e->getMessage();
+
+        return strpos($message, 'unique_user_week') !== false
+            || strpos($message, 'Duplicate entry') !== false
+            || strpos($message, 'UNIQUE constraint failed') !== false;
     }
     
     /**
@@ -119,7 +183,7 @@ class AirtimeController extends Controller
         
         date_default_timezone_set('Africa/Lagos');
         $current_hour = (int) date('H');
-        $is_time_allowed = ($current_hour >= 13 && $current_hour < 17);
+        $is_time_allowed = $this->isWithinRequestWindow($current_hour);
         
         $current_year = (int) date('Y');
         $current_week = (int) date('W');
@@ -136,7 +200,7 @@ class AirtimeController extends Controller
                 'can_request' => ($is_time_allowed && !$has_requested),
                 'time_allowed' => $is_time_allowed,
                 'has_requested_this_week' => $has_requested,
-                'next_available_time' => '1:00 PM',
+                'next_available_time' => self::WINDOW_OPENS_AT,
                 'current_time' => date('h:i A')
             ]
         ]);

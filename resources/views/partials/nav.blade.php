@@ -227,7 +227,7 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="airtimeModalLabel">Airtime Topup Available 1pm-5pm</h5>
+                    <h5 class="modal-title" id="airtimeModalLabel">Airtime Topup Available 7am-6pm</h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
@@ -268,6 +268,15 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
         
         $(document).on('click', '#confirmAirtimeBtn', function() {
             var btn = $(this);
+
+            // One post per click. Disabling the button below is too late for a
+            // second delegated handler or a click already queued in the same
+            // tick: two requests race for the same user/year/week row and the
+            // loser is rejected by airtime_history.unique_user_week.
+            if (btn.prop('disabled')) {
+                return;
+            }
+
             btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Processing...');
             $.ajax({
                 url: '{{ url("/airtime-request") }}',
