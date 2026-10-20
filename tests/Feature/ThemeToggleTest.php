@@ -193,10 +193,10 @@ class ThemeToggleTest extends TestCase
 
     /**
      * The Drag & Drop assignment page (`/admin-assign-dragdrop`) paints its own
-     * light surfaces (`#f8f9fc` filter boxes, white content/first-timer cards).
-     * style.css turns every heading/paragraph/span #fff inside the dark theme but
-     * does not know those classes, so without dark twins the text ends up white
-     * on white - invisible.
+     * light surfaces (`#f8f9fc` panel heads and guide headers, white cards and
+     * the white drop boxes). style.css turns every heading/paragraph/span #fff
+     * inside the dark theme but does not know those classes, so without dark
+     * twins the text ends up white on white - invisible.
      */
     public function test_drag_drop_page_ships_dark_counterparts_for_its_light_surfaces()
     {
@@ -212,11 +212,12 @@ class ThemeToggleTest extends TestCase
 
         $dark->assertStatus(200);
         $dark->assertSee('.ms-dark-theme .filters-box', false);
-        $dark->assertSee('.ms-dark-theme .content-box', false);
+        $dark->assertSee('.ms-dark-theme .panel', false);
+        $dark->assertSee('.ms-dark-theme .panel-head', false);
+        $dark->assertSee('.ms-dark-theme .guide-card .guide-head', false);
         $dark->assertSee('.ms-dark-theme .first-timer-card', false);
+        $dark->assertSee('.ms-dark-theme #unassigned-pool', false);
         $dark->assertSee('.ms-dark-theme .text-muted', false);
-        $dark->assertSee('.ms-dark-theme .guide-card .card-header .btn-link', false);
-        $dark->assertSee('.ms-dark-theme .btn-link', false);
 
         $light = $this->actingAs($member)
             ->withUnencryptedCookie('tiu_theme', 'light')
@@ -224,8 +225,9 @@ class ThemeToggleTest extends TestCase
 
         $light->assertStatus(200);
         $light->assertSee('.filters-box', false);
-        $light->assertSee('.content-box', false);
+        $light->assertSee('.guide-drop-zone', false);
         $light->assertSee('.first-timer-card', false);
+        $light->assertSee('#unassigned-pool', false);
     }
 
     /**

@@ -105,18 +105,23 @@ that were moved into the `.tracking-panel-header` / `.tracking-panel-title`
 classes: `<light rule>` then `.ms-dark-theme .tracking-panel-header { … }`.
 
 `resources/views/admin/assignments/drag-drop.blade.php` (`/admin-assign-dragdrop`)
-is the plain variant: none of its surfaces are Bootstrap components, so style.css
-never repaints them and they stay white while the theme turns their headings and
-paragraphs `#fff`. The twin block repeats every local rule with a `ms-dark-theme`
-prefix (`.ms-dark-theme .filters-box`, `.ms-dark-theme .content-box`,
-`.ms-dark-theme .first-timer-card`, …) and also beats the `!important`
+is the plain variant: its surfaces are page-local classes rather than Bootstrap
+components, so style.css never repaints them and they stay white while the theme
+turns their headings and paragraphs `#fff`. The twin block repeats every local
+rule with a `ms-dark-theme` prefix (`.ms-dark-theme .panel`,
+`.ms-dark-theme .guide-card .guide-head`, `.ms-dark-theme .first-timer-card`,
+`.ms-dark-theme #unassigned-pool`, …) and also beats the `!important`
 `.text-muted` utility:
 
 ```css
-.ms-dark-theme .filters-box, .ms-dark-theme .content-box,
-.ms-dark-theme .first-timer-card { background: #252851; border-color: #242750; }
+.ms-dark-theme .panel, .ms-dark-theme .first-timer-card { background: #252851; border-color: #242750; }
+.ms-dark-theme .panel-head, .ms-dark-theme .guide-card .guide-head { background: #2d3160; }
 .ms-dark-theme .text-muted { color: #b9bcd8 !important; }
 ```
+
+One card partial (`admin/assignments/partials/first-timer-card.blade.php`) is
+used by both columns - the guides' drop zones and the unassigned pool - so the
+card rule exists once, for the light and the dark theme alike.
 
 Because the light rules live in the page's own `<style>` (rendered after
 `assets/css/style.css`) an equally specific twin wins the cascade by order.

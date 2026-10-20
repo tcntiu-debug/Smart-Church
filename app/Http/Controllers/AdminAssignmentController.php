@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class AdminAssignmentController extends Controller
 {
@@ -154,13 +155,21 @@ class AdminAssignmentController extends Controller
                     }
                 }
 
-                DB::table('member_tracking_followup')->insert([
+                $assignment = [
                     'first_timer_id'        => $firstTimerId,
                     'tiu_member_id'         => $guideId,
                     'followup_rank'         => 1,
                     'timeStamp_registered'  => now(),
                     'followup_response_new' => $followupResponseJson,
-                ]);
+                ];
+
+                // Rows written before it existed rely on the column default;
+                // production may not have one, so only write it when it is there.
+                if ($this->hasColumn('member_tracking_followup', 'department_id')) {
+                    $assignment['department_id'] = self::DEPARTMENT_ID;
+                }
+
+                DB::table('member_tracking_followup')->insert($assignment);
             } else {
                 // RE-ASSIGNMENT
                 $currentJson = DB::table('member_tracking_followup')
@@ -463,150 +472,320 @@ class AdminAssignmentController extends Controller
     }
 
     /**
-     * ====================================================================
-     * Drag & Drop Assignment View (New! Ported from admin-assign-new.php)
-     * ====================================================================
+     * The department every follow-up on this page belongs to.
+     *
+     * `member_tracking_followup` is the Tracking & Integration table: its rows
+     * are written with `department_id` 23 and every first timer the church
+     * registers lands in the same pool. The page used to carry a department
+     * dropdown defaulting to 23; picking anything else rendered an empty page -
+     * and could crash it, because `$assignedMembers` and `$unassignedMembers`
+     * were only built inside the "is it 23?" branch. The selector, its query and
+     * that branch are gone.
+     */
+    private const DEPARTMENT_ID = 23;
+
+    /**
+     * How many unassigned first timers one render ships.
+     *
+     * The department carries hundreds of them and every one is a draggable
+     * card, so the pool is paged: the newest `POOL_PAGE` are rendered and the
+     * rest are one link away. `?pool_limit=N` widens the window without losing
+     * the filters.
+     */
+    private const POOL_PAGE = 60;
+
+    /**
+     * Guides on the left (each one a drop zone holding the first timers it
+     * follows up) and the unassigned pool on the right (which is also the drop
+     * zone that unassigns). Both halves answer to the filters in their column.
      */
     public function dragDropIndex(Request $request)
     {
         $user = Auth::user();
-        $memberRole = $user->member_role ?? '';
-        $userCampusId = $user->campus_id ?? session('campus_id', 0);
 
-        if (!in_array($memberRole, ['Super User', 'Admin'])) {
+        if (!in_array($user->member_role ?? '', ['Super User', 'Admin'])) {
             return redirect('/home')->with('error', 'Access Denied');
         }
 
-        // --- SELECTED DEPARTMENT ---
-        $selectedDeptId = $request->get('dept_id', '23');
+        $userCampusId = $user->campus_id ?? session('campus_id', 0);
 
-        // Available departments for dropdown
-        $deptOptions = DB::table('department')
-            ->whereIn('dept_id', [23])
-            ->orderBy('dept_name')
-            ->get(['dept_id', 'dept_name']);
+        // Read back into the form and kept in the URL, so a filtered page can
+        // be refreshed, bookmarked or shared without losing its filters.
+        $filters = [
+            'guide_search'      => trim((string) $request->get('guide_search', '')),
+            'guide_gender'      => trim((string) $request->get('guide_gender', '')),
+            'guide_church_type' => trim((string) $request->get('guide_church_type', '')),
+            'guide_occupation'  => trim((string) $request->get('guide_occupation', '')),
+            'ft_search'         => trim((string) $request->get('ft_search', '')),
+            'ft_start_date'     => trim((string) $request->get('ft_start_date', '')),
+            'ft_end_date'       => trim((string) $request->get('ft_end_date', '')),
+            'ft_gender'         => trim((string) $request->get('ft_gender', '')),
+            'ft_church_type'    => trim((string) $request->get('ft_church_type', '')),
+            'ft_guest_type'     => trim((string) $request->get('ft_guest_type', '')),
+        ];
 
-        // --- GET FILTERS ---
-        $guideGender     = $request->get('guide_gender', '');
-        $guideChurchType = $request->get('guide_church_type', '');
-        $guideOccupation = $request->get('guide_occupation', '');
+        $filtersActive = count(array_filter($filters, function ($value) {
+            return $value !== '';
+        })) > 0;
 
-        $ftStartDate  = $request->get('ft_start_date', '');
-        $ftEndDate    = $request->get('ft_end_date', '');
-        $ftGender     = $request->get('ft_gender', '');
-        $ftChurchType = $request->get('ft_church_type', '');
-        $ftGuestType  = $request->get('ft_guest_type', '');
+        $poolLimit = max(self::POOL_PAGE, (int) $request->get('pool_limit', self::POOL_PAGE));
 
-        // --- CHURCH TYPES & OCCUPATIONS FOR FILTER DROPDOWNS ---
-        $churchTypes = DB::table('church_type')
-            ->orderBy('church_type_name')
-            ->get(['id', 'church_type_name']);
+        // --- GUIDES: the department roster ---
+        $guideQuery = DB::table('tiu_member')
+            ->where('department_name', 'LIKE', '%"'.self::DEPARTMENT_ID.'"%')
+            ->forCurrentCampus('campus_id', $userCampusId);
+
+        if ($filters['guide_search'] !== '') {
+            $search = $filters['guide_search'];
+            $guideQuery->where(function ($q) use ($search) {
+                $q->where('first_name', 'like', '%'.$search.'%')
+                  ->orWhere('last_name', 'like', '%'.$search.'%')
+                  ->orWhere('phone_number', 'like', '%'.$search.'%');
+            });
+        }
+        if ($filters['guide_gender'] !== '') {
+            $guideQuery->where('gender', $filters['guide_gender']);
+        }
+        if ($filters['guide_church_type'] !== '') {
+            $guideQuery->where('church_type_id', $filters['guide_church_type']);
+        }
+        if ($filters['guide_occupation'] !== '') {
+            $guideQuery->where('occupation', $filters['guide_occupation']);
+        }
+
+        $guides = $guideQuery
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->get([
+                'tiu_member_id', 'first_name', 'last_name', 'gender', 'age',
+                'occupation', 'church_type_id', 'subgroup',
+            ]);
+
+        // --- THE FIRST TIMERS EACH GUIDE ALREADY FOLLOWS UP ---
+        $assignedByGuide = collect();
+
+        if ($guides->isNotEmpty()) {
+            $assignedByGuide = $this->scopeToFirstTimerFilters(
+                    $this->assignedQuery($guides->pluck('tiu_member_id')->all())
+                        ->select('ft.*', 'mtf.tiu_member_id'),
+                    $filters,
+                    'ft.'
+                )
+                ->orderBy('ft.first_name')
+                ->orderBy('ft.last_name')
+                ->get()
+                // One card per first timer, even if it ever got two open rows.
+                ->unique('first_timer_id')
+                ->groupBy('tiu_member_id');
+        }
+
+        $guidesArray = [];
+        foreach ($guides as $guide) {
+            $guideId = $guide->tiu_member_id;
+
+            $guidesArray[$guideId] = [
+                'details'      => $guide,
+                'first_timers' => $assignedByGuide->get($guideId, collect())->all(),
+            ];
+        }
+
+
+        // --- UNASSIGNED FIRST TIMERS: the pool / the unassign drop zone ---
+        $poolQuery = DB::table('first_timer')
+            ->where(function ($q) {
+                $q->whereIn('status', ['Unassigned', 'Not Assigned'])
+                  ->orWhereNull('status');
+            })
+            ->forCurrentCampus('campus_id', $userCampusId)
+            // A first timer with a live follow-up row is somebody's card, even if
+            // its status column still says otherwise.
+            ->whereNotIn('first_timer_id', function ($q) {
+                $q->select('first_timer_id')
+                  ->from('member_tracking_followup')
+                  ->where('tiu_member_id', '>', 0);
+            });
+
+        $this->scopeToFirstTimerFilters($poolQuery, $filters);
+
+        $poolTotal = (clone $poolQuery)->count();
+
+        $unassignedMembers = $poolQuery
+            ->orderByDesc('register_date')
+            ->orderByDesc('first_timer_id')
+            ->limit($poolLimit)
+            ->get();
+
+        $poolShowing = $unassignedMembers->count();
+
+        $morePoolUrl = $poolShowing < $poolTotal
+            ? route('admin.assignments.drag-drop', array_merge($request->query(), [
+                'pool_limit' => $poolLimit + self::POOL_PAGE,
+            ]))
+            : null;
+
+        // --- FILTER DROPDOWNS ---
+        $churchTypes = [];
+        try {
+            $churchTypes = DB::table('church_type')
+                ->orderBy('church_type_name')
+                ->get(['id', 'church_type_name']);
+        } catch (\Throwable $e) {
+            // A missing lookup table must not take the page down: the church type
+            // filter then simply has nothing to offer.
+            Log::warning('dragDropIndex: church_type unavailable - '.$e->getMessage());
+        }
 
         $occupations = DB::table('tiu_member')
+            ->where('department_name', 'LIKE', '%"'.self::DEPARTMENT_ID.'"%')
+            ->forCurrentCampus('campus_id', $userCampusId)
             ->whereNotNull('occupation')
             ->where('occupation', '!=', '')
-            ->select('occupation')
             ->distinct()
             ->orderBy('occupation')
-            ->get()
             ->pluck('occupation');
 
         $guestTypeOptions = [
-            "Visiting",
-            "New To TCN (Will Join TCN)",
-            "New To TCN (May Join TCN)",
-            "TCN Member (Relocating to Ikd)",
-            "TCN Member (In Transit)",
-            "TCN Member (Other Center)"
+            'Visiting',
+            'New To TCN (Will Join TCN)',
+            'New To TCN (May Join TCN)',
+            'TCN Member (Relocating to Ikd)',
+            'TCN Member (In Transit)',
+            'TCN Member (Other Center)',
         ];
 
-        // --- 1. FETCH GUIDES (filtered by selected department) ---
-        $guideQuery = DB::table('tiu_member')
-            ->where('department_name', 'LIKE', '%"' . $selectedDeptId . '"%')
-            ->forCurrentCampus('campus_id', $userCampusId);
+        return view('admin.assignments.drag-drop', [
+            'guidesArray'       => $guidesArray,
+            'unassignedMembers' => $unassignedMembers,
+            'poolTotal'         => $poolTotal,
+            'poolShowing'       => $poolShowing,
+            'morePoolUrl'       => $morePoolUrl,
+            'filters'           => $filters,
+            'filtersActive'     => $filtersActive,
+            'departmentName'    => $this->departmentLabel(),
+            'churchTypes'       => $churchTypes,
+            'occupations'       => $occupations,
+            'guestTypeOptions'  => $guestTypeOptions,
+        ]);
+    }
 
-        if (!empty($guideGender)) {
-            $guideQuery->where('gender', $guideGender);
-        }
-        if (!empty($guideChurchType)) {
-            $guideQuery->where('church_type_id', $guideChurchType);
-        }
-        if (!empty($guideOccupation)) {
-            $guideQuery->where('occupation', $guideOccupation);
-        }
+    /**
+     * The follow-ups a set of guides holds, joined back to the first timer.
+     *
+     * @param  array<int, mixed>  $guideIds
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function assignedQuery(array $guideIds)
+    {
+        $query = DB::table('first_timer as ft')
+            ->join('member_tracking_followup as mtf', 'ft.first_timer_id', '=', 'mtf.first_timer_id')
+            ->whereIn('mtf.tiu_member_id', $guideIds)
+            // Unassigning only zeroes the guide id (ajaxUnassign), so a 0 is a
+            // removed assignment, not a guide.
+            ->where('mtf.tiu_member_id', '>', 0)
+            // An integrated first timer has finished the journey: not a card.
+            ->where(function ($q) {
+                $q->whereNull('ft.status')->orWhere('ft.status', '!=', 'Integrated');
+            });
 
-        $guides = $guideQuery->orderBy('first_name')->orderBy('last_name')->get();
-
-        // --- 2. FETCH ASSIGNED MEMBERS PER GUIDE (via member_tracking_followup with department_id) ---
-        $guidesArray = [];
-        if ($guides->isNotEmpty()) {
-            $guideIds = $guides->pluck('tiu_member_id')->toArray();
-
-            if ($selectedDeptId == 23) {
-                // TRACKING & INTEGRATION: Show assigned first_timers via member_tracking_followup
-                $assignedMembers = DB::table('first_timer as ft')
-                    ->join('member_tracking_followup as mtf', 'ft.first_timer_id', '=', 'mtf.first_timer_id')
-                    ->whereIn('mtf.tiu_member_id', $guideIds)
-                    ->where('mtf.department_id', 23)
-                    ->where('ft.status', '!=', 'Integrated')
-                    ->select('ft.*', 'mtf.tiu_member_id')
-                    ->get()
-                    ->groupBy('tiu_member_id');
-            }
-
-            foreach ($guides as $g) {
-                $guidesArray[$g->tiu_member_id] = [
-                    'details' => $g,
-                    'first_timers' => $assignedMembers->get($g->tiu_member_id, collect())->toArray(),
-                ];
-            }
-        }
-
-        // --- 3. FETCH UNASSIGNED MEMBERS ---
-        if ($selectedDeptId == 23) {
-            // TRACKING & INTEGRATION: Unassigned first_timer records
-            $unassignedQuery = DB::table('first_timer')
-                ->whereIn('status', ['Unassigned', 'Not Assigned'])
-                ->forCurrentCampus('campus_id', $userCampusId)
-                ->whereNotIn('first_timer_id', function ($q) {
-                    $q->select('first_timer_id')
-                      ->from('member_tracking_followup')
-                      ->where('tiu_member_id', '>', 0);
-                });
-
-            if (!empty($ftStartDate) && !empty($ftEndDate)) {
-                $unassignedQuery->whereBetween(DB::raw('DATE(register_date)'), [$ftStartDate, $ftEndDate]);
-            }
-            if (!empty($ftGender)) {
-                $unassignedQuery->where('gender', $ftGender);
-            }
-            if (!empty($ftChurchType)) {
-                $unassignedQuery->where('church_type_id', $ftChurchType);
-            }
-            if (!empty($ftGuestType)) {
-                $unassignedQuery->where('attendant_type', $ftGuestType);
-            }
-
-            $unassignedMembers = $unassignedQuery->orderBy('first_name')->orderBy('last_name')->get();
+        if ($this->hasColumn('member_tracking_followup', 'department_id')) {
+            // Production predates the column default, so an imported row can sit
+            // at 0 although it was created for this department.
+            $query->where(function ($q) {
+                $q->where('mtf.department_id', self::DEPARTMENT_ID)
+                  ->orWhere('mtf.department_id', 0)
+                  ->orWhereNull('mtf.department_id');
+            });
         }
 
-        return view('admin.assignments.drag-drop', compact(
-            'guidesArray',
-            'unassignedMembers',
-            'selectedDeptId',
-            'deptOptions',
-            'churchTypes',
-            'occupations',
-            'guestTypeOptions',
-            'guideGender',
-            'guideChurchType',
-            'guideOccupation',
-            'ftStartDate',
-            'ftEndDate',
-            'ftGender',
-            'ftChurchType',
-            'ftGuestType'
-        ));
+        return $query;
+    }
+
+    /**
+     * Which columns of the export this database actually has.
+     *
+     * @var array<string, bool>
+     */
+    private static $columnCache = [];
+
+    /**
+     * `Schema::hasColumn()` throws when the table itself is missing, and the
+     * production database is not guaranteed to carry every column the export
+     * has (docs/PROD-DB-DIFF.md). Neither may take the page down.
+     */
+    private function hasColumn(string $table, string $column): bool
+    {
+        $key = $table.'.'.$column;
+
+        if (!array_key_exists($key, self::$columnCache)) {
+            try {
+                self::$columnCache[$key] = Schema::hasColumn($table, $column);
+            } catch (\Throwable $e) {
+                self::$columnCache[$key] = false;
+            }
+        }
+
+        return self::$columnCache[$key];
+    }
+
+    /**
+     * The "First timers" box in the left column.
+     *
+     * The same filters narrow the unassigned pool and the cards under every
+     * guide, so the box always answers one question: which first timers am I
+     * looking at? `$prefix` is the table alias when the query is a join.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array<string, string>  $filters
+     * @param  string  $prefix
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function scopeToFirstTimerFilters($query, array $filters, string $prefix = '')
+    {
+        $search = $filters['ft_search'] ?? '';
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search, $prefix) {
+                $q->where($prefix.'first_name', 'like', '%'.$search.'%')
+                  ->orWhere($prefix.'last_name', 'like', '%'.$search.'%');
+            });
+        }
+
+        // The two dates are independent on purpose: one date alone reads as
+        // "registered since" or "registered up to", which is what the church
+        // asked for; requiring both hid every card until two dates were picked.
+        if (($filters['ft_start_date'] ?? '') !== '') {
+            $query->whereDate($prefix.'register_date', '>=', $filters['ft_start_date']);
+        }
+        if (($filters['ft_end_date'] ?? '') !== '') {
+            $query->whereDate($prefix.'register_date', '<=', $filters['ft_end_date']);
+        }
+        if (($filters['ft_gender'] ?? '') !== '') {
+            $query->where($prefix.'gender', $filters['ft_gender']);
+        }
+        if (($filters['ft_church_type'] ?? '') !== '') {
+            $query->where($prefix.'church_type_id', $filters['ft_church_type']);
+        }
+        if (($filters['ft_guest_type'] ?? '') !== '') {
+            $query->where($prefix.'attendant_type', $filters['ft_guest_type']);
+        }
+
+        return $query;
+    }
+
+    /**
+     * The department's display name, with the church's own wording as fallback.
+     */
+    private function departmentLabel(): string
+    {
+        try {
+            $name = DB::table('department')
+                ->where('dept_id', self::DEPARTMENT_ID)
+                ->value('dept_name');
+        } catch (\Throwable $e) {
+            $name = null;
+        }
+
+        return $name ?: 'Tracking and Integration';
     }
 
     public function suggest()
