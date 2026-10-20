@@ -14,6 +14,7 @@ use App\Models\Community;
 use App\Models\SubGroup;
 use App\Models\Occupation;
 use App\Models\ChurchType;
+use App\Services\SubgroupAssignmentService;
 
 class ProfileController extends Controller
 {
@@ -56,6 +57,21 @@ class ProfileController extends Controller
         // Fetch subgroups
         $subGroups = SubGroup::orderBy('sub_group_name', 'asc')->get();
 
+        // "Touch Point" reads the member's department-23 groups. Admins edit
+        // them here (the select is rendered below); everyone else only sees the
+        // value. Bare legacy values that only name another department's subgroup
+        // are not touch points.
+        $currentTouchpoints = SubgroupAssignmentService::groupsForMember($tiuMember->subgroup)
+            ->where('department_id', SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID)
+            ->pluck('sub_group_name')
+            ->all();
+
+        // Options for the admin-only editor. Read through the service (query
+        // builder) so the campus global scope cannot hide groups.
+        $touchpointOptions = SubgroupAssignmentService::groupNamesForDepartment(
+            SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
+        );
+
         // Fetch occupations
         $occupations = Occupation::orderBy('occ_name', 'asc')->get();
 
@@ -92,6 +108,8 @@ class ProfileController extends Controller
             'allHouseFellowships',
             'communities',
             'subGroups',
+            'currentTouchpoints',
+            'touchpointOptions',
             'occupations',
             'campuses',
             'singleCampus',
@@ -123,6 +141,24 @@ class ProfileController extends Controller
             // Get old department IDs for email notification
             $oldMember = TiuMember::find($tiuMemberId);
             $oldDeptIds = $oldMember->department_name ?? [];
+
+            // Touch Point is editable by admins on this page. Resolve the
+            // submitted selection against the department's real groups before
+            // anything is written; an empty submission clears the assignment.
+            $canEditTouchpoints = ($sessionRole === 'Super User' || $sessionRole === 'Admin');
+            $touchpointsSubmitted = $canEditTouchpoints && $request->has('touch_points');
+            $touchpointNames = $touchpointsSubmitted
+                ? $this->resolveTouchpointNames($request->input('touch_points'))
+                : [];
+
+            $subgroupValue = null;
+            if ($touchpointsSubmitted && $oldMember) {
+                $subgroupValue = SubgroupAssignmentService::applyMany(
+                    $oldMember->subgroup,
+                    SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID,
+                    $touchpointNames
+                );
+            }
 
             // Handle photo upload
             $picturePath = null;
@@ -184,6 +220,17 @@ class ProfileController extends Controller
                 if (!in_array('11', $deptArray)) $deptArray[] = '11';
             }
 
+            // Keep department 23 in department_name while the member holds a
+            // touch point (the submitted selection when there is one, otherwise
+            // the stored value) so /group keeps listing them.
+            $touchpointSubgroup = $subgroupValue ?? ($oldMember->subgroup ?? '');
+            if (!empty(SubgroupAssignmentService::namesForDepartment(
+                    $touchpointSubgroup,
+                    SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
+                ))) {
+                $deptArray = SubgroupAssignmentService::withDepartment($deptArray);
+            }
+
             // Process community
             $communityId = $request->community_id;
             $communityOther = '';
@@ -221,10 +268,14 @@ class ProfileController extends Controller
                 $updateData['picture_part'] = $picturePath;
             }
 
-            if (($sessionRole === 'Super User' || $sessionRole === 'Admin') && $request->has('member_role')) {
+            if ($canEditTouchpoints && $request->has('member_role')) {
                 $updateData['member_role'] = $request->member_role;
-                $updateData['subgroup'] = $request->sub_group;
                 $updateData['oversight_extra1'] = json_encode($request->sub_group_oversight ?? []);
+            }
+
+            // Admin-only Touch Point edit; other departments in the column stay.
+            if ($subgroupValue !== null) {
+                $updateData['subgroup'] = $subgroupValue;
             }
 
             TiuMember::where('tiu_member_id', $tiuMemberId)->update($updateData);
@@ -335,7 +386,7 @@ class ProfileController extends Controller
                     'next_of_kin_name' => $user->next_of_kin_name ?? '',
                     'next_of_kin_phone' => $user->next_of_kin_phone ?? '',
                     'member_role' => $user->member_role ?? '',
-                    'subgroup' => $user->subgroup ?? '',
+                    'subgroup' => SubgroupAssignmentService::primaryName($user->subgroup),
                     'church_type_id' => $user->church_type_id ?? '',
                     'community_id' => $user->community_id ?? '',
                     'community_other' => $user->community_other ?? '',
@@ -412,6 +463,18 @@ class ProfileController extends Controller
                 $deptArray = json_decode($request->departments, true) ?: [];
             }
 
+            // Admin-only assignment fields are resolved before the row is built
+            // so a touch point can also tag department 23.
+            $userRole = Auth::user()->member_role ?? 'Member';
+            $canAssignSubgroup = ($userRole === 'Super User' || $userRole === 'Admin');
+            $touchpointName = ($canAssignSubgroup && is_string($request->input('subgroup')))
+                ? trim($request->input('subgroup'))
+                : '';
+
+            if ($touchpointName !== '') {
+                $deptArray = SubgroupAssignmentService::withDepartment($deptArray);
+            }
+
             // Update user data
             $updateData = [
                 'first_name' => $request->first_name ?? $tiuMember->first_name,
@@ -426,7 +489,9 @@ class ProfileController extends Controller
                 'next_of_kin_name' => $request->next_of_kin_name ?? $tiuMember->next_of_kin_name,
                 'next_of_kin_phone' => $request->next_of_kin_phone ?? $tiuMember->next_of_kin_phone,
                 'church_type_id' => $request->church_type_id ?? $tiuMember->church_type_id,
-                'department_name' => json_encode($deptArray),
+                // The model mutator encodes JSON fields; passing the array keeps
+                // the stored value a single-encoded list (not a JSON string).
+                'department_name' => $deptArray,
                 'cluster' => $request->clusters ?? $tiuMember->cluster ?? json_encode([]),
                 'house_fellowship' => $request->house_fellowships ?? $tiuMember->house_fellowship ?? json_encode([]),
             ];
@@ -446,13 +511,16 @@ class ProfileController extends Controller
             }
 
             // Admin-only fields
-            $userRole = Auth::user()->member_role ?? 'Member';
-            if ($userRole === 'Super User' || $userRole === 'Admin') {
+            if ($canAssignSubgroup) {
                 if ($request->has('member_role')) {
                     $updateData['member_role'] = $request->member_role;
                 }
                 if ($request->has('subgroup')) {
-                    $updateData['subgroup'] = $request->subgroup;
+                    $updateData['subgroup'] = SubgroupAssignmentService::apply(
+                        $tiuMember->subgroup,
+                        SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID,
+                        $touchpointName
+                    );
                 }
                 if ($request->has('oversight_subgroups')) {
                     $updateData['oversight_extra1'] = json_encode($request->oversight_subgroups);
@@ -555,6 +623,54 @@ class ProfileController extends Controller
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Keep only names that exist as groups of the touch-point department.
+     *
+     * The profile form posts an array of plain names; anything else (a stale
+     * option, a "deptID::Name" key from an old client, the empty hidden value)
+     * is dropped before the selection reaches SubgroupAssignmentService.
+     *
+     * @param  mixed  $requested
+     * @return array
+     */
+    private function resolveTouchpointNames($requested)
+    {
+        if (!is_array($requested)) {
+            $requested = ($requested === null || $requested === '') ? [] : [$requested];
+        }
+
+        $validNames = SubgroupAssignmentService::groupNamesForDepartment(
+            SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
+        );
+
+        $resolved = [];
+
+        foreach ($requested as $name) {
+            if (!is_string($name) && !is_numeric($name)) {
+                continue;
+            }
+
+            $name = trim((string) $name);
+
+            // Old clients may submit the canonical "23::Touch Point 2" key.
+            if (strpos($name, '::') !== false) {
+                list(, $name) = SubgroupAssignmentService::split($name);
+            }
+
+            foreach ($validNames as $validName) {
+                if (strcasecmp($validName, $name) === 0) {
+                    if (!in_array($validName, $resolved, true)) {
+                        $resolved[] = $validName;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        return $resolved;
     }
 
     private function parseJson($value)

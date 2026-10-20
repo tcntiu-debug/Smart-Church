@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\SubgroupAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -16,9 +17,9 @@ class TouchpointController extends Controller
     /**
      * Display the My Touchpoint / My Groups page.
      *
-     * Reads the logged-in member's 'subgroup' JSON array column,
-     * parses each "deptID::SubgroupName" entry, looks up the subgroup
-     * details and members, and displays them as panels.
+     * Reads the logged-in member's 'subgroup' column, resolves each entry to a
+     * subgroup (canonical "deptID::SubgroupName" or a legacy bare name), loads
+     * that subgroup's members and displays them as panels.
      */
     public function index()
     {
@@ -30,7 +31,7 @@ class TouchpointController extends Controller
         }
 
         // ──────────────────────────────────────────────
-        // Read the subgroup JSON array from the current member's record
+        // Read the subgroup column from the current member's record
         // ──────────────────────────────────────────────
         $member = DB::table('tiu_member')
             ->where('tiu_member_id', $tiuMemberId)
@@ -39,45 +40,23 @@ class TouchpointController extends Controller
 
         $myGroups = [];
 
-        if ($member && !empty($member->subgroup)) {
-            $subgroupArray = json_decode($member->subgroup, true);
+        if ($member) {
+            foreach (SubgroupAssignmentService::groupsForMember($member->subgroup) as $group) {
+                // Members are stored either as "deptID::SubgroupName" entries or,
+                // historically, as a bare subgroup name.
+                $membersQuery = DB::table('tiu_member')
+                    ->where('status', '!=', '2')
+                    ->orderBy('first_name')
+                    ->orderBy('last_name')
+                    ->select('tiu_member_id', 'first_name', 'last_name', 'phone_number');
 
-            if (is_array($subgroupArray)) {
-                foreach ($subgroupArray as $entry) {
-                    // Entry format: "deptID::SubgroupName" e.g. "15::Touch Point 3"
-                    $parts = explode('::', $entry, 2);
-                    if (count($parts) < 2) {
-                        continue;
-                    }
+                SubgroupAssignmentService::scopeAssignedTo($membersQuery, $group->department_id, $group->sub_group_name);
 
-                    $deptId = $parts[0];
-                    $subGroupName = $parts[1];
-
-                    // Look up the subgroup details from sub_group table
-                    $group = DB::table('sub_group')
-                        ->where('department_id', $deptId)
-                        ->where('sub_group_name', $subGroupName)
-                        ->first();
-
-                    if (!$group) {
-                        continue;
-                    }
-
-                    // Find all members with the same "deptID::SubgroupName" entry in their subgroup column
-                    $members = DB::table('tiu_member')
-                        ->where('subgroup', 'LIKE', '%"' . $entry . '"%')
-                        ->where('status', '!=', '2')
-                        ->orderBy('first_name')
-                        ->orderBy('last_name')
-                        ->select('tiu_member_id', 'first_name', 'last_name', 'phone_number')
-                        ->get();
-
-                    $myGroups[] = [
-                        'group_name' => $subGroupName,
-                        'lead_id'    => $group->lead_id ?? 0,
-                        'members'    => $members,
-                    ];
-                }
+                $myGroups[] = [
+                    'group_name' => $group->sub_group_name,
+                    'lead_id'    => $group->lead_id ?? 0,
+                    'members'    => $membersQuery->get(),
+                ];
             }
         }
 

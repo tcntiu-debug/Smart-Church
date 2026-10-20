@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\SubgroupAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -15,29 +16,41 @@ class TouchpointController extends Controller
     {
         $userId = $request->user_id;
 
-        $touchpointGroups = DB::select("
-            SELECT sg.subid, sg.sub_group_name, sg.lead_id 
-            FROM sub_group sg 
-            JOIN department d ON sg.department_id = d.dept_id
-            JOIN tiu_member tm ON sg.sub_group_name = tm.subgroup 
-            WHERE tm.tiu_member_id = ? AND d.dept_name = 'Tracking and Integration'
-        ", [$userId]);
+        $member = DB::selectOne("SELECT subgroup FROM tiu_member WHERE tiu_member_id = ?", [$userId]);
 
         $touchpoints = [];
-        foreach ($touchpointGroups as $group) {
-            $members = DB::select("
-                SELECT tiu_member_id, first_name, last_name, phone_number 
-                FROM tiu_member 
-                WHERE subgroup = ? AND status != '2' 
-                ORDER BY first_name, last_name
-            ", [$group->sub_group_name]);
 
-            $touchpoints[] = [
-                'group_name' => $group->sub_group_name,
-                'lead_id' => $group->lead_id,
-                'members' => $members,
-                'member_count' => count($members)
-            ];
+        if ($member) {
+            // The column holds "23::Touch Point 2" or, for older rows, the bare name.
+            $groupNames = SubgroupAssignmentService::namesForDepartment(
+                $member->subgroup,
+                SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID
+            );
+
+            $groups = DB::table('sub_group')
+                ->where('department_id', SubgroupAssignmentService::TOUCHPOINT_DEPARTMENT_ID)
+                ->whereIn('sub_group_name', $groupNames)
+                ->orderBy('sub_group_name')
+                ->get();
+
+            foreach ($groups as $group) {
+                $membersQuery = DB::table('tiu_member')
+                    ->where('status', '!=', '2')
+                    ->orderBy('first_name')
+                    ->orderBy('last_name')
+                    ->select('tiu_member_id', 'first_name', 'last_name', 'phone_number');
+
+                SubgroupAssignmentService::scopeAssignedTo($membersQuery, $group->department_id, $group->sub_group_name);
+
+                $members = $membersQuery->get();
+
+                $touchpoints[] = [
+                    'group_name' => $group->sub_group_name,
+                    'lead_id' => $group->lead_id,
+                    'members' => $members,
+                    'member_count' => count($members)
+                ];
+            }
         }
 
         return response()->json([

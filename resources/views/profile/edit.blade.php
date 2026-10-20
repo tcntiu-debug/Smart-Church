@@ -220,14 +220,19 @@
                     @if($sessionRole == 'Super User' || $sessionRole == 'Admin')
                     <div class="col-md-6 mb-3">
                         <label>Touch Point</label>
-                        <select name="sub_group" id="sub_group" class="form-control">
-                            <option value="">-- Select --</option>
-                            @foreach($subGroups as $sg)
-                                <option value="{{ $sg->sub_group_name }}" {{ $tiuMember->subgroup == $sg->sub_group_name ? 'selected' : '' }}>
-                                    {{ $sg->sub_group_name }}
+                        {{-- The empty hidden value makes "clear all" submit the
+                             field; browsers omit an empty multiple select. --}}
+                        <input type="hidden" name="touch_points[]" value="">
+                        <select name="touch_points[]" id="touch-points" class="form-control" multiple
+                                data-placeholder="Select touch point(s)">
+                            @foreach($touchpointOptions as $touchpoint)
+                                <option value="{{ $touchpoint }}" {{ in_array($touchpoint, $currentTouchpoints, true) ? 'selected' : '' }}>
+                                    {{ $touchpoint }}
                                 </option>
                             @endforeach
                         </select>
+                        <small class="text-muted">Saved with the profile. The
+                            <a href="{{ url('/group') }}">Group</a> page shows the same assignments.</small>
                     </div>
                     @endif
                     <div class="col-md-6 mb-3">
@@ -365,7 +370,7 @@
 <script>
 $(document).ready(function() {
     // Apply Material Design chip-style multiselect to multi-select fields
-    $('#departments, #clusters, #house-fellowships, #sub_group_oversight').select2({
+    $('#departments, #clusters, #house-fellowships, #sub_group_oversight, #touch-points').select2({
         placeholder: function() {
             return $(this).data('placeholder') || 'Select options';
         },
@@ -373,7 +378,7 @@ $(document).ready(function() {
     });
 
     // Apply select2 to single-select fields (no search bar for small lists)
-    $('#community, #occupation, #gender, #marital-status, #age-range, #member-role, #sub_group, #church_type_id, #bday, #bmonth, select[name="campus_id"]').select2({
+    $('#community, #occupation, #gender, #marital-status, #age-range, #member-role, #church_type_id, #bday, #bmonth, select[name="campus_id"]').select2({
         minimumResultsForSearch: Infinity
     });
     
