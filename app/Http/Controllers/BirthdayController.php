@@ -151,9 +151,10 @@ class BirthdayController extends Controller
         $digestMailer = $service->mailerName();
         $digestTransport = (array) config('mail.mailers.'.$digestMailer, []);
 
-        $warnings = $this->reminderWarnings($logExists, $logModified, $today, $emailableRecipients, $digestMailer);
-
         $channels = array_values((array) config('birthday.channels', ['email']));
+        $milestones = array_values(array_map('intval', (array) config('birthday.days', [3, 2, 1])));
+
+        $warnings = $this->reminderWarnings($logExists, $logModified, $today, $emailableRecipients, $digestMailer, $milestones);
 
         return view('birthdays.status', compact(
             'timezone',
@@ -169,6 +170,7 @@ class BirthdayController extends Controller
             'emailableRecipients',
             'warnings',
             'channels',
+            'milestones',
             'digestMailer',
             'digestTransport'
         ));
@@ -240,11 +242,12 @@ class BirthdayController extends Controller
 
     /**
      * The things that silently stop a digest: no cron, a log mailer, nobody to
-     * send to.
+     * send to, and a milestone list that reminds weeks ahead of the birthday.
      *
+     * @param  array<int, int>  $milestones  Config milestones, days before the birthday.
      * @return array<int, string>
      */
-    protected function reminderWarnings(bool $logExists, ?Carbon $logModified, Carbon $today, int $emailableRecipients, string $digestMailer = ''): array
+    protected function reminderWarnings(bool $logExists, ?Carbon $logModified, Carbon $today, int $emailableRecipients, string $digestMailer = '', array $milestones = []): array
     {
         $warnings = [];
 
@@ -272,6 +275,17 @@ class BirthdayController extends Controller
             && trim((string) config('birthday.telegram.bot_token', '')) === ''
             && empty(array_filter((array) config('birthday.telegram.chat_ids', [])))) {
             $warnings[] = 'The telegram channel is enabled but no bot token or chat ids are set, so those messages are skipped.';
+        }
+
+        $earlyMilestones = array_values(array_filter($milestones, function ($day) {
+            return (int) $day > 7;
+        }));
+
+        if (!empty($earlyMilestones)) {
+            $warnings[] = 'BIRTHDAY_DAYS contains '.implode(', ', array_map('intval', $earlyMilestones))
+                .' day(s) before the birthday, so the digest goes out weeks early ("... has a birthday in 60 days"). '
+                .'The Welcome Center digest is meant for 3, 2 and 1 day(s) to go: set BIRTHDAY_DAYS=3,2,1 in .env, then '
+                .'run php artisan config:clear (or config:cache) so the change is picked up.';
         }
 
         if ($emailableRecipients === 0) {

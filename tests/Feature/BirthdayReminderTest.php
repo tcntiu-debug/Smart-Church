@@ -383,4 +383,19 @@ class BirthdayReminderTest extends TestCase
 
         $this->assertSame($logged, $this->service()->alreadySent($campusId, $milestone, $today));
     }
+
+    /**
+     * A wide lead time is unusual, so the command announces it: a leftover
+     * `BIRTHDAY_DAYS=60` is exactly how the Welcome Center ends up with a
+     * "1 member has a birthday in 60 days" digest.
+     */
+    public function test_a_milestone_beyond_a_week_is_announced()
+    {
+        $exitCode = Artisan::call('birthdays:remind', ['--days' => '60', '--dry-run' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, 'The birthday command failed: '.$output);
+        $this->assertStringContainsString('Milestone(s) beyond 7 days requested: 60', $output);
+        $this->assertStringContainsString('BIRTHDAY_DAYS', $output);
+    }
 }

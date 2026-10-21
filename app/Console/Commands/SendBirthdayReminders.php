@@ -133,6 +133,10 @@ class SendBirthdayReminders extends Command
     /**
      * Milestones to process, from --days or config/birthday.php.
      *
+     * Scheduled runs must stay at the Welcome Center milestones (3, 2, 1 days
+     * to go). A wider lead time is only useful for a manual test, so it is
+     * announced instead of silently mailing the admins weeks in advance.
+     *
      * @return array<int, int>
      */
     protected function resolveDays(): array
@@ -143,12 +147,20 @@ class SendBirthdayReminders extends Command
             $raw = implode(',', (array) config('birthday.days', [3, 2, 1]));
         }
 
+        $requested = array_map('intval', array_map('trim', explode(',', (string) $raw)));
+
         $days = array_values(array_filter(
-            array_map('intval', array_map('trim', explode(',', (string) $raw))),
+            $requested,
             function ($day) {
                 return $day >= 0 && $day <= 60;
             }
         ));
+
+        $outOfRange = array_values(array_diff($requested, $days));
+
+        if (!empty($outOfRange)) {
+            $this->warn('Ignoring milestone(s) outside 0-60 days: '.implode(', ', $outOfRange).'.');
+        }
 
         if (empty($days)) {
             $days = [3, 2, 1];
@@ -156,7 +168,20 @@ class SendBirthdayReminders extends Command
 
         sort($days);
 
-        return array_values(array_unique($days));
+        $days = array_values(array_unique($days));
+
+        $earlyMilestones = array_values(array_filter($days, function ($day) {
+            return $day > 7;
+        }));
+
+        if (!empty($earlyMilestones)) {
+            $this->warn(
+                'Milestone(s) beyond 7 days requested: '.implode(', ', $earlyMilestones).'. '
+                .'Scheduled digests are meant for 3,2,1 days (BIRTHDAY_DAYS); a wider lead time is only expected in a manual test.'
+            );
+        }
+
+        return $days;
     }
 
     /**

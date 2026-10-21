@@ -75,6 +75,41 @@ with `status = 3` (deleted) are never reminded or notified. Want the non-admin
 Welcome Center workers to get the digest too? `BIRTHDAY_RECIPIENT_ROLES` =
 `Super User,Admin,Member` - no code change.
 
+## A digest sent weeks early ("... has a birthday in 60 days")
+
+Nothing in the code invents a lead time: the command only sends at the
+`birthday.days` milestones (`BIRTHDAY_DAYS`), and `config/birthday.php` defaults to
+`3,2,1`. A digest that says **"in 60 days"** therefore means the milestone list
+that run used contained `60`. Check, in order, on the server:
+
+```bash
+cd /home/<account>/smart-church
+
+grep -n 'BIRTHDAY_DAYS' .env                  # 60 there? that is the cause
+php artisan tinker --execute="echo implode(',', config('birthday.days'));"   # what the app really reads
+crontab -l | grep -i birthdays                # a cron passing --days=60 ?
+tail -n 40 storage/logs/birthday-reminders.log  # "Milestones: ..." of each run
+```
+
+* `BIRTHDAY_DAYS` is read by `config/birthday.php` (accepted range `0-60`), so a
+  leftover `BIRTHDAY_DAYS=60` from a test mails the admins two months early - and
+  because it replaces `3,2,1`, the intended milestones are never sent at all.
+* A cached config keeps the old value after `.env` is edited. After fixing it run
+  `php artisan config:clear` (or `php artisan config:cache`).
+* `/birthdays/status` shows the milestones the app is really using under
+  **Schedule** (`BIRTHDAY_DAYS`), repeats them at the top of the dry-run preview
+  ("Milestones: ..."), and now raises a warning when a milestone is more than
+  7 days out. A manual `birthdays:remind --days=60` prints the same warning.
+* The already-sent guard is keyed on **milestone + birthday date**, so the wrong
+  `60`-day row does not suppress the real `3`, `2` and `1` day digests for that
+  birthday. Only a run of the *same* milestone has to be repeated with `--force`.
+
+Correct setting:
+
+```dotenv
+BIRTHDAY_DAYS=3,2,1
+```
+
 ## Which mailbox the digest uses
 
 By default there is **no separate birthday mail setting**: the digest goes out on

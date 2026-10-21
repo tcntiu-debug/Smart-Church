@@ -41,7 +41,8 @@
                         Daily at <strong>{{ config('birthday.send_at', '07:00') }}</strong> ({{ $timezone }})
                     </p>
                     <p class="mb-1">
-                        Milestones: <strong>{{ implode(', ', (array) config('birthday.days', [3, 2, 1])) }}</strong> day(s) before
+                        Milestones: <strong>{{ implode(', ', $milestones) }}</strong> day(s) before
+                        <span class="text-muted">(BIRTHDAY_DAYS)</span>
                     </p>
                     <p class="mb-0">
                         Channels: <strong>{{ implode(', ', $channels) }}</strong>

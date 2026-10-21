@@ -137,6 +137,39 @@ class BirthdayStatusTest extends TestCase
             ->assertSee('welcome@example.test');
     }
 
+    /**
+     * The page names the milestone list the app is really using, and the env
+     * var behind it. A digest that fires weeks early ("a birthday in 60 days")
+     * can then be traced to BIRTHDAY_DAYS without opening a shell.
+     */
+    public function test_the_page_shows_the_configured_milestones()
+    {
+        config(['birthday.days' => [3, 2, 1]]);
+
+        $this->actingAs($this->admin())
+            ->get(route('birthdays.status'))
+            ->assertOk()
+            ->assertSee('Milestones:')
+            ->assertSee('BIRTHDAY_DAYS')
+            ->assertSee('3, 2, 1');
+    }
+
+    /**
+     * A milestone more than a week out is called out, because that is how the
+     * Welcome Center ends up being asked to wish somebody a happy birthday two
+     * months in advance.
+     */
+    public function test_a_milestone_beyond_a_week_is_reported()
+    {
+        config(['birthday.days' => [60, 3, 2, 1]]);
+
+        $this->actingAs($this->admin())
+            ->get(route('birthdays.status'))
+            ->assertOk()
+            ->assertSee('BIRTHDAY_DAYS contains 60 day(s) before the birthday')
+            ->assertSee('set BIRTHDAY_DAYS=3,2,1');
+    }
+
     public function test_the_dry_run_the_page_runs_sends_nothing()
     {
         // The command the page calls, isolated: same assertions, no view.
