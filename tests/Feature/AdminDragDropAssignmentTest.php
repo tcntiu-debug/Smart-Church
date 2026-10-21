@@ -252,6 +252,70 @@ class AdminDragDropAssignmentTest extends TestCase
             ->assertSee('first-timer-card draggable-unassigned', false);
     }
 
+    /**
+     * The two boxes are independent: what the right box searches cannot remove
+     * a card from under a guide on the left. A guide still follows that person
+     * up, whatever the pool is being filtered by.
+     */
+    public function test_a_first_timer_filter_leaves_the_cards_under_a_guide_alone()
+    {
+        $guide = $this->makeGuide('Guide');
+        $held = $this->makeFirstTimer('Held', 'Male', 'Assigned');
+        $this->followUp($guide, $held);
+
+        // The right box is looking for Female first timers; the card under the
+        // guide is Male and has to stay where it is.
+        $this->page(['guide_search' => self::MARKER, 'ft_gender' => 'Female'])
+            ->assertOk()
+            ->assertSee('Held ' . self::MARKER)
+            ->assertSee('first-timer-card draggable-assigned', false);
+    }
+
+    /**
+     * The other direction: narrowing the guides must not empty the pool.
+     */
+    public function test_a_guide_filter_leaves_the_unassigned_pool_alone()
+    {
+        $this->makeGuide('Aaa');
+        $this->makeGuide('Bbb', 'Female');
+        $this->makeFirstTimer('Waiting');
+
+        $this->page([
+                'guide_search'  => self::MARKER,
+                'guide_gender'  => 'Female',
+                'ft_search'     => self::MARKER,
+            ])
+            ->assertOk()
+            // The male guide is filtered out of the left column...
+            ->assertDontSee('Aaa ' . self::MARKER)
+            // ...and the pool still holds the waiting first timer.
+            ->assertSee('Waiting ' . self::MARKER)
+            ->assertSee('first-timer-card draggable-unassigned', false);
+    }
+
+    /**
+     * Each box reports its own state. The page used to print one banner for the
+     * whole department ("Filters are hiding part of the department"), which
+     * claimed the guides were narrowed even when only the pool was searched.
+     */
+    public function test_each_box_reports_its_own_state()
+    {
+        $this->makeGuide('Aaa');
+        $this->makeFirstTimer('Waiting');
+
+        $this->page(['ft_search' => self::MARKER])
+            ->assertOk()
+            ->assertDontSee('Filters are hiding part of the department')
+            ->assertSee('Show all first timers')
+            ->assertDontSee('Show all guides');
+
+        $this->page(['guide_search' => self::MARKER])
+            ->assertOk()
+            ->assertDontSee('Filters are hiding part of the department')
+            ->assertSee('Show all guides')
+            ->assertDontSee('Show all first timers');
+    }
+
     public function test_dropping_a_first_timer_on_a_guide_assigns_it()
     {
         $guide = $this->makeGuide('Guide');

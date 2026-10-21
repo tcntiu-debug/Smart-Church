@@ -524,16 +524,26 @@ class AdminAssignmentController extends Controller
             'ft_guest_type'     => trim((string) $request->get('ft_guest_type', '')),
         ];
 
-        $filtersActive = count(array_filter($filters, function ($value) {
-            return $value !== '';
-        })) > 0;
+        // The two boxes are independent, and each one only answers for its own
+        // column: the guide box narrows the guides (and therefore which cards
+        // are on the page at all), the first timer box narrows the unassigned
+        // pool. A first timer filter must never remove a card from under a
+        // guide - the guide still follows that person up.
+        $guideFiltersActive = $this->anyFilterActive($filters, 'guide_');
+        $timerFiltersActive = $this->anyFilterActive($filters, 'ft_');
 
         $poolLimit = max(self::POOL_PAGE, (int) $request->get('pool_limit', self::POOL_PAGE));
 
         // --- GUIDES: the department roster ---
-        $guideQuery = DB::table('tiu_member')
+        $guideBase = DB::table('tiu_member')
             ->where('department_name', 'LIKE', '%"'.self::DEPARTMENT_ID.'"%')
             ->forCurrentCampus('campus_id', $userCampusId);
+
+        // How many guides the box would show unfiltered. The panel prints
+        // "12 of 59" so a narrowed list cannot be mistaken for the department.
+        $guideTotal = (clone $guideBase)->count();
+
+        $guideQuery = clone $guideBase;
 
         if ($filters['guide_search'] !== '') {
             $search = $filters['guide_search'];
@@ -565,12 +575,10 @@ class AdminAssignmentController extends Controller
         $assignedByGuide = collect();
 
         if ($guides->isNotEmpty()) {
-            $assignedByGuide = $this->scopeToFirstTimerFilters(
-                    $this->assignedQuery($guides->pluck('tiu_member_id')->all())
-                        ->select('ft.*', 'mtf.tiu_member_id'),
-                    $filters,
-                    'ft.'
-                )
+            // No ft_* here on purpose: what a guide follows up does not change
+            // because somebody searched the unassigned pool on the right.
+            $assignedByGuide = $this->assignedQuery($guides->pluck('tiu_member_id')->all())
+                ->select('ft.*', 'mtf.tiu_member_id')
                 ->orderBy('ft.first_name')
                 ->orderBy('ft.last_name')
                 ->get()
@@ -654,17 +662,19 @@ class AdminAssignmentController extends Controller
         ];
 
         return view('admin.assignments.drag-drop', [
-            'guidesArray'       => $guidesArray,
-            'unassignedMembers' => $unassignedMembers,
-            'poolTotal'         => $poolTotal,
-            'poolShowing'       => $poolShowing,
-            'morePoolUrl'       => $morePoolUrl,
-            'filters'           => $filters,
-            'filtersActive'     => $filtersActive,
-            'departmentName'    => $this->departmentLabel(),
-            'churchTypes'       => $churchTypes,
-            'occupations'       => $occupations,
-            'guestTypeOptions'  => $guestTypeOptions,
+            'guidesArray'        => $guidesArray,
+            'guideTotal'         => $guideTotal,
+            'unassignedMembers'  => $unassignedMembers,
+            'poolTotal'          => $poolTotal,
+            'poolShowing'        => $poolShowing,
+            'morePoolUrl'        => $morePoolUrl,
+            'filters'            => $filters,
+            'guideFiltersActive' => $guideFiltersActive,
+            'timerFiltersActive' => $timerFiltersActive,
+            'departmentName'     => $this->departmentLabel(),
+            'churchTypes'        => $churchTypes,
+            'occupations'        => $occupations,
+            'guestTypeOptions'   => $guestTypeOptions,
         ]);
     }
 
@@ -728,25 +738,24 @@ class AdminAssignmentController extends Controller
     }
 
     /**
-     * The "First timers" box in the left column.
+     * The "First timers" box in the right column.
      *
-     * The same filters narrow the unassigned pool and the cards under every
-     * guide, so the box always answers one question: which first timers am I
-     * looking at? `$prefix` is the table alias when the query is a join.
+     * It narrows the unassigned pool only. The cards under a guide are that
+     * guide's follow-ups and are not touched by this box - the two sides of the
+     * page are independent, which is what the church asked for.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array<string, string>  $filters
-     * @param  string  $prefix
      * @return \Illuminate\Database\Query\Builder
      */
-    private function scopeToFirstTimerFilters($query, array $filters, string $prefix = '')
+    private function scopeToFirstTimerFilters($query, array $filters)
     {
         $search = $filters['ft_search'] ?? '';
 
         if ($search !== '') {
-            $query->where(function ($q) use ($search, $prefix) {
-                $q->where($prefix.'first_name', 'like', '%'.$search.'%')
-                  ->orWhere($prefix.'last_name', 'like', '%'.$search.'%');
+            $query->where(function ($q) use ($search) {
+                $q->where('first_name', 'like', '%'.$search.'%')
+                  ->orWhere('last_name', 'like', '%'.$search.'%');
             });
         }
 
@@ -754,22 +763,43 @@ class AdminAssignmentController extends Controller
         // "registered since" or "registered up to", which is what the church
         // asked for; requiring both hid every card until two dates were picked.
         if (($filters['ft_start_date'] ?? '') !== '') {
-            $query->whereDate($prefix.'register_date', '>=', $filters['ft_start_date']);
+            $query->whereDate('register_date', '>=', $filters['ft_start_date']);
         }
         if (($filters['ft_end_date'] ?? '') !== '') {
-            $query->whereDate($prefix.'register_date', '<=', $filters['ft_end_date']);
+            $query->whereDate('register_date', '<=', $filters['ft_end_date']);
         }
         if (($filters['ft_gender'] ?? '') !== '') {
-            $query->where($prefix.'gender', $filters['ft_gender']);
+            $query->where('gender', $filters['ft_gender']);
         }
         if (($filters['ft_church_type'] ?? '') !== '') {
-            $query->where($prefix.'church_type_id', $filters['ft_church_type']);
+            $query->where('church_type_id', $filters['ft_church_type']);
         }
         if (($filters['ft_guest_type'] ?? '') !== '') {
-            $query->where($prefix.'attendant_type', $filters['ft_guest_type']);
+            $query->where('attendant_type', $filters['ft_guest_type']);
         }
 
         return $query;
+    }
+
+    /**
+     * Is any filter of one box filled in?
+     *
+     * `guide_*` belongs to the left column, `ft_*` to the right one, and the
+     * view prints its "12 of 59 / show all" hints off these two answers rather
+     * than off a single "the page is filtered" flag - a first timer search must
+     * not make the guides look narrowed.
+     *
+     * @param  array<string, string>  $filters
+     */
+    private function anyFilterActive(array $filters, string $prefix): bool
+    {
+        foreach ($filters as $key => $value) {
+            if ($value !== '' && strpos($key, $prefix) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

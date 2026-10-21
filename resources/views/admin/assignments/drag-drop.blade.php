@@ -16,7 +16,6 @@
 
     $clearGuideUrl = route('admin.assignments.drag-drop', $keepExcept('guide_'));
     $clearTimerUrl = route('admin.assignments.drag-drop', $keepExcept('ft_'));
-    $allFiltersUrl = route('admin.assignments.drag-drop');
 @endphp
 
 <style>
@@ -108,6 +107,7 @@
     #status-message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
 
     .assign-more { display: block; margin-top: 10px; font-size: 12px; text-align: center; }
+    .panel-head .panel-clear { font-size: 12px; font-weight: 600; margin-left: 8px; white-space: nowrap; }
 
     /* Dark theme twins (docs/DISPLAY-MODE.md) */
     .ms-dark-theme .assign-title,
@@ -130,6 +130,7 @@
     .ms-dark-theme #unassigned-pool { border-color: #3d4a80; }
     .ms-dark-theme .drop-hint { color: #b9bcd8; }
     .ms-dark-theme .filters-box label { color: #b9bcd8; }
+    .ms-dark-theme .panel-head .panel-clear { color: #9fc3ff; }
     .ms-dark-theme .text-muted { color: #b9bcd8 !important; }
 </style>
 
@@ -151,12 +152,6 @@
 
     <div id="status-message" role="status" aria-live="polite"></div>
 
-    @if($filtersActive)
-        <p class="assign-more text-left">
-            Filters are hiding part of the department. <a href="{{ $allFiltersUrl }}">Show everything</a>.
-        </p>
-    @endif
-
     <div class="assign-container">
         {{-- LEFT: the guides. Every guide is a drop zone holding its first timers. --}}
         <div class="column column-left">
@@ -164,7 +159,12 @@
                 <div class="panel-head">
                     <h2>
                         <i class="fas fa-user-friends mr-1"></i>Guides
-                        <span class="panel-count">({{ number_format($guideCount) }} shown)</span>
+                        <span class="panel-count">
+                            ({{ number_format($guideCount) }}@if($guideFiltersActive) of {{ number_format($guideTotal) }}@endif shown)
+                        </span>
+                        @if($guideFiltersActive)
+                            <a href="{{ $clearGuideUrl }}" class="panel-clear">Show all guides</a>
+                        @endif
                     </h2>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="toggle-all-guides">
                         Collapse all
@@ -273,8 +273,8 @@
                         </div>
                     @empty
                         <p class="text-center text-muted py-4">
-                            @if($filtersActive)
-                                No guides match these filters.
+                            @if($guideFiltersActive)
+                                No guides match these filters. <a href="{{ $clearGuideUrl }}">Show all guides</a>.
                             @else
                                 No guide in {{ $departmentName }} yet.
                             @endif
@@ -294,6 +294,9 @@
                         <span class="panel-count">
                             ({{ number_format($poolShowing) }} of {{ number_format($poolTotal) }})
                         </span>
+                        @if($timerFiltersActive)
+                            <a href="{{ $clearTimerUrl }}" class="panel-clear">Show all first timers</a>
+                        @endif
                     </h2>
                 </div>
 
@@ -377,7 +380,7 @@
                             @endforeach
                         </div>
                         <p class="drop-hint {{ $poolShowing ? 'd-none' : '' }}">
-                            @if($filtersActive)
+                            @if($timerFiltersActive)
                                 No unassigned first timer matches these filters.
                             @else
                                 Nobody is waiting for a guide. Drag an assigned first timer here to unassign.
