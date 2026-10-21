@@ -194,7 +194,7 @@ Route::post('/privacy-policy/sign', function () {
 
 Route::middleware(['auth', 'profile.complete'])->group(function () {
 
-    // ========== HOME DASHBOARD (Landing page for all roles) ==========
+    // ========== DASHBOARD (Landing page for all roles) ==========
     Route::get('/home', [HomeController::class, 'index'])->name('home');
     Route::post('/home/prayer', [HomeController::class, 'storePrayer'])->name('home.prayer');
     Route::post('/home/suggestion', [HomeController::class, 'storeSuggestion'])->name('home.suggestion');

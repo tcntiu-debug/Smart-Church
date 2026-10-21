@@ -32,9 +32,9 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
 
   <ul class="accordion ms-main-aside fs-14" id="side-nav-accordion">
 
-    <!-- HOME DASHBOARD (Visible to all logged-in users) -->
+    <!-- DASHBOARD (Visible to all logged-in users) -->
     <li class="menu-item">
-      <a href="{{ route('home') }}"><span><i class="fas fa-home fs-16"></i>Home Dashboard</span></a>
+      <a href="{{ route('home') }}"><span><i class="fas fa-home fs-16"></i>Dashboard</span></a>
     </li>
 
     <!-- MY BOX -->

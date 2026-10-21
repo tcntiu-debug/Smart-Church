@@ -10,7 +10,7 @@ involved.
 
 | Piece | Responsibility |
 |-------|----------------|
-| `public/manifest.webmanifest` | Name, icons, `start_url` (`/home`), `display: standalone`, brand colours and three shortcuts (Home Dashboard, Week List, Notifications). |
+| `public/manifest.webmanifest` | Name, icons, `start_url` (`/home`), `display: standalone`, brand colours and three shortcuts (Dashboard, Week List, Notifications). |
 | `public/icons/icon-192-v2.png`, `public/icons/icon-512-v2.png` | The launcher icons: the TIU crest alone (no wordmark) on the orange `#F97316` tile. |
 | `public/icons/maskable-512-v2.png` | Android adaptive icon: the crest sits inside the safe zone so a round/squircle mask does not clip it. |
 | `public/icons/icon-32.png`, `public/favicon.ico` | Tab icon (`<link rel="icon">`) and the 16+32 `.ico` a browser requests from the site root. |
@@ -21,7 +21,7 @@ involved.
 ## How the button behaves
 
 - **Chrome / Edge / Android**: the browser fires `beforeinstallprompt`, the layout
-  stashes it, and the button appears (on the Home Dashboard today). One click calls
+  stashes it, and the button appears (on the Dashboard today). One click calls
   `prompt()`, so the install happens in-place — no "open the ⋮ menu" instructions.
 - **iOS Safari / Firefox**: the event does not exist, so on iOS the partial swaps
   the button for the *Share → Add to Home Screen* instructions instead of showing
@@ -88,7 +88,7 @@ new artwork, because Android snapshots the icon at install time.
 ## Tests
 
 `tests/Feature/ProgressiveWebAppTest.php` asserts the manifest is valid JSON, every
-icon it references exists on disk, a maskable icon is present, the Home Dashboard
+icon it references exists on disk, a maskable icon is present, the Dashboard
 links the manifest, registers the worker and renders the install button, and the
 worker still handles `install`/`activate`/`fetch`/`notificationclick`.
 

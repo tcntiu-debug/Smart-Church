@@ -7,7 +7,7 @@ use Tests\TestCase;
 
 /**
  * Installable app (PWA): the manifest, its icons, the service worker and the
- * "Install app" button on the Home Dashboard.
+ * "Install app" button on the Dashboard.
  *
  * Read-only: no RefreshDatabase, the suite runs against the application's real
  * connection and every request below is a GET.
