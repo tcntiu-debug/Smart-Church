@@ -331,6 +331,6 @@ jobs:
             echo "| Commit | \`${GITHUB_SHA:0:7}\` |"
             echo "| Branch | \`${GITHUB_REF_NAME}\` |"
             echo "| Transport | \`sftp:${{ vars.CPANEL_SSH_PORT || 22 }}\` |"
-            echo "| Remote directory | \`${{ vars.CPANEL_REMOTE_DIR || 'public_html/' }}\` |"
+            echo "| Remote directory | \`${{ vars.CPANEL_REMOTE_DIR || 'public_html/dev.lit-grp.com/' }}\` |"
             echo "| Triggered by | @${GITHUB_ACTOR} |"
           } >> "$GITHUB_STEP_SUMMARY"

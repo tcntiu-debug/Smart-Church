@@ -64,6 +64,8 @@ git push  ->  GitHub Actions  ->  composer install --no-dev  ->  SFTP/FTPS uploa
   [`docs/DEPLOY-dev.lit-grp.com.md`](docs/DEPLOY-dev.lit-grp.com.md)
 - Full setup guide, secrets table and troubleshooting:
   [`docs/CPANEL-DEPLOYMENT.md`](docs/CPANEL-DEPLOYMENT.md)
+- Adding a collaborator without giving them the production **Approve and deploy**
+  button: §3f of the same guide.
 - How the mobile app authenticates, and how to revoke every token at once:
   [`docs/API-TOKENS.md`](docs/API-TOKENS.md)
 - After deploying, run once on the server:

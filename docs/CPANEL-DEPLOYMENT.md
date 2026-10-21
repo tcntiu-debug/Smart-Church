@@ -9,7 +9,8 @@ publishes it to your cPanel account. No manual uploading, ever.
 > live folder from **`main` only** and sits in *Pending* until a required reviewer
 > clicks **Approve and deploy** — nothing is checked out, built or uploaded before
 > that click. Both rules are GitHub settings; see
-> [§3e](#3e-gate-production-with-a-required-reviewer).
+> [§3e](#3e-gate-production-with-a-required-reviewer). Adding a second developer
+> without giving them that button: [§3f](#3f-sharing-the-repository-without-handing-over-production-approval).
 
 ```
  git push
@@ -244,6 +245,99 @@ Notes:
   protection rule**, pattern `main`, *Require a pull request before merging*). Pushing to
   `main` then has to go through a pull request. It is irrelevant to the deploy gate —
   only to how commits reach the live branch.
+
+### 3f. Sharing the repository without handing over production approval
+
+A collaborator is added under **Settings → Collaborators and teams → Add people**:
+enter the GitHub account or e-mail, pick a role, **Add**. If the person has no GitHub
+account yet, GitHub e-mails an invitation and the access starts when they accept it.
+Like the gate in §3e, this is an account setting — nothing in the repository can grant
+or take it back.
+
+This repository is **public**, so *Read* gives nothing that an anonymous visitor cannot
+already see (clone, issues, pull requests, run logs). Give **Write** only to someone who
+will push code; anything above Write is the mistake to avoid:
+
+| Role | What it allows | Use it for |
+| --- | --- | --- |
+| **Read** | Clone, open issues and pull requests, read run logs | Anyone who only needs the source |
+| **Write** | Push branches, open/merge pull requests, edit workflow files | A developer who contributes to dev |
+| **Maintain / Admin** | Repository settings, secrets, environment protection rules, bypassing a pending run | The owner only |
+
+Two rules keep a Write collaborator away from the live site:
+
+1. **Do not add them to the `production` environment's required reviewers.** Only the
+   accounts listed there can approve a run; everyone else sees the run *Waiting* with no
+   approve control. Never give the person **Admin**: an admin can edit that list, or
+   press **Start all waiting jobs** on the run page and skip the gate entirely.
+2. **Keep `PROD_CPANEL_*` on the `production` environment, not at repository level.**
+   The `environment:` line is not the lock — the lock is what it protects. Someone with
+   Write can push a commit that removes `environment: production` from
+   `deploy-cpanel-prod.yml`, and the run that follows is ungated. What still stops it is
+   **Validate deployment secrets**: a job only receives an environment's secrets after
+   the environment's rules pass, so `PROD_CPANEL_*` arrive empty and that step fails
+   before anything is built or uploaded. Repository-level secrets get no such
+   protection — *any* branch they can push can read them. When the same name exists at
+   both levels the **environment copy wins**, so deleting the repository copy changes
+   nothing about what an approved run reads.
+
+So, under **Settings → Secrets and variables → Actions**:
+
+- `PROD_CPANEL_HOST`, `PROD_CPANEL_USER` and `PROD_CPANEL_PASSWORD` belong on
+  **Environments → `production`**, and the repository-level copies of them must be
+  **deleted** (the trash icon on each row) — the same for the `PROD_CPANEL_REMOTE_DIR` and
+  `PROD_CPANEL_SSH_PORT` *variables*, which are duplicated there today. A leftover copy is
+  exactly what a workflow without the environment would read, and the environment copy
+  wins for every run that does declare it, so nothing an approved deploy does changes.
+- **Delete `CPANEL_PORT` and `CPANEL_PROTOCOL` outright.** Neither workflow reads them;
+  both are hardcoded to SFTP on `CPANEL_SSH_PORT`/`PROD_CPANEL_SSH_PORT` (§3c has the
+  "why"). They are leftovers from the FTPS attempt and are worse than useless in an audit:
+  they advertise port `21` and `ftps` for a job that connects on `22`, so the next person
+  to debug a deploy chases a transport that is not in use.
+
+**Optional: move the dev credentials out of the repository too.** The dev `CPANEL_*` set
+is repository-level in the same way, and `deploy-cpanel.yml` has no environment to protect
+it. The move is four steps, and the order is what matters — get it wrong and dev deploys
+fail with an SFTP login error:
+
+1. **Environments → New environment** → name it `development`, and add **no** protection
+   rules (dev must keep deploying on every push, unreviewed);
+2. add `CPANEL_HOST`, `CPANEL_USER` and `CPANEL_PASSWORD` to that environment, plus
+   `CPANEL_REMOTE_DIR` (`CPANEL_SSH_PORT` only if the SSH port is not 22) — those are the
+   only names `deploy-cpanel.yml` reads, see §3c;
+3. add `environment: development` to the `deploy` job in `deploy-cpanel.yml`, beside its
+   `runs-on:` — commit that before touching step 4;
+4. only then delete the repository-level copies.
+
+After step 2 the job still cannot see the new environment's secrets; until step 4 the old
+copies remain readable by any branch a Write collaborator pushes. Actions masks a secret
+in the log, but a workflow can copy it anywhere.
+
+Optional, and worth it as soon as a second person has Write:
+
+- **Settings → Rules → Rulesets** (or *Branches*) → new rule for `main`: *Require a pull
+  request before merging* (1 approval), *Require review from Code Owners*, *Block force
+  pushes*, *Block deletions*. `.github/CODEOWNERS` names `@tcntiu-debug` as the owner of
+  `.github/` and this file, so a change to a workflow — or to this runbook — cannot land
+  without the owner's review. Put your own account in the ruleset's **bypass** list, or a
+  solo hotfix becomes a two-person job.
+- **Settings → Actions → General**: *Workflow permissions* → **Read repository
+  contents**, and untick *Allow GitHub Actions to create and approve pull requests*.
+
+Verify before relying on it — ask the collaborator to:
+
+1. open **Actions → Deploy to cPanel (production)** on a run that is waiting: there must
+   be no **Review deployments** / **Approve and deploy** control;
+2. open **Settings → Environments**: a Write collaborator is refused;
+3. start a **Run workflow** from a throwaway branch: the run stays *Waiting*, and the
+   `main`-only deployment-branch rule from §3e refuses it outright.
+
+> Removing the collaborator (**Settings → Collaborators → … → Remove**) revokes the
+> access at once. Their commits, branches and pull requests stay.
+>
+> The dev workflow (`deploy-cpanel.yml`) has no gate by design: their pushes publish the
+> dev folder, which is where their work is meant to be seen. Only `main` and the
+> `production` environment reach the live site.
 
 ## 4. Create the server `.env` file
 

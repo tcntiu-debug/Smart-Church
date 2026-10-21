@@ -1,0 +1,16 @@
+# Default owners for code review.
+#
+# This file only has an effect once the `main` branch rule asks for it
+# (Settings > Rules / Branches > `main` > "Require review from Code Owners").
+#
+# The pipeline files are owned by the repository owner on purpose: a collaborator
+# with the Write role can edit `deploy-cpanel-prod.yml` - including deleting
+# `environment: production`, which is the approval gate itself. Requiring the
+# owner's review for anything under `.github/` means that edit cannot reach
+# `main` without it. See docs/CPANEL-DEPLOYMENT.md, section 3f.
+
+/.github/                  @tcntiu-debug
+
+# The production runbook is where the gate and the secret scoping are described;
+# a change to it should not look like an ordinary documentation commit.
+/docs/CPANEL-DEPLOYMENT.md @tcntiu-debug

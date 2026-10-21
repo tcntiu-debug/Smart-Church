@@ -52,6 +52,9 @@ auth.json
 /task_progress.json
 /test-login.html
 /public/test-login.html
+# A copy of the production .env kept for reference: it carries real secrets
+# (TELEGRAM_BOT_TOKEN, MAIL_PASSWORD). Never commit it.
+/tests/Feature/dotenvforproduction.txt
 
 # ---------- Editor / OS / tooling ----------
 docker-compose.override.yml
