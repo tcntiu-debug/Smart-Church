@@ -331,7 +331,16 @@
         <span class="action-icon">🍼</span>
         <span class="action-title">Child Ceremony</span>
     </a>
-    <a href="{{ url('/birthdays') }}" class="action-card">
+    {{-- Each role lands on the list it can read: staff keep the staff page
+         (/birthdays), everybody else reads the members' list (/celebrations).
+         The card used to point at /birthdays for all, which answers a plain
+         Member with "Access Denied" - see BirthdayController::STAFF_ROLES. --}}
+    @php
+        $birthdaysUrl = in_array($user->member_role ?? '', \App\Http\Controllers\BirthdayController::STAFF_ROLES, true)
+            ? route('birthdays.index')
+            : route('birthdays.celebrations');
+    @endphp
+    <a href="{{ $birthdaysUrl }}" class="action-card">
         <span class="action-icon">🎂</span>
         <span class="action-title">Birthdays</span>
     </a>

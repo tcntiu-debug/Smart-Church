@@ -15,10 +15,16 @@
                     @endforeach
                 </select>
             </div>
-            <a href="{{ route('birthdays.index') }}" class="btn btn-sm btn-secondary">Reset</a>
-            <a href="{{ route('birthdays.status') }}" class="btn btn-sm btn-primary">
-                <i class="fas fa-bell"></i> Reminder status
-            </a>
+            <a href="{{ route($listRoute ?? 'birthdays.index') }}" class="btn btn-sm btn-secondary">Reset</a>
+            {{-- Set by the controller: true only on the staff list, and only for
+                 the Super User. status() refuses everybody else outright, Admin
+                 included (see docs/BIRTHDAY-REMINDERS.md). The members' list
+                 (/celebrations) never sets it. --}}
+            @if($showReminderStatus ?? false)
+                <a href="{{ route('birthdays.status') }}" class="btn btn-sm btn-primary">
+                    <i class="fas fa-bell"></i> Reminder status
+                </a>
+            @endif
         </form>
     </div>
     <div class="ms-panel-body">

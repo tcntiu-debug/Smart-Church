@@ -30,4 +30,15 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    /*
+     * The church's Telegram bot. Read through config('services.telegram.*') and
+     * never from the environment directly: production runs `config:cache`, and
+     * a cached config means .env is not loaded at all, so a direct env() call
+     * returns null and the alert is dropped without a trace.
+     */
+    'telegram' => [
+        'bot_token' => env('TELEGRAM_BOT_TOKEN'),
+        'chat_id' => env('TELEGRAM_CHAT_ID'),
+    ],
+
 ];

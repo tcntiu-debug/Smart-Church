@@ -370,6 +370,9 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     // Birthdays
     Route::get('/birthdays', [BirthdayController::class, 'index'])->name('birthdays.index');
     Route::get('/birthdays/filter', [BirthdayController::class, 'filter'])->name('birthdays.filter');
+    // The members' list: same table, no reminder status, open to every signed-in
+    // member. The staff list above and the status page below are the gated ones.
+    Route::get('/celebrations', [BirthdayController::class, 'celebrations'])->name('birthdays.celebrations');
     Route::get('/birthdays/status', [BirthdayController::class, 'status'])->name('birthdays.status');
     Route::post('/birthdays/send-wish', [BirthdayController::class, 'sendWish'])->name('birthdays.send-wish');
 

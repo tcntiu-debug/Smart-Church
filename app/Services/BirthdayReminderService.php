@@ -45,7 +45,7 @@ class BirthdayReminderService
     {
         $this->lines = [];
 
-        $summary = ['logs' => 0, 'birthdays' => 0, 'recipients' => 0, 'sent' => 0, 'skipped' => 0, 'failed' => 0];
+        $summary = ['logs' => 0, 'birthdays' => 0, 'recipients' => 0, 'sent' => 0, 'would' => 0, 'skipped' => 0, 'failed' => 0];
         $today = $this->today();
 
         $this->lines[] = 'Today ('.$today->format('D, d M Y').')';
@@ -92,6 +92,9 @@ class BirthdayReminderService
 
                 if ($result['status'] === 'sent') {
                     $summary['sent']++;
+                } elseif ($result['status'] === 'would') {
+                    // A dry run: resolved and ready, but nothing left the server.
+                    $summary['would']++;
                 } elseif ($result['status'] === 'skipped') {
                     $summary['skipped']++;
                 } else {
@@ -578,7 +581,16 @@ class BirthdayReminderService
 
         // A digest counts as "sent" as soon as one channel delivered it, so the
         // daily scheduler does not repeat it. Nothing delivered => retry tomorrow.
-        $status = empty($delivered) ? 'failed' : 'sent';
+        // A dry run is "would" instead: every channel above only recorded what it
+        // would do, so the output (printed verbatim on /birthdays/status) must not
+        // read as a delivery - a "SENT ... 2 days to go" preview made today's real
+        // digests look as if they had already gone out. Nothing deliverable stays
+        // "failed" so the run still exits non-zero when a real run would fail.
+        if (empty($delivered)) {
+            $status = 'failed';
+        } else {
+            $status = $dryRun ? 'would' : 'sent';
+        }
         $note = implode('; ', $notes);
 
         $this->writeLog($campusId, $daysBefore, $target->toDateString(), count($birthdays), count($recipients), $delivered, $status, $note, $dryRun);

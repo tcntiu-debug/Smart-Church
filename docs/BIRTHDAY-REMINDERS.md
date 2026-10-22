@@ -21,9 +21,49 @@ guard.
 
 ## Watching it - `/birthdays/status`
 
-The Birthdays page carries a **Reminder status** button (Super User, Admin, Admins
-and Workers). It answers the three questions a silent digest leaves open, without
-a shell:
+The Birthdays page carries a **Reminder status** button for the **Super User
+alone** - not for Admin, not for the Welcome Center. The button and
+`/birthdays/status` are gated because the page prints the recipients and their
+addresses, the mailer, the Telegram switch and the raw log tail.
+`BirthdayController::canViewReminderStatus()` and `birthdayList()`'s
+`$showReminderStatus` flag both test the role against `Super User`, so an Admin
+sees the list without the button and is redirected away if they type the URL.
+The blade renders the button only when the controller says so (`@if
+($showReminderStatus ?? false)`), so the members' list can never grow one.
+
+## The two birthday pages
+
+| Page | Route | Who | Reminder status |
+|------|-------|-----|-----------------|
+| Staff list | `/birthdays` (`birthdays.index`) | `Super User`, `Admin`, `Admins`, `Workers` - `canManageReminders()` | button for the Super User only |
+| Members' list | `/celebrations` (`birthdays.celebrations`) | every signed-in member | never - not the button, not the route |
+| Status | `/birthdays/status` (`birthdays.status`) | `Super User` only - `canViewReminderStatus()` | the page itself |
+
+Both lists are the same view and the same query (`birthday` joined to
+`tiu_member`, campus-scoped); `BirthdayController::birthdayList()` takes the
+`$staffPage` flag, so the only differences are the gate and the `Reset` link,
+which stays on the page the reader came from. `birthdays.filter` (the month
+dropdown) re-renders whichever list the reader can already open - it is not a
+side door to the status page, and `/birthdays/status` cannot be reached through
+it. The four staff roles live in one place, `BirthdayController::STAFF_ROLES`.
+
+Where each page is linked from - every entry point has to agree with the gate,
+or it is a link that only answers "Access Denied":
+
+| Entry point | Goes to | Who sees it |
+|-------------|---------|-------------|
+| Dashboard (`/home`) **Quick Actions -> Birthdays** | `/birthdays` for staff, `/celebrations` for everybody else | every signed-in member |
+| **Welcome Center -> Birthdays** | `/birthdays` | `Super User`, `Admin`, and the Welcome Center `Worker` (department 28) |
+| **My Box -> Birthdays** | `/celebrations` | every role outside `STAFF_ROLES` |
+| **Admin Console -> Reminder Status** | `/birthdays/status` | `Super User` only |
+
+The dashboard card is the one that had to change: it pointed every role at
+`/birthdays`, which a plain Member cannot open. It now picks the list from
+`BirthdayController::STAFF_ROLES`, the same constant the controller gates on and
+the sidebar reads.
+
+The page answers the three questions a silent digest leaves open, without a
+shell:
 
 | Block | What it shows |
 |-------|---------------|
@@ -96,6 +136,14 @@ tail -n 40 storage/logs/birthday-reminders.log  # "Milestones: ..." of each run
   because it replaces `3,2,1`, the intended milestones are never sent at all.
 * A cached config keeps the old value after `.env` is edited. After fixing it run
   `php artisan config:clear` (or `php artisan config:cache`).
+* The tell-tale sign of a stale cache: **two** values are wrong at once (e.g.
+  `Daily at 08:00` and `Milestones: 60 day(s) before`) although `.env` was
+  corrected, and `ls -l bootstrap/cache/config.php` is older than that edit.
+  `php artisan tinker --execute="var_dump(config('birthday.days'), config('birthday.send_at'));"`
+  prints what the app really reads; `php artisan config:clear && php artisan
+  config:cache` rebuilds it - that is what fixed the Ikorodu server on
+  22 Oct 2026 (`array(1) { 60 }` / `"08:00"` became `array(3) { 3, 2, 1 }` /
+  `"07:00"`).
 * `/birthdays/status` shows the milestones the app is really using under
   **Schedule** (`BIRTHDAY_DAYS`), repeats them at the top of the dry-run preview
   ("Milestones: ..."), and now raises a warning when a milestone is more than
@@ -179,10 +227,14 @@ shell:
 
 ```
 $ php artisan birthdays:remind --days=9 --dry-run
-  SENT  Ikorodu | 9 days to go | 1 birthday(s) | 2 recipient(s) | mail (2), database (2), telegram (1)
+  WOULD Ikorodu | 9 days to go | 1 birthday(s) | 2 recipient(s) | mail (2), database (2), telegram (1)
   none  Yaba    | 9 days to go | no birthdays on 24 Oct 2026
-Summary: 1 digest(s) sent, 0 skipped, 0 failed | 1 birthday(s) | 2 recipient(s)
+Summary: 1 digest(s) would be sent, 0 skipped, 0 failed | 1 birthday(s) | 2 recipient(s)
 ```
+
+* A dry run is labelled `WOULD` and summarised as *"would be sent"*. Only a real
+  run prints `SENT` and writes a `birthday_reminder_logs` row, so the preview on
+  `/birthdays/status` can never be mistaken for a delivery.
 
 * `recipientsFor()` on this database: campus 1 (Ikorodu) -> **Adedeji Ayanlaja**
   (`Admin`, id 197) and **Ebunoluwa Adekeye** (`Admin`, id 84); campus 2 (Yaba)

@@ -6,7 +6,9 @@ use App\Http\Controllers\AirtimeController;
 use App\Models\Campus;
 use App\Models\TiuMember;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use PDOException;
 use ReflectionMethod;
 use Tests\TestCase;
@@ -22,7 +24,8 @@ use Tests\TestCase;
  * member was shown the raw "Duplicate entry '1-2026-43'" SQLSTATE.
  *
  * Read-only like the other feature tests: the suite runs against the
- * application's real connection, so nothing here inserts a request.
+ * application's real connection, so every write here happens inside a
+ * transaction that is rolled back in a `finally` block.
  */
 class AirtimeTopupTest extends TestCase
 {
@@ -178,5 +181,190 @@ class AirtimeTopupTest extends TestCase
 
         $this->assertStringNotContainsString('SQLSTATE', $response->getContent());
         $this->assertStringNotContainsString('Database error', $response->getContent());
+    }
+
+    /**
+     * Production runs `config:cache`. A cached config means Laravel never loads
+     * .env, so `env('TELEGRAM_BOT_TOKEN')` returned NULL on the live site and
+     * the controller skipped every airtime alert with a quiet info log - the
+     * requests were saved, the church was simply never told about them.
+     */
+    public function test_the_airtime_alert_reads_its_credentials_through_the_config_cache()
+    {
+        $source = file_get_contents(app_path('Http/Controllers/AirtimeController.php'));
+
+        $this->assertStringNotContainsString(
+            'env(',
+            $source,
+            'The controller reads the environment directly again; with config:cache that returns NULL and the alert is dropped.'
+        );
+
+        $telegram = config('services.telegram');
+
+        $this->assertIsArray($telegram, 'services.telegram must exist so the bot credentials survive config:cache.');
+        $this->assertArrayHasKey('bot_token', $telegram, 'services.telegram.bot_token is missing.');
+        $this->assertArrayHasKey('chat_id', $telegram, 'services.telegram.chat_id is missing.');
+    }
+
+    /**
+     * "You already requested this week" is only believable when it names the
+     * request. The member (and the admin answering the phone) can then compare
+     * the date with /airtime_admin.
+     */
+    public function test_a_repeat_request_names_the_request_already_on_file()
+    {
+        $controller = new AirtimeController();
+        $method = new ReflectionMethod($controller, 'alreadyRequestedResponse');
+        $method->setAccessible(true);
+
+        $response = $method->invoke($controller, (object) [
+            'id' => 12,
+            'year' => 2026,
+            'week' => 43,
+            'requested_at' => '2026-10-19 09:15:00', // stored in UTC
+            'status' => 'pending',
+        ]);
+
+        $payload = $response->getData(true);
+
+        $this->assertFalse($payload['success']);
+        $this->assertTrue($payload['already_requested']);
+        $this->assertSame('2026-10-19 09:15:00', $payload['requested_at']);
+        $this->assertStringContainsString(
+            'already requested airtime this week on Mon, 19 Oct 2026 at 10:15 AM',
+            $payload['message'],
+            'The repeat message must quote the existing request in Lagos time (UTC+1).'
+        );
+    }
+
+    /**
+     * The weekly limit is keyed on the ISO year (`o`), not the calendar year
+     * (`Y`). Between 29 December and 3 January the two disagree, and pairing
+     * `Y` with `W` filed week 1 of the new year under the old one - the exact
+     * dates on which members were refused for a week they never asked for.
+     */
+    public function test_the_week_limit_keys_on_the_iso_year_not_the_calendar_year()
+    {
+        $controller = new AirtimeController();
+        $method = new ReflectionMethod($controller, 'currentWeek');
+        $method->setAccessible(true);
+
+        $this->assertSame(
+            [2026, 43],
+            $method->invoke($controller, Carbon::parse('2026-10-22 10:00:00', 'Africa/Lagos')),
+            '22 Oct 2026 is ISO week 43 of 2026.'
+        );
+        $this->assertSame(
+            [2026, 1],
+            $method->invoke($controller, Carbon::parse('2025-12-29 10:00:00', 'Africa/Lagos')),
+            '29 Dec 2025 belongs to ISO week 1 of 2026, not week 1 of 2025.'
+        );
+        $this->assertSame(
+            [2026, 53],
+            $method->invoke($controller, Carbon::parse('2027-01-01 10:00:00', 'Africa/Lagos')),
+            '1 Jan 2027 still falls in ISO week 53 of 2026.'
+        );
+    }
+
+    /**
+     * Only a clash on unique_user_week is a repeat request. Any other duplicate
+     * key is a real fault: rewording it as "you already asked" hid the fault and
+     * made the member look like a repeat requester.
+     */
+    public function test_a_duplicate_on_another_key_is_not_a_repeat_request()
+    {
+        $controller = new AirtimeController();
+        $method = new ReflectionMethod($controller, 'isDuplicateWeek');
+        $method->setAccessible(true);
+
+        $otherKey = new QueryException(
+            'insert into `airtime_history` (`user_id`, `year`, `week`) values (?, ?, ?)',
+            [1, 2026, 43],
+            new PDOException("SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '1' for key 'airtime_history.unique_some_other_key'")
+        );
+
+        $tupleOnly = new QueryException(
+            'insert into `airtime_history` (`user_id`, `year`, `week`) values (?, ?, ?)',
+            [1, 2026, 43],
+            new PDOException("SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry '1-2026-43'")
+        );
+
+        $this->assertFalse(
+            $method->invoke($controller, $otherKey),
+            'A duplicate on another index must be logged as a fault, not reported as a repeat request.'
+        );
+        $this->assertTrue(
+            $method->invoke($controller, $tupleOnly),
+            'A duplicate naming the (user, year, week) tuple is still the weekly limit.'
+        );
+    }
+
+    /**
+     * The whole click path, end to end: one click saves one row and sends one
+     * alert; the second click says which request is on file instead of failing
+     * mute. Everything is rolled back, so the database is left as it was found.
+     */
+    public function test_one_click_saves_one_request_and_the_second_click_names_it()
+    {
+        $member = $this->member();
+        $now = Carbon::parse('2026-10-22 10:00:00', 'Africa/Lagos'); // inside 7AM-6PM WAT
+
+        $year = (int) $now->format('o');
+        $week = (int) $now->format('W');
+
+        Http::fake();
+
+        DB::beginTransaction();
+
+        try {
+            Carbon::setTestNow($now);
+
+            // Start from a clean week for this member; the rollback below
+            // restores whatever was here before.
+            DB::table('airtime_history')
+                ->where('user_id', $member->tiu_member_id)
+                ->where('year', $year)
+                ->where('week', $week)
+                ->delete();
+
+            $first = $this->actingAs($member)->postJson('/airtime-request');
+            $first->assertStatus(200);
+            $this->assertTrue(
+                $first->json('success'),
+                'The first click must be accepted, got: ' . $first->getContent()
+            );
+
+            $row = DB::table('airtime_history')
+                ->where('user_id', $member->tiu_member_id)
+                ->where('year', $year)
+                ->where('week', $week)
+                ->first();
+
+            $this->assertNotNull($row, 'The accepted request was not written to airtime_history.');
+
+            $second = $this->actingAs($member)->postJson('/airtime-request');
+            $second->assertStatus(200);
+            $this->assertFalse($second->json('success'));
+            $this->assertTrue($second->json('already_requested'));
+            $this->assertStringContainsString(
+                'already requested airtime this week on Thu, 22 Oct 2026 at 10:00 AM',
+                (string) $second->json('message')
+            );
+
+            $this->assertSame(
+                1,
+                DB::table('airtime_history')
+                    ->where('user_id', $member->tiu_member_id)
+                    ->where('year', $year)
+                    ->where('week', $week)
+                    ->count(),
+                'The member must hold exactly one request for the week after two clicks.'
+            );
+
+            Http::assertSentCount(1);
+        } finally {
+            DB::rollBack();
+            Carbon::setTestNow();
+        }
     }
 }

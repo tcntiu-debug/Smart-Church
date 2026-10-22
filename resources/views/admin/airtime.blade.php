@@ -29,7 +29,13 @@
                         <td>{{ $r->user_name ?? '—' }}</td>
                         <td>{{ $r->user_phone ?? '—' }}</td>
                         <td>{{ $r->year }} / Week {{ $r->week }}</td>
-                        <td>{{ $r->requested_at }}</td>
+                        <td>
+                            {{-- requested_at is written in the application timezone (UTC);
+                                 show it on the church clock the members were told about. --}}
+                            {{ $r->requested_at
+                                ? \Illuminate\Support\Carbon::parse($r->requested_at, config('app.timezone', 'UTC'))->timezone('Africa/Lagos')->format('D, j M Y g:i A')
+                                : '—' }}
+                        </td>
                         <td>
                             @if($r->credited)
                                 <span class="badge badge-success">Credited</span><br>

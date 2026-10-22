@@ -69,16 +69,23 @@ class SendBirthdayReminders extends Command
         }
 
         $this->line('');
+        // A dry run never sends, so it must never print "sent": the status page
+        // shows this output verbatim next to the real "Recent digests" table.
         $this->line(sprintf(
-            'Summary: %d digest(s) sent, %d skipped, %d failed | %d birthday(s) | %d recipient(s)',
-            $summary['sent'],
+            'Summary: %d digest(s) %s, %d skipped, %d failed | %d birthday(s) | %d recipient(s)',
+            $dryRun ? $summary['would'] : $summary['sent'],
+            $dryRun ? 'would be sent' : 'sent',
             $summary['skipped'],
             $summary['failed'],
             $summary['birthdays'],
             $summary['recipients']
         ));
 
-        if ($summary['sent'] === 0 && $summary['skipped'] === 0) {
+        if ($dryRun) {
+            if ($summary['would'] === 0 && $summary['skipped'] === 0) {
+                $this->warn('Nothing would be sent. Check that a birthday exists for the requested day(s).');
+            }
+        } elseif ($summary['sent'] === 0 && $summary['skipped'] === 0) {
             $this->warn('Nothing was delivered. Check that a birthday exists for the requested day(s).');
         }
 
@@ -166,7 +173,10 @@ class SendBirthdayReminders extends Command
             $days = [3, 2, 1];
         }
 
-        sort($days);
+        // Longest lead time first, so a 3,2,1 config reads "3, 2, 1" here too
+        // (ascending order made the preview say "1, 2, 3" under a page that
+        // showed "3, 2, 1").
+        rsort($days);
 
         $days = array_values(array_unique($days));
 

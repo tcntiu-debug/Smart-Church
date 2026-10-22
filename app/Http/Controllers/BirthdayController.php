@@ -13,17 +13,48 @@ use Carbon\Carbon;
 
 class BirthdayController extends Controller
 {
+    /**
+     * The roles that read the staff birthday list (/birthdays).
+     *
+     * One list, read from three places - the sidebar, the dashboard card and
+     * the gate below - so it is written once here and referenced from them.
+     */
+    public const STAFF_ROLES = ['Super User', 'Admin', 'Admins', 'Workers'];
+
     public function __construct()
     {
         $this->middleware('auth');
     }
 
     /**
-     * Display birthday list
+     * The staff birthday list: the roles canManageReminders() admits.
      */
     public function index()
     {
-        if (! $this->canManageReminders()) {
+        return $this->birthdayList(true);
+    }
+
+    /**
+     * The same list for the rest of the church.
+     *
+     * Every signed-in member has a birthday, so everybody gets a page to read
+     * them on. What they do not get is the staff page: no reminder status (that
+     * belongs to the Super User alone), and no route name a staff-only link
+     * points at, so the two can be told apart in the sidebar and in the tests.
+     */
+    public function celebrations()
+    {
+        return $this->birthdayList(false);
+    }
+
+    /**
+     * Display birthday list
+     *
+     * @param  bool  $staffPage  false for birthdays.celebrations, which everyone reads
+     */
+    protected function birthdayList(bool $staffPage)
+    {
+        if ($staffPage && ! $this->canManageReminders()) {
             return redirect('/aoverview')->with('error', 'Access Denied');
         }
 
@@ -84,7 +115,16 @@ class BirthdayController extends Controller
         $currentMonth = now()->month;
         $currentMonthName = now()->format('F');
 
-        return view('birthdays.index', compact('birthdays', 'todaysBirthdays', 'upcomingBirthdays', 'months', 'currentMonth', 'currentMonthName'));
+        // The Reset button belongs to the page the reader came from: the staff
+        // list or the members' list, whichever this is.
+        $listRoute = $staffPage ? 'birthdays.index' : 'birthdays.celebrations';
+
+        // The status button rides with the staff list only, and only for the
+        // Super User; the members' list carries no reminder status at all.
+        $showReminderStatus = $staffPage && $this->canViewReminderStatus();
+
+        return view('birthdays.index', compact('birthdays', 'todaysBirthdays', 'upcomingBirthdays', 'months', 'currentMonth', 'currentMonthName', 'listRoute', 'showReminderStatus'));
+
     }
 
     /**
@@ -97,7 +137,7 @@ class BirthdayController extends Controller
      */
     public function status(BirthdayReminderService $service)
     {
-        if (! $this->canManageReminders()) {
+        if (! $this->canViewReminderStatus()) {
             return redirect('/aoverview')->with('error', 'Access Denied');
         }
 
@@ -178,6 +218,10 @@ class BirthdayController extends Controller
 
     /**
      * Filter birthdays by month
+     *
+     * Open to every signed-in member: it only re-renders the list they already
+     * have on birthdays.celebrations. The month form is not where the split
+     * lives - the reminder status is (see status() above).
      */
     public function filter(Request $request)
     {
@@ -199,7 +243,13 @@ class BirthdayController extends Controller
             $months[$i] = Carbon::create()->month($i)->format('F');
         }
 
-        return view('birthdays.index', compact('birthdays', 'monthName', 'months', 'month'));
+        // Keep the reader on the list they started from after a month change,
+        // and the status button with the staff list only.
+        $listRoute = $this->canManageReminders() ? 'birthdays.index' : 'birthdays.celebrations';
+        $showReminderStatus = $this->canManageReminders() && $this->canViewReminderStatus();
+
+        return view('birthdays.index', compact('birthdays', 'monthName', 'months', 'month', 'listRoute', 'showReminderStatus'));
+
     }
 
     /**
@@ -237,7 +287,24 @@ class BirthdayController extends Controller
     {
         $role = Auth::user()->member_role ?? '';
 
-        return in_array($role, ['Super User', 'Admin', 'Admins', 'Workers'], true);
+        return in_array($role, self::STAFF_ROLES, true);
+    }
+
+    /**
+     * The reminder status page belongs to the Super User alone - not to Admin,
+     * not to the Welcome Center.
+     *
+     * It turns the digest inside out: recipients and their addresses, the
+     * mailer and its transport, the Telegram switch, the raw log tail. Whoever
+     * can read that can also see every address the church mails, so it stays
+     * with one role. Everybody else, Admin included, is refused; they still
+     * read the birthday list itself, they just never see the button on it.
+     */
+    protected function canViewReminderStatus(): bool
+    {
+        $role = Auth::user()->member_role ?? '';
+
+        return $role === 'Super User';
     }
 
     /**

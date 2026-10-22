@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
@@ -20,6 +21,13 @@ class AirtimeController extends Controller
     private const WINDOW_END_HOUR = 18;
     private const WINDOW_LABEL = '7AM and 6PM (WAT)';
     private const WINDOW_OPENS_AT = '7:00 AM';
+
+    /**
+     * The church's wall clock. `requested_at` keeps the application timezone
+     * (UTC) like every other table; only the window and the wording members
+     * read are expressed in Lagos time.
+     */
+    private const TIMEZONE = 'Africa/Lagos';
 
     public function request(Request $request)
     {
@@ -51,11 +59,11 @@ class AirtimeController extends Controller
         $userName = ($user->first_name ?? '') . ' ' . ($user->last_name ?? '');
         $userPhone = $user->phone_number ?? 'N/A';
         
-        date_default_timezone_set('Africa/Lagos');
-        
-        $current_hour = (int) date('H');
-        $current_time = date('h:i A');
-        
+        $now = $this->nowInChurchTime();
+
+        $current_hour = (int) $now->format('H');
+        $current_time = $now->format('h:i A');
+
         // Restrict between 7AM and 6PM (07:00 - 18:00)
         if (! $this->isWithinRequestWindow($current_hour)) {
             return response()->json([
@@ -63,19 +71,18 @@ class AirtimeController extends Controller
                 'message' => 'Airtime requests are only allowed between ' . self::WINDOW_LABEL . ". Current time: {$current_time}"
             ]);
         }
-        
-        $current_year = (int) date('Y');
-        $current_week = (int) date('W');
-        
-        // Check if already requested this week
-        $exists = DB::table('airtime_history')
-            ->where('user_id', $userId)
-            ->where('year', $current_year)
-            ->where('week', $current_week)
-            ->exists();
-        
-        if ($exists) {
-            return $this->alreadyRequestedResponse();
+
+        [$current_year, $current_week] = $this->currentWeek($now);
+
+        // Check if already requested this week. The row that is already on file
+        // is quoted back to the member, so a refusal can be checked against the
+        // admin list instead of being an unexplained "no".
+        $existing = $this->existingRequestForWeek($userId, $current_year, $current_week);
+
+        if ($existing) {
+            $this->logRepeatRequest($userId, $existing, 'pre-check');
+
+            return $this->alreadyRequestedResponse($existing);
         }
         
         try {
@@ -90,7 +97,7 @@ class AirtimeController extends Controller
                 'status' => 'pending'
             ]);
             
-            $this->sendTelegramNotification($userName, $userPhone, $userId);
+            $this->sendTelegramNotification($userName, $userPhone, $userId, $now);
             
             return response()->json([
                 'success' => true,
@@ -105,13 +112,11 @@ class AirtimeController extends Controller
             // weekly limit doing its job, so answer it like any other repeat
             // request instead of echoing the SQLSTATE to the member.
             if ($e instanceof QueryException && $this->isDuplicateWeek($e)) {
-                Log::info('Airtime request blocked by unique_user_week', [
-                    'user_id' => $userId,
-                    'year' => $current_year,
-                    'week' => $current_week,
-                ]);
+                $existing = $this->existingRequestForWeek($userId, $current_year, $current_week);
 
-                return $this->alreadyRequestedResponse();
+                $this->logRepeatRequest($userId, $existing, 'unique_user_week');
+
+                return $this->alreadyRequestedResponse($existing);
             }
 
             Log::error('Airtime request error: ' . $e->getMessage(), ['user_id' => $userId]);
@@ -124,13 +129,100 @@ class AirtimeController extends Controller
     }
 
     /**
-     * The member already has a row for this year and ISO week.
+     * The clock the members and the window run on. `requested_at` is still
+     * written with `now()` (the application timezone) so it stays comparable
+     * with every other table.
+     *
+     * @return \Illuminate\Support\Carbon
      */
-    private function alreadyRequestedResponse()
+    private function nowInChurchTime()
     {
+        return Carbon::now(self::TIMEZONE);
+    }
+
+    /**
+     * The (ISO year, ISO week) pair the weekly limit keys on.
+     *
+     * `o` must be paired with `W`, never `Y`: from 29 December to 3 January the
+     * calendar year and the ISO year disagree. With `Y` the week of 29 Dec 2025
+     * was filed as 2025-W01 and collided with the first week of January 2025,
+     * so members who requested in the first week of the year were told in late
+     * December that they had already requested.
+     *
+     * @param  \Illuminate\Support\Carbon|null  $now
+     * @return array{0: int, 1: int}
+     */
+    private function currentWeek($now = null)
+    {
+        $now = $now ?: $this->nowInChurchTime();
+
+        return [(int) $now->format('o'), (int) $now->format('W')];
+    }
+
+    /**
+     * The member's request for the given year and week, if there is one.
+     *
+     * @param  int|string  $userId
+     * @param  int  $year
+     * @param  int  $week
+     * @return object|null
+     */
+    private function existingRequestForWeek($userId, $year, $week)
+    {
+        return DB::table('airtime_history')
+            ->where('user_id', $userId)
+            ->where('year', $year)
+            ->where('week', $week)
+            ->first(['id', 'year', 'week', 'requested_at', 'status']);
+    }
+
+    /**
+     * Leave a trail for support: who was refused, and which row refused them.
+     *
+     * @param  int|string  $userId
+     * @param  object|null  $existing
+     * @param  string  $path  pre-check or unique_user_week
+     * @return void
+     */
+    private function logRepeatRequest($userId, $existing, $path)
+    {
+        Log::info('Airtime request blocked: this member already has a request for the week', [
+            'user_id' => $userId,
+            'checked_via' => $path,
+            'row_id' => $existing->id ?? null,
+            'year' => $existing->year ?? null,
+            'week' => $existing->week ?? null,
+            'requested_at' => $existing->requested_at ?? null,
+            'status' => $existing->status ?? null,
+        ]);
+    }
+
+    /**
+     * The member already has a row for this year and ISO week.
+     *
+     * The date of the request that is on file is part of the message: a member
+     * who says they never asked can compare it with the admin list, and a double
+     * click reads as "that one request is already in" instead of a bare failure.
+     *
+     * @param  object|null  $existing
+     * @return \Illuminate\Http\JsonResponse
+     */
+    private function alreadyRequestedResponse($existing = null)
+    {
+        $when = '';
+
+        if ($existing && ! empty($existing->requested_at)) {
+            $when = ' on ' . Carbon::parse($existing->requested_at, config('app.timezone', 'UTC'))
+                ->timezone(self::TIMEZONE)
+                ->format('D, j M Y \a\t g:i A');
+        }
+
         return response()->json([
             'success' => false,
-            'message' => 'You have already requested airtime this week. Only one request per week is allowed.'
+            'already_requested' => true,
+            'requested_at' => $existing->requested_at ?? null,
+            'message' => 'You already requested airtime this week' . $when
+                . '. Only one request per week is allowed.',
         ]);
     }
 
@@ -149,17 +241,22 @@ class AirtimeController extends Controller
     }
 
     /**
-     * MySQL reports a duplicate key as SQLSTATE 23000 / driver error 1062 with
-     * the index in the message; SQLite (throwaway databases) only says
-     * "UNIQUE constraint failed".
+     * Only a clash on `unique_user_week` is a repeat request.
+     *
+     * MySQL reports a duplicate key as SQLSTATE 23000 / driver error 1062 and
+     * names the index (some servers name the `(user, year, week)` tuple instead);
+     * SQLite (throwaway databases) names the columns. A duplicate on any other
+     * key is a real fault: it has to be logged and must never be reworded into
+     * "you already asked this week", which is what a blanket "Duplicate entry"
+     * match did once the table carried a second unique index.
      */
     private function isDuplicateWeek(QueryException $e)
     {
         $message = $e->getMessage();
 
         return strpos($message, 'unique_user_week') !== false
-            || strpos($message, 'Duplicate entry') !== false
-            || strpos($message, 'UNIQUE constraint failed') !== false;
+            || preg_match("/Duplicate entry '\d+-\d+-\d+'/", $message) === 1
+            || strpos($message, 'UNIQUE constraint failed: airtime_history.user_id') !== false;
     }
     
     /**
@@ -181,27 +278,25 @@ class AirtimeController extends Controller
             ], 401);
         }
         
-        date_default_timezone_set('Africa/Lagos');
-        $current_hour = (int) date('H');
-        $is_time_allowed = $this->isWithinRequestWindow($current_hour);
+        $now = $this->nowInChurchTime();
+        $is_time_allowed = $this->isWithinRequestWindow((int) $now->format('H'));
         
-        $current_year = (int) date('Y');
-        $current_week = (int) date('W');
+        [$current_year, $current_week] = $this->currentWeek($now);
         
-        $has_requested = DB::table('airtime_history')
-            ->where('user_id', $userId)
-            ->where('year', $current_year)
-            ->where('week', $current_week)
-            ->exists();
+        $existing = $this->existingRequestForWeek($userId, $current_year, $current_week);
         
         return response()->json([
             'success' => true,
             'data' => [
-                'can_request' => ($is_time_allowed && !$has_requested),
+                'can_request' => ($is_time_allowed && ! $existing),
                 'time_allowed' => $is_time_allowed,
-                'has_requested_this_week' => $has_requested,
+                'has_requested_this_week' => (bool) $existing,
+                'requested_at' => $existing->requested_at ?? null,
                 'next_available_time' => self::WINDOW_OPENS_AT,
-                'current_time' => date('h:i A')
+                'current_time' => $now->format('h:i A'),
+                // The week the server is enforcing, so a support call can be
+                // answered without guessing.
+                'week' => $current_year . '-W' . str_pad((string) $current_week, 2, '0', STR_PAD_LEFT),
             ]
         ]);
     }
@@ -228,39 +323,65 @@ class AirtimeController extends Controller
         ]);
     }
     
-    private function sendTelegramNotification($userName, $userPhone, $userId)
+    /**
+     * Alert the admin group about a new request.
+     *
+     * The credentials are read through `config('services.telegram.*')` on
+     * purpose. Production runs `config:cache`, and a cached config means .env is
+     * never loaded: reading TELEGRAM_* from the environment here returned null
+     * on the live site, so every alert was skipped and logged as a quiet
+     * "not configured" info line while the request itself still went through.
+     *
+     * @param  string  $userName
+     * @param  string  $userPhone
+     * @param  int|string  $userId
+     * @param  \Illuminate\Support\Carbon|null  $now
+     * @return void
+     */
+    private function sendTelegramNotification($userName, $userPhone, $userId, $now = null)
     {
-        $botToken = env('TELEGRAM_BOT_TOKEN', '');
-        $chatId = env('TELEGRAM_CHAT_ID', '');
-        
-        if (empty($botToken) || empty($chatId)) {
-            Log::info('Telegram not configured, skipping notification');
+        $botToken = trim((string) config('services.telegram.bot_token', ''));
+        $chatId = trim((string) config('services.telegram.chat_id', ''));
+
+        if ($botToken === '' || $chatId === '') {
+            Log::warning('Airtime request saved, but the Telegram alert was skipped: services.telegram is not configured.', [
+                'user_id' => $userId,
+                'bot_token_configured' => $botToken !== '',
+                'chat_id_configured' => $chatId !== '',
+            ]);
+
             return;
         }
-        
+
+        $now = $now ?: $this->nowInChurchTime();
+
         $message = "🪙 *NEW AIRTIME REQUEST*\n\n";
         $message .= "👤 *User:* {$userName}\n";
         $message .= "🆔 *User ID:* {$userId}\n";
         $message .= "📱 *Phone:* {$userPhone}\n";
-        $message .= "📅 *Date:* " . now()->format('Y-m-d H:i:s') . "\n";
+        $message .= "📅 *Date:* " . $now->format('Y-m-d H:i:s') . "\n";
         $message .= "💰 *Amount:* ₦200\n";
-        $message .= "⏰ *Time:* " . date('h:i A') . "\n\n";
+        $message .= "⏰ *Time:* " . $now->format('h:i A') . " (WAT)\n\n";
         $message .= "_Pending approval_";
-        
+
         try {
             $response = Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
                 'chat_id' => $chatId,
                 'text' => $message,
                 'parse_mode' => 'Markdown'
             ]);
-            
+
             if ($response->successful()) {
                 Log::info('Telegram notification sent successfully for user: ' . $userId);
             } else {
-                Log::error('Telegram API error: ' . $response->body());
+                Log::error('Telegram API error for airtime request', [
+                    'user_id' => $userId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
             }
         } catch (\Exception $e) {
-            Log::error('Telegram notification failed: ' . $e->getMessage());
+            Log::error('Telegram notification failed: ' . $e->getMessage(), ['user_id' => $userId]);
         }
     }
 }

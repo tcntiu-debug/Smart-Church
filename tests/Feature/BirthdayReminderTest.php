@@ -398,4 +398,33 @@ class BirthdayReminderTest extends TestCase
         $this->assertStringContainsString('Milestone(s) beyond 7 days requested: 60', $output);
         $this->assertStringContainsString('BIRTHDAY_DAYS', $output);
     }
+
+    /**
+     * A dry run must not read as a delivery. `/birthdays/status` prints this
+     * output right above the real "Recent digests" table, so a "SENT ... 2 days
+     * to go" preview made today's still-unsent digests look already delivered.
+     */
+    public function test_the_dry_run_reports_would_be_sent_not_sent()
+    {
+        $exitCode = Artisan::call('birthdays:remind', ['--dry-run' => true]);
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, 'The birthday command failed: '.$output);
+        $this->assertStringNotContainsString('SENT', $output, 'The dry run claims a digest was sent.');
+        $this->assertStringContainsString('digest(s) would be sent', $output);
+    }
+
+    /**
+     * The milestones are listed longest lead time first, in the same order the
+     * status page shows them ("Milestones: 3, 2, 1"), not reversed to 1, 2, 3.
+     */
+    public function test_the_milestones_are_listed_longest_lead_time_first()
+    {
+        Artisan::call('birthdays:remind', ['--dry-run' => true]);
+
+        $this->assertStringContainsString(
+            'Milestones: 3 day(s) before, 2 day(s) before, 1 day(s) before',
+            Artisan::output()
+        );
+    }
 }

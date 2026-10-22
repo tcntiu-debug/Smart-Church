@@ -8,6 +8,12 @@ $lead_church_type_ids = session('lead_of_church_type', '');
 $userIsHODOrLead = session('userIsHODOrLead', false);
 @endphp
 
+{{-- One rule for every @if below: the Super User passes all of them. They are
+     the role above the rest, so whatever a menu offers another role it offers
+     them too (enforced by tests/Feature/SuperUserAccessTest.php). The single
+     exception is the members' birthday list (/celebrations): a Super User reads
+     the staff list (/birthdays) instead. --}}
+
 <aside id="ms-side-nav" class="side-nav fixed ms-aside-scrollable ms-aside-left">
   {{-- Close control carried by the panel itself: on phones the navbar toggler
        sits behind the open 255px panel, so without this there is no way out.
@@ -47,11 +53,20 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
         <li><a href="{{ url('/mtouchpoint') }}">My SubGroup</a></li>
         <li><a href="{{ route('child-ceremony.index') }}">Child Ceremony</a></li>
         <li><a href="{{ url('/gallery') }}">Photos</a></li>
+        {{-- Everyone else reads the birthdays on the members' list; staff have
+             the same list under Welcome Center, without the reminder status
+             either way (BirthdayController::canManageReminders). --}}
+        @unless(in_array($member_role, \App\Http\Controllers\BirthdayController::STAFF_ROLES, true))
+          <li><a href="{{ route('birthdays.celebrations') }}">Birthdays</a></li>
+        @endunless
       </ul>
     </li>
 
     <!-- Week List -->
-    @if(in_array($member_role, ['Worker', 'Admin', 'Admins', 'Workers']))
+    {{-- The same five roles WeekListController::index() admits; Super User was
+         missing here, so the one role that may see everything had no menu to
+         /weeklist. --}}
+    @if(in_array($member_role, ['Super User', 'Worker', 'Admin', 'Admins', 'Workers']))
     <li class="menu-item">
       <a href="{{ url('/weeklist') }}"><span><i class="fas fa-users"></i>Week List</span></a>
     </li>
@@ -161,6 +176,13 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
         <li><a href="{{ route('admin.assignments.drag-drop') }}">Assign First Timer</a></li>
         <li><a href="{{ url('/aoverview') }}">Task Overview</a></li>
         <li><a href="{{ url('/airtime_admin') }}">Credit History</a></li>
+        {{-- Reminder status belongs to the Super User alone. An Admin reads this
+             console too, so the row is hidden from them: the URL is refused for
+             them anyway (BirthdayController::canViewReminderStatus) and a link
+             that only ever answers "Access Denied" should not be offered. --}}
+        @if($member_role === "Super User")
+        <li><a href="{{ route('birthdays.status') }}">Reminder Status</a></li>
+        @endif
       </ul>
     </li>
 
@@ -289,8 +311,17 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
                     if (response.success) {
                         alert(response.message);
                         $('#airtimeModal').modal('hide');
-                    } else {
-                        alert('Error: ' + response.message);
+                        return;
+                    }
+
+                    // A repeat is explained by the server ("... on Mon, 19 Oct
+                    // 2026 at 10:15 AM"), so it is not an error: the request it
+                    // names already went through. Only a real fault gets the
+                    // "Error:" prefix.
+                    alert(response.already_requested ? response.message : 'Error: ' + response.message);
+
+                    if (response.already_requested) {
+                        $('#airtimeModal').modal('hide');
                     }
                 },
                 error: function() {
