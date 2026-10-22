@@ -394,6 +394,13 @@ php artisan app:post-deploy             # directories, caches, storage link, app
 php artisan app:post-deploy --migrate   # ...plus pending database migrations
 ```
 
+> `--migrate` needs the migration history first. On a database built from the legacy
+> dump it stops at `2014_10_12_000000_create_users_table` with `Base table or view
+> already exists: 1050 Table 'users' already exists`. Run
+> `scripts/sql/baseline-migrations.sql` once (it only fills the `migrations` table),
+> and `--migrate` works from then on. Every step before it — including the Blade view
+> rebuild that publishes `.blade.php` changes — still completes.
+
 `app:post-deploy` is idempotent and safe to re-run after any deploy. It:
 
 1. creates any missing runtime directory (`storage/framework/*`, `storage/logs`,
@@ -645,7 +652,8 @@ php artisan migrate --force \
 > A plain `php artisan migrate` (and therefore `app:post-deploy --migrate`) can abort
 > with `Base table or view already exists` on this database, because it was seeded
 > before the `migrations` table was kept in step. Use the `--path` form above for this
-> feature and let the command self-provision.
+> feature and let the command self-provision — or record the history once with
+> `scripts/sql/baseline-migrations.sql`, after which `--migrate` works normally.
 
 `birthday_reminder_logs` is the send history / de-duplication record (one row per campus
 + milestone + birthday date); `app_notifications` feeds the navbar bell and the
@@ -763,7 +771,7 @@ two branches instead of forcing it.
 | *Publish to cPanel (SFTP)* → `connect to host ... port 22: Connection timed out` | A **connect** timeout, not a login failure: the host or port in the `PROD_CPANEL_*` values is wrong, so the connection never reaches the server. The live folder is untouched (nothing is uploaded before the connection opens). See *SFTP publish times out on port 22* below. |
 | TLS/certificate errors | Keep `security: loose` (already set) or switch to `sftp`. |
 | Deploy succeeded but the site shows an old page | Run `php artisan app:post-deploy` — `config:cache`/`view:cache` are stale. |
-| `Base table or view already exists` while migrating | The legacy database was seeded before the `migrations` table was kept in step, so an old migration aborts the run. Migrate the file you actually need with `--path` (see *Scheduled jobs*) — `birthdays:remind` also self-provisions its own tables. |
+| `Base table or view already exists` while migrating | The legacy database was seeded before the `migrations` table was kept in step, so a global `migrate` starts again at `2014_10_12_000000_create_users_table` and stops on the first table it finds. Record the history once with `scripts/sql/baseline-migrations.sql` — or the `php artisan tinker --execute` one-liner in its header — then `php artisan migrate --force` answers *Nothing to migrate*. Until that is done, migrate the one file you need with `--path` (see *Scheduled jobs*); `birthdays:remind` also self-provisions its own tables. |
 | No birthday reminder e-mail arrives | The status was already recorded in `birthday_reminder_logs` (columns `campus_id`, `days_before`, `reminder_date`). Re-test with `php artisan birthdays:remind --days=3 --force --channel=mail`, and check the recipients: only `member_role` `Admin`/`Super User` members whose `department_name` JSON contains the configured department id receive it. |
 | Bell shows no numbers / `/notifications` is empty | Nothing has been written to `app_notifications` yet, or the logged-in member is not a Welcome Center admin. Run `php artisan birthdays:remind --days=3 --channel=database --force`. |
 | Birthday reminders still not running | The `schedule:run` cron entry is missing, uses the wrong PHP binary, or is set to *Once Per Day* (`0 0 * * *`) instead of *Once Per Minute* (`* * * * *`) — a daily tick never coincides with the `07:00` due time, so nothing ever fires. See *Scheduled jobs*. Verify with `php artisan birthdays:remind --dry-run` over SSH/Terminal. |
