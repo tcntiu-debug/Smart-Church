@@ -41,6 +41,11 @@ class SyncSchema extends Command
         // Where the 8-week auto-unassign keeps the guide's work before the
         // follow-up row is deleted (see /weeklist/guide-history).
         'member_tracking_followup_archive' => 'database/migrations/2026_10_14_000001_create_member_tracking_followup_archive_table.php',
+        // Web Push: the devices a member allowed and the alerts queued for them
+        // (docs/PUSH.md). One file creates both tables; the second entry then
+        // finds its table already present and only records the migration once.
+        'push_subscriptions' => 'database/migrations/2026_10_22_000001_create_push_subscriptions_and_messages_tables.php',
+        'push_messages' => 'database/migrations/2026_10_22_000001_create_push_subscriptions_and_messages_tables.php',
     ];
 
     /**

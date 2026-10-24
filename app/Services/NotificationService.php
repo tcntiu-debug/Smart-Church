@@ -26,10 +26,10 @@ use Illuminate\Support\Facades\Schema;
  *      whole church is written in one go, see announce())
  *
  * NotificationController::feed() hands the unread rows back to the browser, which
- * the layout polls so a phone shows the same alert as a system notification. Web
- * only for now: no native app and no Web Push subscription, so an alert is
- * delivered the next time the page asks for it rather than through a push
- * service.
+ * the layout polls so an open page turns a new alert into a system notification.
+ * That poll is the fallback: with Web Push configured (docs/PUSH.md) the same alert
+ * is also queued here and delivered to the member's phone while the app is closed.
+ * Both paths are silent when nothing is configured, so the bell always works.
  */
 class NotificationService
 {
@@ -101,6 +101,10 @@ class NotificationService
                 'created_at' => $timestamp,
                 'updated_at' => $timestamp,
             ]);
+
+            // The same alert goes to the member's phones (docs/PUSH.md). Queued, not
+            // sent: the request must not wait on a push service.
+            $this->queuePush([$memberId], $type, $title, $body, $data);
 
             return true;
         } catch (\Throwable $e) {
@@ -190,6 +194,9 @@ class NotificationService
                     'error' => $e->getMessage(),
                 ]);
             }
+
+            // One outbox row per member who has a phone on file (docs/PUSH.md).
+            $this->queuePush($chunk, $type, $title, $body, $data);
         }
 
         return $written;
@@ -370,6 +377,34 @@ class NotificationService
         $rest = count($names) - $max;
 
         return implode(', ', $shown).' and '.$rest.' other'.($rest === 1 ? '' : 's');
+    }
+
+    /**
+     * Hand the same alert to Web Push (docs/PUSH.md).
+     *
+     * Deliberately fire-and-forget: with no VAPID keys or no subscribed device it
+     * does nothing, and any problem is logged rather than raised - the bell row is
+     * already written and must not be undone by a push that could not be queued.
+     *
+     * @param  array  $memberIds
+     */
+    protected function queuePush(array $memberIds, string $type, string $title, ?string $body, array $data = []): void
+    {
+        try {
+            app(WebPushService::class)->queueMany(
+                $memberIds,
+                $type,
+                $title,
+                $body,
+                isset($data['url']) ? (string) $data['url'] : null
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Web push notification could not be queued', [
+                'type' => $type,
+                'members' => count($memberIds),
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

@@ -114,13 +114,16 @@
 
         function render() {
             if (typeof window.Notification !== 'function') {
-                state.textContent = 'This browser cannot show notifications.';
+                // iOS Safari only exposes the Notification API inside an app that was
+                // added to the Home Screen, so this is the common iPhone case.
+                state.textContent = 'This browser cannot show notifications. On an iPhone, add the site to the Home Screen first (Share \u2192 Add to Home Screen).';
                 return;
             }
 
             if (window.Notification.permission === 'granted') {
                 button.hidden = true;
                 state.textContent = 'Browser alerts are on.';
+                describePhoneAlerts();
                 return;
             }
 
@@ -132,6 +135,29 @@
 
             button.hidden = false;
             state.textContent = 'Turn on browser alerts to hear about new assignments.';
+        }
+
+        /**
+         * With Web Push configured, "granted" is not the whole story: the browser
+         * also has to hold a subscription (docs/PUSH.md), which is what makes the
+         * alert arrive with the app closed. Say which of the two is true.
+         */
+        function describePhoneAlerts() {
+            if (typeof config.pushState !== 'function') {
+                return;
+            }
+
+            config.pushState().then(function (result) {
+                if (result === 'subscribed') {
+                    state.textContent = 'Phone alerts are on: they arrive even when the app is closed.';
+                } else if (result === 'unsupported') {
+                    state.textContent = 'Browser alerts are on. To get them with the app closed, open the site as an installed app (on Android: Install app; on iPhone: Share \u2192 Add to Home Screen).';
+                } else {
+                    state.textContent = 'Browser alerts are on, but phone alerts could not be set up on this device.';
+                }
+            }).catch(function () {
+                // The state line is a nicety; a failure must not break the page.
+            });
         }
 
         function done() {

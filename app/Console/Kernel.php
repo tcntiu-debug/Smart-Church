@@ -51,6 +51,24 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/auto-unassign.log'));
 
+        // Web Push: the alerts NotificationService has queued, delivered to the
+        // members' phones (docs/PUSH.md). Every minute, because the outbox table
+        // IS the queue - the server has no queue worker, and the same per-minute
+        // `schedule:run` cron already drives everything else here. withoutOverlapping
+        // keeps a slow push service from stacking cron processes.
+        $schedule->command('push:send')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/push.log'));
+
+        // Once a day: forget delivered alerts and the devices a push service has
+        // revoked (404/410), so neither table grows for ever.
+        $schedule->command('push:send --prune')
+            ->dailyAt('03:45')
+            ->timezone(config('birthday.timezone', 'Africa/Lagos'))
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/push.log'));
+
         // $schedule->command('inspire')->hourly();
     }
 

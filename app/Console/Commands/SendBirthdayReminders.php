@@ -108,6 +108,10 @@ class SendBirthdayReminders extends Command
             'birthday_reminder_logs' => 'database/migrations/2026_10_09_000001_create_birthday_reminder_logs_table.php',
             'app_notifications' => 'database/migrations/2026_10_09_000002_create_app_notifications_table.php',
             'member_tracking_followup_archive' => 'database/migrations/2026_10_14_000001_create_member_tracking_followup_archive_table.php',
+            // The digest also goes to the admins' phones (docs/PUSH.md). One file
+            // creates both tables, so the second entry finds its table present.
+            'push_subscriptions' => 'database/migrations/2026_10_22_000001_create_push_subscriptions_and_messages_tables.php',
+            'push_messages' => 'database/migrations/2026_10_22_000001_create_push_subscriptions_and_messages_tables.php',
         ];
 
         foreach ($migrations as $table => $path) {

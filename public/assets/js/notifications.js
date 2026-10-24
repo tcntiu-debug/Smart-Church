@@ -12,8 +12,11 @@
  *      endpoint, which deletes the row: the list only ever holds what still needs
  *      attention.
  *   2. It polls the same feed so a new alert also arrives as a browser (system)
- *      notification on a phone or a laptop that has the page open - web only for
- *      now, there is no native app and no Web Push subscription yet.
+ *      notification while the page is open, and - when the server has Web Push
+ *      configured (docs/PUSH.md) - it takes out the push subscription that lets
+ *      the alert arrive when the app is closed. Once that subscription is in
+ *      place the poll stops raising notifications of its own and only keeps the
+ *      bell badge fresh, so nothing buzzes twice.
  *
  * The browser only allows a system notification after the member clicks "Enable
  * browser alerts" once (resources/views/notifications/index.blade.php); the poll
@@ -21,7 +24,9 @@
  *
  * Config is handed over by resources/views/layouts/app.blade.php:
  *   window.tiuNotifications = { feedUrl, readUrl, readAllUrl, csrfToken,
- *                               panelLimit, pollSeconds, enabled, icon }
+ *                               panelLimit, pollSeconds, enabled, icon,
+ *                               vapidPublicKey, pushStatusUrl, pushSubscribeUrl,
+ *                               pushUnsubscribeUrl }
  * The bell and the panel are resolved in locate() once the document is parsed, so
  * it does not matter where in the layout the markup and this file land.
  */
@@ -41,6 +46,13 @@
     var PANEL_LIMIT = parseInt(config.panelLimit, 10) || 30;
     var EMPTY_TITLE = 'You are all caught up.';
     var EMPTY_NOTE = 'New caller and guide assignments appear here.';
+
+    // Web Push (docs/PUSH.md). `pushActive` turns true once this browser's
+    // subscription has been filed with the server - from then on the server wakes
+    // the phone and the poll stops raising its own system notifications, so an
+    // alert cannot buzz twice.
+    var pushActive = false;
+    var pushBusy = false;
 
     // The bell and the panel are resolved in locate(), once the document has been
     // parsed - never here: this script tag sits above
@@ -517,24 +529,42 @@
     }
 
     function show(row) {
-        try {
-            var note = new window.Notification(row.title, {
-                body: row.body || '',
-                icon: config.icon || undefined,
-                tag: 'tiu-notification-' + row.id,
-                // Also carried in `data`, so the service worker's notificationclick
-                // handler knows where to go if the click reaches it instead
-                // (public/service-worker.js).
-                data: { url: row.url || '' }
+        var options = {
+            body: row.body || '',
+            icon: config.icon || undefined,
+            // The same tag the push payload uses, so an alert that somehow arrives
+            // by both routes collapses into one notification instead of two.
+            tag: 'tiu-notification-' + row.id,
+            data: { url: row.url || '' }
+        };
+
+        // Android Chrome refuses `new Notification()` ("Illegal constructor"): on a
+        // phone a notification has to come from the service worker registration.
+        // That is why a phone showed nothing while a laptop did.
+        if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then(function (registration) {
+                return registration.showNotification(row.title, options);
+            }).catch(function () {
+                legacyShow(row, options);
             });
+
+            return;
+        }
+
+        legacyShow(row, options);
+    }
+
+    /**
+     * The desktop path, for a browser with no service worker (or one that has not
+     * activated yet). Never throws: a blocked or unsupported browser must not break
+     * the page.
+     */
+    function legacyShow(row, options) {
+        try {
+            var note = new window.Notification(row.title, options);
 
             note.onclick = function () {
                 window.focus();
-
-                if (row.url) {
-                    window.location.href = row.url;
-                }
-
                 note.close();
             };
 
@@ -542,9 +572,119 @@
                 note.close();
             }, LINGER_MS);
         } catch (e) {
-            // A blocked or unsupported case must never break the page.
+            // Nothing to do: the bell and its badge still work.
         }
     }
+
+    /* ------------------------------------------------------------------ *
+     * Web Push - the alert that arrives with the app closed
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Whether this browser can hold a push subscription: HTTPS, a service worker,
+     * the Push API, and a VAPID public key from the server (window.tiuNotifications
+     * .vapidPublicKey is null until `php artisan push:keys` has been run and the
+     * keys are in .env).
+     */
+    function pushSupported() {
+        return !!(config.vapidPublicKey
+            && config.pushSubscribeUrl
+            && window.isSecureContext
+            && navigator.serviceWorker
+            && 'PushManager' in window);
+    }
+
+    /**
+     * base64url -> Uint8Array, which is what applicationServerKey wants.
+     */
+    function applicationServerKey(value) {
+        var base64 = String(value).replace(/-/g, '+').replace(/_/g, '/');
+        var padding = new Array((4 - (base64.length % 4)) % 4 + 1).join('=');
+        var raw = window.atob(base64 + padding);
+        var bytes = new Uint8Array(raw.length);
+
+        for (var i = 0; i < raw.length; i++) {
+            bytes[i] = raw.charCodeAt(i);
+        }
+
+        return bytes;
+    }
+
+    function postJson(url, payload) {
+        return window.fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': config.csrfToken || ''
+            },
+            body: JSON.stringify(payload)
+        }).then(function (response) {
+            return response.ok ? response.json() : null;
+        });
+    }
+
+    /**
+     * Make sure this browser has a push subscription and that the server knows the
+     * endpoint. Safe to call on every page load: an existing subscription is reused
+     * and the endpoint simply refreshed.
+     */
+    function ensurePushSubscription() {
+        if (!pushSupported() || !granted() || pushBusy) {
+            return Promise.resolve(pushActive);
+        }
+
+        pushBusy = true;
+
+        return navigator.serviceWorker.ready.then(function (registration) {
+            return registration.pushManager.getSubscription().then(function (existing) {
+                if (existing) {
+                    return existing;
+                }
+
+                return registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: applicationServerKey(config.vapidPublicKey)
+                });
+            });
+        }).then(function (subscription) {
+            var json = subscription.toJSON();
+
+            return postJson(config.pushSubscribeUrl, {
+                endpoint: json.endpoint,
+                keys: json.keys || {},
+                contentEncoding: (subscription.options && subscription.options.contentEncoding) || 'aes128gcm'
+            }).then(function (data) {
+                pushActive = !!(data && data.subscribed);
+
+                return pushActive;
+            });
+        }).catch(function () {
+            pushActive = false;
+
+            return false;
+        }).then(function (active) {
+            pushBusy = false;
+
+            return active;
+        });
+    }
+
+    /**
+     * The answer the notification page shows next to its button:
+     * "unsupported" | "subscribed" | "failed".
+     */
+    config.pushState = function () {
+        if (!pushSupported()) {
+            return Promise.resolve('unsupported');
+        }
+
+        return ensurePushSubscription().then(function (active) {
+            return active ? 'subscribed' : 'failed';
+        });
+    };
 
     /* ------------------------------------------------------------------ *
      * The poll
@@ -572,8 +712,10 @@
             })));
 
             // Alert only on a browser we have polled before: on a first visit the
-            // backlog would arrive as a dozen system notifications at once.
-            if (granted() && returning) {
+            // backlog would arrive as a dozen system notifications at once. Skipped
+            // once Web Push is carrying the alerts - the server wakes the phone and
+            // this poll only keeps the bell badge honest.
+            if (granted() && returning && !pushActive) {
                 fresh.forEach(show);
             }
 
@@ -589,13 +731,25 @@
     /**
      * Asked by the button on the notification centre page. The promise resolves
      * with the permission string so the page can update its button.
+     *
+     * Granting the permission is also the moment to take out the push subscription
+     * (docs/PUSH.md): that is what makes the alert arrive when the app is closed,
+     * and the browser only allows subscribe() after the member has agreed.
      */
     config.requestPermission = function () {
         if (!canNotify || window.Notification.permission !== 'default') {
             return Promise.resolve(canNotify ? window.Notification.permission : 'denied');
         }
 
-        return window.Notification.requestPermission();
+        return window.Notification.requestPermission().then(function (permission) {
+            if (permission !== 'granted') {
+                return permission;
+            }
+
+            return ensurePushSubscription().then(function () {
+                return permission;
+            });
+        });
     };
 
     /**
@@ -623,6 +777,23 @@
                 poll();
             }
         });
+
+        // Phone alerts. A member who already allowed notifications must not have to
+        // press anything again: the browser can drop a subscription between visits
+        // (data cleared, endpoint rotated), so it is re-checked here and the server
+        // is told about the endpoint every time.
+        if (granted()) {
+            ensurePushSubscription();
+        }
+
+        // The service worker asks for that re-check when the endpoint changes.
+        if (navigator.serviceWorker && navigator.serviceWorker.addEventListener) {
+            navigator.serviceWorker.addEventListener('message', function (event) {
+                if (event.data && event.data.type === 'tiu:push-resubscribe') {
+                    ensurePushSubscription();
+                }
+            });
+        }
     }
 
     if (document.readyState === 'loading') {

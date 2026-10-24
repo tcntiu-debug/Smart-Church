@@ -547,8 +547,9 @@
     @stack('scripts')
 
     {{-- In-app alerts: poll the unread feed so a new caller / guide alert also
-         reaches the browser as a system notification. Web only for now (no native
-         app, no Web Push) - see docs/NOTIFICATIONS.md and
+         reaches the browser as a system notification, and - once Web Push is
+         configured - take out the push subscription that lets it reach the phone
+         with the app closed. See docs/NOTIFICATIONS.md, docs/PUSH.md and
          public/assets/js/notifications.js. The member allows it once from the
          notification centre; until then this only keeps the bell badge fresh. --}}
     @auth
@@ -564,7 +565,15 @@
                 panelLimit: 30,
                 pollSeconds: {{ (int) config('notifications.poll_seconds', 60) }},
                 enabled: {{ config('notifications.enabled', true) ? 'true' : 'false' }},
-                icon: '{{ asset('icons/icon-192-v2.png') }}'
+                icon: '{{ asset('icons/icon-192-v2.png') }}',
+                // Web Push (docs/PUSH.md). The public key is null until
+                // `php artisan push:keys` has been run and the pair is in .env, and
+                // the script then leaves the phone alone instead of asking for a
+                // permission it could not use.
+                vapidPublicKey: @json(app(\App\Services\WebPushService::class)->publicKey()),
+                pushStatusUrl: '{{ route('push.status') }}',
+                pushSubscribeUrl: '{{ route('push.subscribe') }}',
+                pushUnsubscribeUrl: '{{ route('push.unsubscribe') }}'
             };
         </script>
         <script src="{{ asset('assets/js/notifications.js') }}"></script>

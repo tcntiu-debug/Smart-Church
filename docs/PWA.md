@@ -14,7 +14,7 @@ involved.
 | `public/icons/icon-192-v2.png`, `public/icons/icon-512-v2.png` | The launcher icons: the TIU crest alone (no wordmark) on the orange `#F97316` tile. |
 | `public/icons/maskable-512-v2.png` | Android adaptive icon: the crest sits inside the safe zone so a round/squircle mask does not clip it. |
 | `public/icons/icon-32.png`, `public/favicon.ico` | Tab icon (`<link rel="icon">`) and the 16+32 `.ico` a browser requests from the site root. |
-| `public/service-worker.js` | Registered by the layout. A network-only `fetch` handler (unintercepted, nothing cached), plus `notificationclick` handling. Chrome/Edge only offer "Install app" — and only let a page raise a system notification — on an HTTPS origin that has a worker with a `fetch` handler. |
+| `public/service-worker.js` | Registered by the layout. A network-only `fetch` handler (unintercepted, nothing cached), `notificationclick` handling, and the `push` handler that shows a Web Push message while the app is closed (`docs/PUSH.md`). Chrome/Edge only offer "Install app" — and only let a page raise a system notification — on an HTTPS origin that has a worker with a `fetch` handler. |
 | `resources/views/layouts/app.blade.php` | Links the manifest, sets `<meta name="theme-color">` and the Apple touch icon, registers the worker and captures `beforeinstallprompt` into `window.tiuInstallPrompt` (raising `tiu:install-available`). |
 | `resources/views/partials/pwa-install-button.blade.php` | The button. Include it with `@include('partials.pwa-install-button')`. |
 

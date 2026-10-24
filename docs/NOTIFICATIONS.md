@@ -4,9 +4,9 @@ Every alert the app raises is one row in `app_notifications`. The bell in
 `resources/views/layouts/app.blade.php` slides them into a panel docked to the
 right edge (`partials/notification-modal`) so the member never loses the page they
 are working on; `/notifications` shows the same list as a page, which is both the
-no-JavaScript fallback and the place where browser alerts are switched on. Web
-only for now: there is no native app and no Web Push subscription, so a phone gets
-the alert the next time the page asks for it (`/notifications/feed`).
+no-JavaScript fallback and the place where browser alerts are switched on. A phone
+gets an alert the next time an open page asks for it (`/notifications/feed`), and -
+once **Web Push** is configured - with the app closed as well: see `docs/PUSH.md`.
 
 **Reading an alert clears it.** "Mark read" - one row or "Mark all as read" -
 deletes the row, so the list only ever holds what still needs attention and
@@ -182,6 +182,12 @@ Notes:
   poll - the bell, its badge and the panel work there all the same.
 * On iOS the app must be added to the Home Screen before a site can raise a system
   notification - that is the "Install app" button from `partials/pwa-install-button`.
+* Android Chrome refuses `new Notification()` outright, so `notifications.js`
+  raises the alert through the service worker registration
+  (`registration.showNotification()`); that is also the path a Web Push message
+  takes. With Web Push configured (`docs/PUSH.md`) the poll stops raising its own
+  notifications altogether - the server wakes the phone, app open or closed - and
+  only keeps the badge fresh.
 
 ## Deploy
 

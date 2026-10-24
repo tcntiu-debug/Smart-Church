@@ -533,6 +533,22 @@ class BirthdayReminderService
                 try {
                     DB::table('app_notifications')->insert($rows);
                     $delivered[] = 'database ('.count($rows).')';
+
+                    // The same digest on the admins' phones (docs/PUSH.md). Silent
+                    // when the server has no VAPID keys or the admin has no device.
+                    try {
+                        app(WebPushService::class)->queueMany(
+                            array_map(function ($row) {
+                                return $row['tiu_member_id'];
+                            }, $rows),
+                            'birthday_reminder',
+                            $rows[0]['title'],
+                            $rows[0]['body'],
+                            '/birthdays'
+                        );
+                    } catch (\Throwable $e) {
+                        Log::warning('Birthday reminder push could not be queued', ['error' => $e->getMessage()]);
+                    }
                 } catch (\Exception $e) {
                     $notes[] = 'in-app notification failed: '.$e->getMessage();
                     Log::error('Birthday reminder notification failed', ['error' => $e->getMessage()]);

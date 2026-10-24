@@ -33,6 +33,7 @@ use App\Http\Controllers\ChildCeremonyController;
 use App\Http\Controllers\MapController;
 use App\Http\Controllers\AttendanceAnalysisController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PushSubscriptionController;
 
 // ============================================================
 // PUBLIC ROUTES (No authentication required)
@@ -388,6 +389,14 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     // needs attention, so both actions are POSTs that delete the row(s).
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
     Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+
+    // Web Push (phone alerts with the app closed). The page subscribes the browser
+    // with pushManager.subscribe() and posts the endpoint here; `push:send` then
+    // delivers the queued alerts. Any one member only ever sees their own devices.
+    // See docs/PUSH.md.
+    Route::get('/push/status', [PushSubscriptionController::class, 'status'])->name('push.status');
+    Route::post('/push/subscribe', [PushSubscriptionController::class, 'subscribe'])->name('push.subscribe');
+    Route::post('/push/unsubscribe', [PushSubscriptionController::class, 'unsubscribe'])->name('push.unsubscribe');
 
     // Touchpoint
     Route::get('/mtouchpoint', [TouchpointController::class, 'index'])->name('touchpoint');
