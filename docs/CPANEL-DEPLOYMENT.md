@@ -444,6 +444,30 @@ so a dormant Web Push feature (no `WEBPUSH_*` keys) or a stale route cache can n
 longer take the app down — it simply leaves push off and says so in
 `public/assets/js/notifications.js`.
 
+**A 500 that only one role can reproduce is the same bug.** `Route::has()` is the
+rule for any route name a *shared* view names: `layouts/app.blade.php`,
+`partials/nav.blade.php` and `home.blade.php` render for every signed-in user, so a
+name they cannot resolve costs every page. Two days after the push outage the same
+stale cache hit `/celebrations` (`birthdays.celebrations`, added 22 Oct 2026). The
+sidebar row and the dashboard card for that list sit in a role branch, so every
+page answered 500 for every role outside `BirthdayController::STAFF_ROLES`, while
+the Super User — whose branch names the much older `birthdays.index` — saw a
+perfectly healthy site. Read a report like that as a question about *names*, not
+about permissions: find the route name that role's branch uses, then check whether
+the cache carries it.
+
+```bash
+# In the repo, and on the server (Terminal): the names each install knows.
+php artisan route:list --json > routes.json
+```
+
+A name in the repo's list that is missing from the server's is one the cache
+predates; `route:clear` (or `app:post-deploy`) brings it back. Without a Terminal,
+the cPanel File Manager route above is the fix. `tests/Feature/StaleRouteCacheTest.php`
+keeps this honest: it renders the sidebar and the dashboard against a route
+collection with `birthdays.celebrations` removed and expects a 200 and a missing
+link, not a 500.
+
 ### If cPanel Terminal is not available
 
 Add a cron job (cPanel → **Cron Jobs**) that runs once a day:

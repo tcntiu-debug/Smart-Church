@@ -62,6 +62,16 @@ The dashboard card is the one that had to change: it pointed every role at
 `BirthdayController::STAFF_ROLES`, the same constant the controller gates on and
 the sidebar reads.
 
+Both links ask `Route::has()` before they build a URL. `/celebrations` arrived on
+22 Oct 2026, after the route cache on a server that has not run `app:post-deploy`
+since; `route()` throws `RouteNotFoundException` for a name that cache does not
+carry, and because the dashboard card and the `My Box -> Birthdays` row are both
+in the shared layout, a stale cache answered 500 on **every page** for every role
+outside `STAFF_ROLES` - while the Super User, whose link names `birthdays.index`,
+was unaffected. The link now goes missing instead of the page; the page itself
+still needs `php artisan route:clear` (docs/CPANEL-DEPLOYMENT.md section 6), or
+`/celebrations` 404s until the cache is rebuilt.
+
 The page answers the three questions a silent digest leaves open, without a
 shell:
 
@@ -293,3 +303,9 @@ dry-run writing nothing. `tests/Feature/BirthdayStatusTest.php` covers the statu
 page: a guest is sent to the login page, an ordinary member is refused, an admin
 sees the preview and the scheduler hint, and opening it (or running the dry run)
 leaves `birthday_reminder_logs` / `app_notifications` untouched.
+
+`tests/Feature/StaleRouteCacheTest.php` covers the two `/celebrations` links: with
+the name missing from the route collection (a cache baked before 22 Oct 2026) the
+sidebar and the dashboard still render 200 for a Member and a Worker, the row and
+the card are simply absent, and a Super User keeps `/birthdays`. The page itself
+is only reachable after `php artisan route:clear` on that server.

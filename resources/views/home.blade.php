@@ -336,14 +336,24 @@
          The card used to point at /birthdays for all, which answers a plain
          Member with "Access Denied" - see BirthdayController::STAFF_ROLES. --}}
     @php
-        $birthdaysUrl = in_array($user->member_role ?? '', \App\Http\Controllers\BirthdayController::STAFF_ROLES, true)
-            ? route('birthdays.index')
-            : route('birthdays.celebrations');
+        $birthdaysRoute = in_array($user->member_role ?? '', \App\Http\Controllers\BirthdayController::STAFF_ROLES, true)
+            ? 'birthdays.index'
+            : 'birthdays.celebrations';
+
+        // Same guard as the sidebar (partials/nav.blade.php) and the push block in
+        // layouts/app.blade.php: a route cache baked before /celebrations existed
+        // does not know the name, and route() throws where Route::has() answers.
+        // The card goes missing, not the dashboard.
+        $birthdaysUrl = \Illuminate\Support\Facades\Route::has($birthdaysRoute)
+            ? route($birthdaysRoute)
+            : null;
     @endphp
+    @if($birthdaysUrl)
     <a href="{{ $birthdaysUrl }}" class="action-card">
         <span class="action-icon">🎂</span>
         <span class="action-title">Birthdays</span>
     </a>
+    @endif
 </div>
 
 <!-- Quick Links -->

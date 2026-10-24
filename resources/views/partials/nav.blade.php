@@ -6,6 +6,14 @@ $church_type_id = session('church_type_id', '');
 $lead_of_dept = session('lead_of_dept', '');
 $lead_church_type_ids = session('lead_of_church_type', '');
 $userIsHODOrLead = session('userIsHODOrLead', false);
+
+// /celebrations arrived after this server's route cache may have been baked, and
+// route() throws RouteNotFoundException on a name the cached table does not know.
+// This sidebar is on every signed-in page, so an unknown name cost the whole page
+// for every non-staff role while a Super User (who is sent to the staff list) saw
+// nothing wrong. Ask first, and drop the row instead - same guard as the push
+// block in layouts/app.blade.php (docs/CPANEL-DEPLOYMENT.md section 6).
+$hasCelebrations = \Illuminate\Support\Facades\Route::has('birthdays.celebrations');
 @endphp
 
 {{-- One rule for every @if below: the Super User passes all of them. They are
@@ -57,7 +65,9 @@ $userIsHODOrLead = session('userIsHODOrLead', false);
              the same list under Welcome Center, without the reminder status
              either way (BirthdayController::canManageReminders). --}}
         @unless(in_array($member_role, \App\Http\Controllers\BirthdayController::STAFF_ROLES, true))
+          @if($hasCelebrations)
           <li><a href="{{ route('birthdays.celebrations') }}">Birthdays</a></li>
+          @endif
         @endunless
       </ul>
     </li>
