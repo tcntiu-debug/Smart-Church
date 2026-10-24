@@ -417,6 +417,33 @@ php artisan app:post-deploy --migrate   # ...plus pending database migrations
    retired Transport (bus route) and standalone FOF modules — idempotent, see
    *Schema sync* below.
 
+### Deploy order: new routes and the route cache
+
+`route:cache` writes the **whole** route table to `bootstrap/cache/routes-v7.php`,
+and no request re-reads `routes/web.php` while that file exists. A deploy that
+ships a view naming a route the cached table does not know makes `route()` throw
+`RouteNotFoundException` — and when that call sits in the shared layout, **every
+signed-in page answers 500 while the login page stays up**. The Web Push layout
+did exactly this in Oct 2026: the cached table predated `/push/*`, so `/home`
+500'd for everyone who signed in, and it would have stayed broken until the next
+`app:post-deploy` (up to 24 h with the daily cron below).
+
+So, after any deploy that adds or renames a route:
+
+1. the upload finishes, then
+2. run `php artisan app:post-deploy` (or at least `php artisan route:clear`)
+   before the first request that needs the new name.
+
+If the site is already showing 500s and there is no Terminal: delete
+`bootstrap/cache/routes-v7.php` and `bootstrap/cache/config.php` in cPanel →
+**File Manager** (never the directory, never `.gitignore`). Laravel treats a
+missing cache file as "not cached" and rebuilds it on the next request.
+
+The layout now asks `Route::has('push.status', ...)` before it calls `route()`,
+so a dormant Web Push feature (no `WEBPUSH_*` keys) or a stale route cache can no
+longer take the app down — it simply leaves push off and says so in
+`public/assets/js/notifications.js`.
+
 ### If cPanel Terminal is not available
 
 Add a cron job (cPanel → **Cron Jobs**) that runs once a day:

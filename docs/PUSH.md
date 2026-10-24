@@ -193,6 +193,7 @@ tail -n 50 storage/logs/laravel.log
 | Row stays `queued` | the cron is not running `schedule:run`, or `withoutOverlapping` is stuck - see `docs/CPANEL-DEPLOYMENT.md` |
 | Sent, but the phone is silent | battery optimisation / force-stopped browser (see the table above) |
 | Phone buzzed before, silent after a redeploy | a rotated `WEBPUSH_*` pair: every device must re-subscribe |
+| Signed-in pages 500 the day push was deployed | stale route cache: `route('push.*')` is unknown to `bootstrap/cache/routes-v7.php` — run `php artisan app:post-deploy` (or `route:clear`); see *Deploy order* in `docs/CPANEL-DEPLOYMENT.md`. The layout now guards this with `Route::has()`, so the pages load and push stays off |
 
 ```sql
 -- who is reachable?

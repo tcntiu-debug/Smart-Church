@@ -464,12 +464,18 @@ class WebPushTest extends TestCase
             $this->markTestSkipped('No member row available to authenticate the page request.');
         }
 
+        // The endpoints are only handed over once this server can actually push;
+        // test_the_signed_in_pages_survive_without_a_vapid_pair() covers the other
+        // half of that rule.
+        $this->configure();
+
         $response = $this->actingAs($member)->get('/home');
 
         $response->assertOk();
         $response->assertSee('pushSubscribeUrl', false);
-        $response->assertSee(route('push.subscribe'), false);
+        $response->assertSee($this->asJson(route('push.subscribe')), false);
         $response->assertSee('vapidPublicKey', false);
+        $response->assertSee($this->publicKey, false);
 
         // The centre is where the member actually turns this on, and its script now
         // reports whether the phone - not just the browser - is subscribed.
@@ -478,6 +484,37 @@ class WebPushTest extends TestCase
         $centre->assertOk();
         $centre->assertSee('enableBrowserAlerts', false);
         $centre->assertSee('describePhoneAlerts', false);
+    }
+
+    /**
+     * A server without a VAPID pair - which is every server until `push:keys` has
+     * been run and .env edited - must still serve every page.
+     *
+     * This is the regression that took the production site down: the layout called
+     * route('push.subscribe') unconditionally from inside @auth, so a route table
+     * that did not know /push/* yet (a bootstrap/cache/routes-*.php built before
+     * the deploy, or views that landed ahead of routes/web.php) threw
+     * RouteNotFoundException and every signed-in page answered 500 while the login
+     * page stayed up. A dormant feature may not do that.
+     */
+    public function test_the_signed_in_pages_survive_without_a_vapid_pair()
+    {
+        $member = TiuMember::query()->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member row available to authenticate the page request.');
+        }
+
+        // No configure() here: config/webpush.php reads an empty pair.
+        $this->assertSame('', (string) config('webpush.public_key', ''));
+
+        $response = $this->actingAs($member)->get('/home');
+
+        $response->assertOk();
+        $response->assertSee('vapidPublicKey: null', false);
+        $response->assertSee('pushSubscribeUrl: null', false);
+        $response->assertDontSee($this->asJson(route('push.subscribe')), false);
+        $response->assertDontSee($this->asJson(route('push.status')), false);
     }
 
     /* ------------------------------------------------------------------ *
@@ -497,6 +534,16 @@ class WebPushTest extends TestCase
             'webpush.max_attempts' => 3,
             'webpush.retry_seconds' => 300,
         ], $overrides));
+    }
+
+    /**
+     * How a URL appears inside @json(...) in the layout: json_encode escapes the
+     * forward slashes, so route('push.subscribe') is served as
+     * http:\/\/host\/push\/subscribe and a literal assertSee() would miss it.
+     */
+    private function asJson(string $url): string
+    {
+        return str_replace('/', '\/', $url);
     }
 
     /**

@@ -553,6 +553,19 @@
          public/assets/js/notifications.js. The member allows it once from the
          notification centre; until then this only keeps the bell badge fresh. --}}
     @auth
+        @php
+            // Web Push (docs/PUSH.md) is optional, and two things can legitimately
+            // say "no": no VAPID pair in .env, and a route table that has not learned
+            // /push/* yet. route() throws RouteNotFoundException on an unknown name,
+            // so a bootstrap/cache/routes-*.php built before this deploy - or a deploy
+            // that landed the views ahead of routes/web.php - used to 500 every
+            // signed-in page. Ask first, and hand the script null when the answer is
+            // no: public/assets/js/notifications.js already reads that as "no push on
+            // this device" and leaves the phone alone.
+            $pushKey = app(\App\Services\WebPushService::class)->publicKey();
+            $pushReady = $pushKey !== null
+                && \Illuminate\Support\Facades\Route::has('push.status', 'push.subscribe', 'push.unsubscribe');
+        @endphp
         <script>
             // Handed to public/assets/js/notifications.js: the feed the bell's
             // panel and the poller both read, the two "read" endpoints (which clear
@@ -569,11 +582,13 @@
                 // Web Push (docs/PUSH.md). The public key is null until
                 // `php artisan push:keys` has been run and the pair is in .env, and
                 // the script then leaves the phone alone instead of asking for a
-                // permission it could not use.
-                vapidPublicKey: @json(app(\App\Services\WebPushService::class)->publicKey()),
-                pushStatusUrl: '{{ route('push.status') }}',
-                pushSubscribeUrl: '{{ route('push.subscribe') }}',
-                pushUnsubscribeUrl: '{{ route('push.unsubscribe') }}'
+                // permission it could not use. The same null appears when this
+                // server's route table does not know /push/* yet - see the guard
+                // above - because there would be nothing to post a subscription to.
+                vapidPublicKey: @json($pushReady ? $pushKey : null),
+                pushStatusUrl: @json($pushReady ? route('push.status') : null),
+                pushSubscribeUrl: @json($pushReady ? route('push.subscribe') : null),
+                pushUnsubscribeUrl: @json($pushReady ? route('push.unsubscribe') : null)
             };
         </script>
         <script src="{{ asset('assets/js/notifications.js') }}"></script>
