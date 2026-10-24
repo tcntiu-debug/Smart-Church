@@ -68,6 +68,9 @@ git push  ->  GitHub Actions  ->  composer install --no-dev  ->  SFTP/FTPS uploa
   button: §3f of the same guide.
 - How the mobile app authenticates, and how to revoke every token at once:
   [`docs/API-TOKENS.md`](docs/API-TOKENS.md)
+- PHP security advisories of 21 Oct 2026 (`CVE-2026-109618` / `CVE-2026-109619`) - what is
+  exposed in this install, the patched PHP versions to ask the host for, and the interim
+  hardening: [`docs/SECURITY-PHP-RCE-OCT-2026.md`](docs/SECURITY-PHP-RCE-OCT-2026.md)
 - After deploying, run once on the server:
 
   ```bash
