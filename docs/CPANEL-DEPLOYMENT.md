@@ -599,6 +599,60 @@ daily `app:post-deploy` cron: keep both.
 > `* * * * * /bin/bash /home/tcnikoro/bin/church-scheduler.sh` and to whitelist
 > `Cron::add_line` for the account so the form works again.
 
+### Phone alerts (Web Push): the one silent thing that stops every phone buzzing
+
+`push:send` rides the **same per-minute `schedule:run` heartbeat** (`app/Console/Kernel.php`),
+so it needs no cron entry of its own. What it *does* need is a VAPID key pair in **that
+server's** `.env`, and without one the whole feature is deliberately inert:
+
+* no `WEBPUSH_PUBLIC_KEY` / `WEBPUSH_PRIVATE_KEY` → `WebPushService::isConfigured()` is
+  `false`, the layout hands the page `vapidPublicKey: null`,
+  `public/assets/js/notifications.js` therefore never calls
+  `pushManager.subscribe()`, and `push_subscriptions` stays **empty**;
+* `push:send` then logs *"Web Push is not configured … Nothing to send"* every minute and
+  every alert reaches only the in-app bell.
+
+**Installing the app is not subscribing.** Installation registers the service worker;
+only the *Enable browser alerts* button on `/notifications` creates the push endpoint, and
+that button cannot work until the server publishes its public key. This is the exact
+symptom "I installed it on my phone and nobody gets notifications".
+
+Make the pair **once on that server** — never copy another site's pair, never commit it:
+
+```bash
+cd ~/public_html/smartchurch.tcnikorodu.org
+php artisan push:keys      # prints WEBPUSH_PUBLIC_KEY and WEBPUSH_PRIVATE_KEY
+```
+
+Paste both printed lines into that account's `.env`, plus a subject pointing at a mailbox
+somebody reads (Apple rejects a push whose `sub` is not a contact address):
+
+```
+WEBPUSH_SUBJECT=mailto:admin@tcnikorodu.org
+```
+
+Then, and only then:
+
+```bash
+php artisan config:clear                  # or app:post-deploy
+php artisan schedule:list | grep push     # push:send  * * * * *   /   push:send --prune  45 3 * * *
+php artisan push:test                     # or: push:test <tiu_member_id>
+```
+
+`push:test` names the reason instead of leaving the operator guessing: *no device on file*
+(nobody pressed the button yet), `HTTP 401`/`403` (key or subject mismatch, or a
+subscription created with an older key pair), `HTTP 404`/`410` (the browser dropped the
+subscription), or *Web Push is not configured*. What the cron itself delivered lands in
+`storage/logs/push.log`.
+
+Two silent failures worth remembering: a device that subscribed **before** the pair was
+replaced (`push:keys --force`) is bound to the old public key and receives nothing until
+the member presses *Enable browser alerts* again; and a phone whose ROM force-stops Chrome
+receives nothing until Chrome is opened — exempt it from battery optimisation
+(see `docs/PUSH.md`). Push also does not exist outside HTTPS, so a LAN IP on a dev machine
+can never receive one.
+
+
 ### Weekly release of first timers who reached 8 weeks
 
 `firsttimers:auto-unassign` releases every first timer who has had a guide for eight weeks or

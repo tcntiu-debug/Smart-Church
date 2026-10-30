@@ -505,7 +505,15 @@ class WebPushTest extends TestCase
             $this->markTestSkipped('No member row available to authenticate the page request.');
         }
 
-        // No configure() here: config/webpush.php reads an empty pair.
+        // Pin the dormant state instead of trusting this machine's .env: a
+        // developer who has run `push:keys` (which they must, to try the feature
+        // at all) would otherwise fail a test that guards a production outage.
+        config([
+            'webpush.enabled' => false,
+            'webpush.public_key' => null,
+            'webpush.private_key' => null,
+        ]);
+
         $this->assertSame('', (string) config('webpush.public_key', ''));
 
         $response = $this->actingAs($member)->get('/home');
