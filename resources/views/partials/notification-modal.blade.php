@@ -48,13 +48,43 @@
                 </button>
 
                 <div class="notif-modal-links">
-                    <a href="{{ route('notifications.index') }}" class="btn btn-sm btn-link" id="notifPanelBrowserAlerts"
-                       title="Open the notification page to switch on browser alerts">
-                        <i class="fas fa-mobile-alt"></i> Browser alerts
-                    </a>
+                    {{-- One click, right where the member already is. This used to
+                         be a link to /notifications that then asked them to find a
+                         second button there. Hidden by notifications.js whenever a
+                         click would achieve nothing (already on, blocked, or a
+                         browser without the Notification API). --}}
+                    <span class="text-muted" id="notifPanelBrowserAlertsState" style="font-size:12px;" hidden></span>
+
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="notifPanelBrowserAlerts" hidden>
+                        <i class="fas fa-mobile-alt"></i> Turn on phone alerts
+                    </button>
+
                     <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Close</button>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+@push('scripts')
+<script>
+    // The same binder the notification page and the dashboard use, so the panel
+    // can switch phone alerts on without sending anybody to another page. It renders
+    // after window.tiuNotifications and notifications.js - see @stack('scripts') in
+    // layouts/app.blade.php.
+    (function () {
+        'use strict';
+
+        var config = window.tiuNotifications;
+
+        if (!config || typeof config.bindEnableButton !== 'function') {
+            return;
+        }
+
+        config.bindEnableButton(
+            document.getElementById('notifPanelBrowserAlerts'),
+            document.getElementById('notifPanelBrowserAlertsState')
+        );
+    })();
+</script>
+@endpush

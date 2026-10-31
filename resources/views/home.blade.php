@@ -304,6 +304,12 @@
      hint - see resources/views/partials/pwa-install-button.blade.php. --}}
 @include('partials.pwa-install-button')
 
+{{-- "Turn on phone alerts": the same one-click action as the bell panel and
+     /notifications, put where the member lands after opening the app. It hides
+     itself once alerts are on, and does not render at all on a server that cannot
+     push - see resources/views/partials/phone-alerts-button.blade.php. --}}
+@include('partials.phone-alerts-button')
+
 <!-- Quick Actions -->
 <div class="section-title">Quick Actions</div>
 <div class="quick-actions-grid">

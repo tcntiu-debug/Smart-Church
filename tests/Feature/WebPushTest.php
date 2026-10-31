@@ -477,13 +477,49 @@ class WebPushTest extends TestCase
         $response->assertSee('vapidPublicKey', false);
         $response->assertSee($this->publicKey, false);
 
-        // The centre is where the member actually turns this on, and its script now
-        // reports whether the phone - not just the browser - is subscribed.
+        // One click from where the member already is: the dashboard banner and
+        // the bell panel, not only the notification centre.
+        $response->assertSee('data-phone-alerts-button', false);
+        $response->assertSee('notifPanelBrowserAlerts', false);
+
+        // The centre is where the member reads the state, and its button goes
+        // through the same binder as the other two.
         $centre = $this->actingAs($member)->get('/notifications');
 
         $centre->assertOk();
         $centre->assertSee('enableBrowserAlerts', false);
-        $centre->assertSee('describePhoneAlerts', false);
+        $centre->assertSee('bindEnableButton', false);
+    }
+
+    /**
+     * The layout must define window.tiuNotifications and load notifications.js
+     * BEFORE @stack('scripts') renders. The button on /notifications was in the
+     * markup all along and still never appeared, because its script ran first,
+     * read `undefined` and returned from its own guard. @push from a partial below
+     * the stack (the bell panel) was dropped outright for the same reason.
+     */
+    public function test_the_page_scripts_render_after_the_notification_config()
+    {
+        $member = TiuMember::query()->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member row available to authenticate the page request.');
+        }
+
+        $this->configure();
+
+        $html = $this->actingAs($member)->get('/notifications')->getContent();
+
+        $config = strpos($html, 'window.tiuNotifications =');
+        $library = strpos($html, 'assets/js/notifications.js');
+        $binder = strpos($html, 'bindEnableButton(');
+
+        $this->assertNotFalse($config, 'The layout must hand the config object to the page.');
+        $this->assertNotFalse($library, 'notifications.js must be loaded.');
+        $this->assertNotFalse($binder, 'The page must bind its button through the shared helper.');
+
+        $this->assertLessThan($binder, $config, '@stack(\'scripts\') rendered above window.tiuNotifications.');
+        $this->assertLessThan($binder, $library, '@stack(\'scripts\') rendered above notifications.js.');
     }
 
     /**
@@ -523,6 +559,11 @@ class WebPushTest extends TestCase
         $response->assertSee('pushSubscribeUrl: null', false);
         $response->assertDontSee($this->asJson(route('push.subscribe')), false);
         $response->assertDontSee($this->asJson(route('push.status')), false);
+
+        // A server that cannot push must not advertise a button that cannot work.
+        // (The bell panel's copy stays: granting the permission there still gives
+        // the in-page alerts, which need no server key at all.)
+        $response->assertDontSee('data-phone-alerts-button', false);
     }
 
     /* ------------------------------------------------------------------ *

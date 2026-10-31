@@ -753,6 +753,130 @@
     };
 
     /**
+     * One-click "turn phone alerts on" for any button on any page.
+     *
+     * A page cannot ask on load: every browser requires a user gesture for
+     * Notification.requestPermission(), and Chrome suppresses the prompt entirely
+     * when the page tries anyway. What CAN be removed is the walk - this is the
+     * same binder behind the dashboard banner, the bell panel and the notification
+     * centre, so the member turns alerts on from wherever they already are.
+     *
+     * The button hides itself whenever a click would achieve nothing (no
+     * Notification API, already on, blocked in site settings) so it never becomes
+     * another dead icon on a page that is mostly used on a phone.
+     *
+     * @param {Element}  button  Revealed only when a click would help
+     * @param {Element=} state   Optional line of text beside it
+     * @param {Function=} after  Called after every render (a wrapper can hide itself)
+     */
+    config.bindEnableButton = function (button, state, after) {
+        if (!button) {
+            return;
+        }
+
+        function say(text) {
+            if (state) {
+                state.textContent = text;
+                state.hidden = !text;
+            }
+        }
+
+        function settle() {
+            if (typeof after === 'function') {
+                after(button);
+            }
+        }
+
+        function hide(text) {
+            button.hidden = true;
+            say(text);
+            settle();
+        }
+
+        function render() {
+            if (!canNotify) {
+                // iOS Safari exposes Notification only inside an app added to the
+                // Home Screen, and no browser does outside HTTPS - the common
+                // iPhone and plain-HTTP cases.
+                hide('This browser cannot show notifications. On an iPhone, add the site to the Home Screen first (Share > Add to Home Screen).');
+
+                return;
+            }
+
+            if (window.Notification.permission === 'denied') {
+                hide('Browser alerts are blocked in this browser\'s site settings.');
+
+                return;
+            }
+
+            if (window.Notification.permission === 'granted') {
+                button.hidden = true;
+
+                if (!pushSupported()) {
+                    // Only the missing PushManager (iOS Safari in the browser,
+                    // i.e. not added to the Home Screen) is worth an instruction;
+                    // a server without a VAPID pair has nothing to teach the phone.
+                    say(window.PushManager
+                        ? 'Browser alerts are on.'
+                        : 'Browser alerts are on. To get them with the app closed, open the site as an installed app.');
+
+                    return settle();
+                }
+
+                config.pushState().then(function (result) {
+                    if (result === 'subscribed') {
+                        say('Phone alerts are on: they arrive even when the app is closed.');
+                    } else if (result === 'failed') {
+                        // Allowed, but no endpoint: usually a server without a
+                        // VAPID pair or a stale route cache. Offer the retry.
+                        button.disabled = false;
+                        button.hidden = false;
+                        say('Phone alerts could not be set up on this device. Tap to retry.');
+                    } else {
+                        say('Browser alerts are on.');
+                    }
+
+                    settle();
+                }).catch(function () {
+                    // The state line is a nicety; a failure must not break the page.
+                    settle();
+                });
+
+                return;
+            }
+
+            button.hidden = false;
+            say('Turn on phone alerts to hear about new assignments.');
+            settle();
+        }
+
+        function done() {
+            button.disabled = false;
+            render();
+        }
+
+        button.addEventListener('click', function () {
+            if (button.disabled) {
+                return;
+            }
+
+            button.disabled = true;
+
+            // Already allowed and only the subscription is missing: ask for that,
+            // because the browser will not show the permission prompt again.
+            if (granted()) {
+                ensurePushSubscription().then(done, done);
+
+                return;
+            }
+
+            config.requestPermission().then(done, done);
+        });
+
+        render();
+    };
+
+    /**
      * Whether this browser can raise a system notification right now.
      */
     config.alertsAllowed = granted;

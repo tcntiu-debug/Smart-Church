@@ -79,8 +79,16 @@ Two things were also wrong on the phone before this landed:
    $schedule->command('push:send --prune')->dailyAt('03:45');
    ```
 
-5. **On the phone**: open `/notifications` and press **Enable browser alerts**. The
-   page then says *"Phone alerts are on: they arrive even when the app is closed."*
+5. **On the phone**: the button is in three places - the dashboard banner ("Turn on
+   phone alerts"), the bell panel footer, and `/notifications` ("Enable browser
+   alerts"). One tap anywhere is enough; the page then says *"Phone alerts are on:
+   they arrive even when the app is closed."*
+
+   It cannot switch itself on, by design and by browser rule: every browser requires
+   a user gesture for `Notification.requestPermission()`, and Chrome suppresses a
+   prompt a page raises on load. Granting it once is the last manual step - after
+   that `notifications.js` re-subscribes the device on every page load, and again
+   when the push service rotates the endpoint (`pushsubscriptionchange`).
 
 6. **Prove it**:
 

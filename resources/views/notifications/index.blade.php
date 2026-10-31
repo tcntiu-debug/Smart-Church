@@ -99,79 +99,28 @@
 
 @push('scripts')
 <script>
-    // Asks the browser for the one-time permission behind the alerts raised by
-    // public/assets/js/notifications.js, then reports the current state.
+    // The one-click binder lives in public/assets/js/notifications.js, so this
+    // page, the bell panel and the dashboard share one state machine instead of
+    // three drifting copies of it. It also reports whether the PHONE - not just
+    // the browser - holds a push subscription (docs/PUSH.md).
+    //
+    // This renders at @stack('scripts') in layouts/app.blade.php, which sits BELOW
+    // window.tiuNotifications and notifications.js. It did not, once: the guard
+    // below read `undefined` and returned, so the button stayed hidden for every
+    // member, on every browser, on the one page that offered it.
     (function () {
         'use strict';
 
-        var button = document.getElementById('enableBrowserAlerts');
-        var state = document.getElementById('browserAlertsState');
         var config = window.tiuNotifications;
 
-        if (!button || !state || !config || typeof config.requestPermission !== 'function') {
+        if (!config || typeof config.bindEnableButton !== 'function') {
             return;
         }
 
-        function render() {
-            if (typeof window.Notification !== 'function') {
-                // iOS Safari only exposes the Notification API inside an app that was
-                // added to the Home Screen, so this is the common iPhone case.
-                state.textContent = 'This browser cannot show notifications. On an iPhone, add the site to the Home Screen first (Share \u2192 Add to Home Screen).';
-                return;
-            }
-
-            if (window.Notification.permission === 'granted') {
-                button.hidden = true;
-                state.textContent = 'Browser alerts are on.';
-                describePhoneAlerts();
-                return;
-            }
-
-            if (window.Notification.permission === 'denied') {
-                button.hidden = true;
-                state.textContent = 'Browser alerts are blocked in this browser\u2019s site settings.';
-                return;
-            }
-
-            button.hidden = false;
-            state.textContent = 'Turn on browser alerts to hear about new assignments.';
-        }
-
-        /**
-         * With Web Push configured, "granted" is not the whole story: the browser
-         * also has to hold a subscription (docs/PUSH.md), which is what makes the
-         * alert arrive with the app closed. Say which of the two is true.
-         */
-        function describePhoneAlerts() {
-            if (typeof config.pushState !== 'function') {
-                return;
-            }
-
-            config.pushState().then(function (result) {
-                if (result === 'subscribed') {
-                    state.textContent = 'Phone alerts are on: they arrive even when the app is closed.';
-                } else if (result === 'unsupported') {
-                    state.textContent = 'Browser alerts are on. To get them with the app closed, open the site as an installed app (on Android: Install app; on iPhone: Share \u2192 Add to Home Screen).';
-                } else {
-                    state.textContent = 'Browser alerts are on, but phone alerts could not be set up on this device.';
-                }
-            }).catch(function () {
-                // The state line is a nicety; a failure must not break the page.
-            });
-        }
-
-        function done() {
-            button.disabled = false;
-            render();
-        }
-
-        button.addEventListener('click', function () {
-            button.disabled = true;
-
-            config.requestPermission().then(done).catch(done);
-        });
-
-        render();
+        config.bindEnableButton(
+            document.getElementById('enableBrowserAlerts'),
+            document.getElementById('browserAlertsState')
+        );
     })();
 </script>
 @endpush

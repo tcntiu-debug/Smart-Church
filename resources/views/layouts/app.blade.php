@@ -544,7 +544,6 @@
             }
         })();
     </script>
-    @stack('scripts')
 
     {{-- In-app alerts: poll the unread feed so a new caller / guide alert also
          reaches the browser as a system notification, and - once Web Push is
@@ -591,11 +590,32 @@
                 pushUnsubscribeUrl: @json($pushReady ? route('push.unsubscribe') : null)
             };
         </script>
-        <script src="{{ asset('assets/js/notifications.js') }}"></script>
+        {{-- The ?v= is the file's mtime: public assets are served without any
+             cache headers we control, so a deploy that changes this file must
+             change its URL - otherwise a phone that already loaded it keeps the
+             old copy for hours and the button below never appears. --}}
+        @php
+            $notificationsJs = public_path('assets/js/notifications.js');
+            $notificationsJsVersion = file_exists($notificationsJs) ? filemtime($notificationsJs) : 1;
+        @endphp
+        <script src="{{ asset('assets/js/notifications.js') }}?v={{ $notificationsJsVersion }}"></script>
 
         {{-- The centre itself: filled by the script above from the feed. --}}
         @include('partials.notification-modal')
     @endauth
+
+    {{-- Where every @push('scripts') from a page or a partial lands: below
+         window.tiuNotifications and public/assets/js/notifications.js, so a page
+         script can use the helpers they define.
+
+         This used to sit ABOVE both, which broke the button on /notifications in
+         two ways: its script read `window.tiuNotifications` before the layout had
+         defined it, hit its own "no config yet" guard and returned - so the button
+         stayed hidden for every member on every browser - and a @push from a
+         partial rendered after this point was dropped outright (Laravel prints
+         nothing for a stack that has already been rendered), which is why the bell
+         panel could not offer the same button. Keep this at the end of the body. --}}
+    @stack('scripts')
 
     {{-- The airtime top-up button, modal and click handler all live in
          partials/nav, next to the button that opens them. Do not add a second
