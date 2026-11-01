@@ -42,6 +42,15 @@
             </div>
 
             <div class="modal-footer notif-modal-footer">
+                {{-- Written by notifications.js, and only when there is something to
+                     report that the buttons cannot say themselves (alerts blocked,
+                     a browser without the API, already on, a retry). It takes a row
+                     of its own ABOVE the buttons - see the `span.notif-modal-state`
+                     rule in layouts/app - because it used to sit between them in
+                     Bootstrap's single nowrap footer row, where it was squeezed and
+                     painted over "Mark all as read" and "Close" on a phone. --}}
+                <span class="notif-modal-state" id="notifPanelBrowserAlertsState" hidden></span>
+
                 <button type="button" class="btn btn-sm btn-outline-primary" id="notifMarkAll"
                         title="Removes every alert from this list">
                     <i class="fas fa-check-double"></i> Mark all as read
@@ -53,8 +62,6 @@
                          second button there. Hidden by notifications.js whenever a
                          click would achieve nothing (already on, blocked, or a
                          browser without the Notification API). --}}
-                    <span class="text-muted" id="notifPanelBrowserAlertsState" style="font-size:12px;" hidden></span>
-
                     <button type="button" class="btn btn-sm btn-outline-primary" id="notifPanelBrowserAlerts" hidden>
                         <i class="fas fa-mobile-alt"></i> Turn on phone alerts
                     </button>

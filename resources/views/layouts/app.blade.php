@@ -264,14 +264,46 @@
         color: #b9bcd8;
     }
 
+    /* Bootstrap 4.1's .modal-footer is ONE non-wrapping flex row, and every .btn in
+       it is nowrap, so the panel's four footer items never fit - not the 420px dock,
+       and certainly not a phone, where the panel is the whole screen. They used to
+       overflow: the state line was squeezed and painted over its neighbours, and
+       "Close" was pushed past the panel's right edge, where a sliver of it showed as
+       a stray grey box. Wrap the row instead (a line break beats a clipped label),
+       and never shrink a button below its label. */
     .notif-modal-footer {
+        flex-wrap: wrap;
+        gap: 8px;
         justify-content: space-between;
+    }
+
+    .notif-modal-footer .btn {
+        flex: 0 0 auto;
+    }
+
+    /* The status line is about the button, not a fourth button: it takes the whole
+       first row, so it can wrap inside the panel instead of under it. Light rule,
+       then its dark twin (docs/DISPLAY-MODE.md). */
+    span.notif-modal-state {
+        flex: 1 1 100%;
+        font-size: 12px;
+        color: #8a90b5;
+    }
+
+    .ms-dark-theme span.notif-modal-state {
+        color: #b9bcd8;
     }
 
     .notif-modal-links {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
+        justify-content: flex-end;
         gap: 6px;
+        min-width: 0;
+        /* When the footer has to wrap, "Mark all as read" keeps the first line and
+           the actions stay on the right of whatever line they land on. */
+        margin-left: auto;
     }
 
     .ms-dark-theme .notif-modal-header,

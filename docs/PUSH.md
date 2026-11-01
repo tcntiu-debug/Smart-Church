@@ -84,6 +84,13 @@ Two things were also wrong on the phone before this landed:
    alerts"). One tap anywhere is enough; the page then says *"Phone alerts are on:
    they arrive even when the app is closed."*
 
+   Only the states a button cannot express are written out beside it - blocked in
+   site settings, a browser without the `Notification` API, already on, or "tap to
+   retry". The button's own label is never repeated as text: in the bell panel the
+   status line lives on a row of its own above the footer buttons, because
+   Bootstrap 4.1's `.modal-footer` is one non-wrapping row and the repeated sentence
+   pushed "Close" off the panel on a phone (see `test_the_panel_footer_wraps_instead_of_clipping_its_buttons`).
+
    It cannot switch itself on, by design and by browser rule: every browser requires
    a user gesture for `Notification.requestPermission()`, and Chrome suppresses a
    prompt a page raises on load. Granting it once is the last manual step - after

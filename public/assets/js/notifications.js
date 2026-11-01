@@ -846,7 +846,13 @@
             }
 
             button.hidden = false;
-            say('Turn on phone alerts to hear about new assignments.');
+
+            // Nothing to say: the label already is the sentence. Writing it twice
+            // put "Turn on phone alerts to hear about new assignments." between the
+            // button and its neighbours in the bell panel's footer, where it wrapped
+            // over "Mark all as read" and "Close" on a phone. The state line is for
+            // what the button cannot say - blocked, unsupported, already on, retry.
+            say('');
             settle();
         }
 

@@ -441,6 +441,76 @@ class AssignmentNotificationTest extends TestCase
     }
 
     /**
+     * The bell panel's footer has four things to show: "Mark all as read", the
+     * phone-alerts status line, "Turn on phone alerts" and "Close". Bootstrap 4.1's
+     * `.modal-footer` is a single non-wrapping flex row whose `.btn`s are nowrap, so
+     * they never fit - not in the 420px dock, and certainly not on a phone, where the
+     * panel is the whole screen. The status line was squeezed until it painted over
+     * its neighbours and "Close" was pushed past the panel's right edge, leaving what
+     * looks like a stray grey box at the edge of the screen.
+     *
+     * The fix is structural, so the guard is too: the status line is a child of the
+     * footer (a full row above the buttons) rather than a member of the buttons' own
+     * row, and the footer is allowed to wrap.
+     */
+    public function test_the_panel_footer_wraps_instead_of_clipping_its_buttons()
+    {
+        $member = $this->memberQuery()->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member with a complete profile available.');
+        }
+
+        $response = $this->actingAs($member)->get('/home');
+
+        $response->assertOk();
+
+        // The status line comes BEFORE the buttons, so it gets a row of its own and
+        // can wrap inside the panel instead of under it.
+        $response->assertSeeInOrder([
+            'class="notif-modal-state"',
+            'id="notifMarkAll"',
+            'id="notifPanelBrowserAlerts"',
+        ], false);
+
+        // ...and the rules that make that row possible. A layout edit that drops
+        // either one brings the clipped footer back, and no php-side assertion
+        // would notice: this is CSS, so read the stylesheet the way
+        // test_the_bell_script_waits_for_the_document_before_it_reads_the_panel()
+        // reads the script.
+        $layout = file_get_contents(resource_path('views/layouts/app.blade.php'));
+
+        $this->assertMatchesRegularExpression(
+            '/\.notif-modal-footer \{\s*\n\s*flex-wrap: wrap;/',
+            $layout,
+            'Bootstrap 4.1 gives .modal-footer one nowrap row; the panel footer must wrap.'
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/span\.notif-modal-state \{\s*\n\s*flex: 1 1 100%;/',
+            $layout,
+            'The status line needs a full row of its own above the footer buttons.'
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/\.notif-modal-footer \.btn \{\s*\n\s*flex: 0 0 auto;/',
+            $layout,
+            'A nowrap button squeezed by the flex row loses the end of its label.'
+        );
+
+        // The status line reports what the button cannot say (blocked, unsupported,
+        // already on, retry). Repeating the button's own label there is what made the
+        // footer unreadable in the first place.
+        $script = file_get_contents(public_path('assets/js/notifications.js'));
+
+        $this->assertStringNotContainsString(
+            "say('Turn on phone alerts to hear about new assignments.')",
+            $script,
+            'The phone-alerts button already carries that sentence; the state line must not repeat it.'
+        );
+    }
+
+    /**
      * The panel is rendered *below* the script that fills it (layouts/app.blade.php
      * loads notifications.js, then includes the panel), so the script must not read
      * the panel's nodes while it is being parsed. Doing that left `canRenderPanel`
