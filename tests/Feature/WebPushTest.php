@@ -522,6 +522,34 @@ class WebPushTest extends TestCase
     }
 
     /**
+     * The same leak seen from the browser: a directive that renders HTML into a `//`
+     * comment leaves a `<script` inside a JavaScript line comment, the browser closes
+     * the real tag there and prints the rest of the file as page text (that is what
+     * dev and production showed after bd96024). The source guard above catches the
+     * cause; this one catches the symptom on the pages themselves.
+     */
+    public function test_no_script_tag_is_rendered_inside_a_javascript_comment()
+    {
+        $member = TiuMember::query()->first();
+
+        if (! $member) {
+            $this->markTestSkipped('No member row available to authenticate the page request.');
+        }
+
+        $this->configure();
+
+        foreach (['/home', '/notifications'] as $page) {
+            $html = $this->actingAs($member)->get($page)->getContent();
+
+            $this->assertDoesNotMatchRegularExpression(
+                '#(?<![:/])//[^\n]*<script#i',
+                $html,
+                $page.' renders a <script> tag inside a JavaScript comment: the tag closes early and the rest of the script prints as page text.'
+            );
+        }
+    }
+
+    /**
      * The layout must define window.tiuNotifications and load notifications.js
      * BEFORE @stack('scripts') renders. The button on /notifications was in the
      * markup all along and still never appeared, because its script ran first,
