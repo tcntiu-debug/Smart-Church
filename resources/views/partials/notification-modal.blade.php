@@ -70,8 +70,10 @@
 <script>
     // The same binder the notification page and the dashboard use, so the panel
     // can switch phone alerts on without sending anybody to another page. It renders
-    // after window.tiuNotifications and notifications.js - see @stack('scripts') in
-    // layouts/app.blade.php.
+    // after window.tiuNotifications and notifications.js - see the scripts stack at
+    // the end of layouts/app.blade.php. (Write that stack name WITHOUT an @ in here:
+    // Blade compiles directives even inside a // comment, and this one made the
+    // panel print itself as page text.)
     (function () {
         'use strict';
 

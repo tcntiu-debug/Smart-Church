@@ -492,6 +492,36 @@ class WebPushTest extends TestCase
     }
 
     /**
+     * Blade compiles directives ANYWHERE - including inside a `//` comment in a
+     * <script> block. An `@stack('scripts')` written there re-rendered the stack
+     * into the panel's own script; the injected </script> closed the tag early and
+     * the rest of the panel's JavaScript printed as page text on every signed-in
+     * page. Output directives belong outside <script>, without exception.
+     */
+    public function test_no_blade_output_directive_sits_inside_a_script_block()
+    {
+        $views = [
+            'notifications/index.blade.php',
+            'partials/notification-modal.blade.php',
+            'partials/phone-alerts-button.blade.php',
+        ];
+
+        foreach ($views as $view) {
+            $source = file_get_contents(resource_path('views/'.$view));
+
+            preg_match_all('/<script\b[^>]*>(.*?)<\/script>/is', $source, $matches);
+
+            foreach ($matches[1] as $block) {
+                $this->assertDoesNotMatchRegularExpression(
+                    '/@(stack|push|include|json|php|auth|csrf)\b/',
+                    $block,
+                    $view.' puts a Blade directive inside a <script> block; Blade compiles it there and breaks the page.'
+                );
+            }
+        }
+    }
+
+    /**
      * The layout must define window.tiuNotifications and load notifications.js
      * BEFORE @stack('scripts') renders. The button on /notifications was in the
      * markup all along and still never appeared, because its script ran first,

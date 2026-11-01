@@ -104,10 +104,12 @@
     // three drifting copies of it. It also reports whether the PHONE - not just
     // the browser - holds a push subscription (docs/PUSH.md).
     //
-    // This renders at @stack('scripts') in layouts/app.blade.php, which sits BELOW
-    // window.tiuNotifications and notifications.js. It did not, once: the guard
-    // below read `undefined` and returned, so the button stayed hidden for every
-    // member, on every browser, on the one page that offered it.
+    // This renders in the scripts stack at the end of layouts/app.blade.php, which
+    // sits BELOW window.tiuNotifications and notifications.js. It once did not, and
+    // the guard below read `undefined` and returned, so the button stayed hidden for
+    // every member, on every browser, on the one page that offered it.
+    // (Name that stack WITHOUT an @ in here - Blade compiles directives inside a
+    // // comment too, and would paste the stack into this <script>.)
     (function () {
         'use strict';
 
