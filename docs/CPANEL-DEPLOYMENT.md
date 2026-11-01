@@ -444,6 +444,16 @@ so a dormant Web Push feature (no `WEBPUSH_*` keys) or a stale route cache can n
 longer take the app down — it simply leaves push off and says so in
 `public/assets/js/notifications.js`.
 
+`/weeklist` is the third page to learn this the hard way (`weeklist.call-list`
+arrived in Nov 2026 with the "Call list & WhatsApp" button that links to it). A
+cache baked before that release made `/weeklist` the only 500 in the app — the
+login page, the dashboard and every other signed-in page stayed up — so it read
+as a broken page, not a broken deploy. `resources/views/weeklist/index.blade.php`
+now asks `Route::has('weeklist.call-list')` and drops the button (and the two
+sentences that describe it) when the answer is no; the link comes back on its own
+once `app:post-deploy` rebuilds the route cache. Pinned by
+`tests/Feature/StaleRouteCacheTest.php`.
+
 **A 500 that only one role can reproduce is the same bug.** `Route::has()` is the
 rule for any route name a *shared* view names: `layouts/app.blade.php`,
 `partials/nav.blade.php` and `home.blade.php` render for every signed-in user, so a

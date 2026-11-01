@@ -82,23 +82,31 @@ class StaleRouteCacheTest extends TestCase
 
     /**
      * The route cache from before the birthdays split: /celebrations missing.
-     *
-     * Not a mock: the router and the URL generator are handed a route collection
-     * that simply does not contain the name, which is what a routes-*.php built
-     * before the deploy does. Route::has() then answers false and route() throws,
-     * exactly as on the server.
      */
     private function cacheWithoutCelebrations(): void
     {
+        $this->forgetRoute('birthdays.celebrations');
+    }
+
+    /**
+     * Hand the router and the URL generator a route collection that does not
+     * contain $name - the routes-*.php a release was deployed on top of.
+     *
+     * Not a mock: the collection simply lacks the name, which is what a cache
+     * built before the deploy does. Route::has() then answers false and route()
+     * throws, exactly as on the server.
+     */
+    private function forgetRoute(string $name): void
+    {
         $this->assertTrue(
-            Route::has('birthdays.celebrations'),
-            'This test fakes a name the application does not have: nothing to hide.'
+            Route::has($name),
+            "This test fakes a name the application does not have ({$name}): nothing to hide."
         );
 
         $trimmed = new RouteCollection();
 
         foreach (app('router')->getRoutes()->getRoutes() as $route) {
-            if ($route->getName() !== 'birthdays.celebrations') {
+            if ($route->getName() !== $name) {
                 $trimmed->add($route);
             }
         }
@@ -108,7 +116,7 @@ class StaleRouteCacheTest extends TestCase
         app('router')->setRoutes($trimmed);
         app('url')->setRoutes($trimmed);
 
-        $this->assertFalse(Route::has('birthdays.celebrations'), 'The stale cache still knows the name.');
+        $this->assertFalse(Route::has($name), 'The stale cache still knows the name.');
         $this->assertTrue(Route::has('home'), 'The trimmed cache lost routes it should keep.');
     }
 
@@ -165,5 +173,28 @@ class StaleRouteCacheTest extends TestCase
         $nav = view('partials.nav')->render();
 
         $this->assertStringContainsString(route('birthdays.index'), $nav);
+    }
+
+    /**
+     * /weeklist names the call list page, a route that arrived in the same
+     * release as the button it labels. A cache baked before that release makes
+     * route('weeklist.call-list') throw RouteNotFoundException, and because the
+     * name is on that page alone the desk saw 500 on /weeklist while the rest of
+     * the app kept working. The page has to lose the button, not itself.
+     */
+    public function test_the_week_list_loses_the_call_list_button_not_the_page()
+    {
+        $this->forgetRoute('weeklist.call-list');
+        $this->viewer('Admin');
+
+        $response = $this->get('/weeklist');
+
+        $response->assertOk();
+        $response->assertDontSee('/weeklist/call-list', false);
+
+        // The list, the modal and the admin toolbar are still rendered.
+        $response->assertSee('View Call List', false);
+        $response->assertSee('Weekly Call List', false);
+        $response->assertSee('Unassign all guides', false);
     }
 }

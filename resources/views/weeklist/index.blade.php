@@ -1,6 +1,17 @@
 @extends('layouts.app')
 
 @section('content')
+@php
+    // "Call list & WhatsApp" points at /weeklist/call-list, and that route
+    // arrived in the same release as this button. A route cache baked before the
+    // release (bootstrap/cache/routes-*.php) does not carry the name, and
+    // route() throws RouteNotFoundException for it - which took /weeklist down
+    // with a 500 for every role while the rest of the app kept working. Ask
+    // first and drop the button instead: same guard as the sidebar
+    // (partials/nav.blade.php) and the push block (layouts/app.blade.php). See
+    // "Deploy order: new routes and the route cache" in docs/CPANEL-DEPLOYMENT.md.
+    $hasCallList = \Illuminate\Support\Facades\Route::has('weeklist.call-list');
+@endphp
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <style>
     /* The touch point and guest type filters are rendered as chip-style
@@ -255,9 +266,11 @@
                      each. It is a page, so it shows the assignments as they are
                      now - pick or change a caller in the modal above, then open
                      this. The filters travel with it in the query string. --}}
-                <a href="{{ route('weeklist.call-list', request()->query()) }}" class="btn btn-success btn-lg mb-2 ml-2">
-                    <i class="fab fa-whatsapp"></i> Call list &amp; WhatsApp
-                </a>
+                @if($hasCallList)
+                    <a href="{{ route('weeklist.call-list', request()->query()) }}" class="btn btn-success btn-lg mb-2 ml-2">
+                        <i class="fab fa-whatsapp"></i> Call list &amp; WhatsApp
+                    </a>
+                @endif
 
                 @if($isAdmin)
                     <button type="button" id="unassign-all-guides" class="btn btn-warning btn-lg mb-2 ml-2">
@@ -267,8 +280,10 @@
 
                 <div class="text-muted small mt-2">
                     <i class="fas fa-info-circle"></i>
-                    <strong>Call list &amp; WhatsApp</strong> opens the list you send the callers - one green
-                    button per caller with their message already written.
+                    @if($hasCallList)
+                        <strong>Call list &amp; WhatsApp</strong> opens the list you send the callers - one green
+                        button per caller with their message already written.
+                    @endif
                     @if($isAdmin)
                         "Assign all callers" is inside the call list - open <strong>View Call List</strong> above.
                         Unassigning works on every first timer in the list (Admin / Super User only).
@@ -358,7 +373,9 @@
                     <small class="text-muted">
                         <i class="fas fa-info-circle"></i>
                         Select a caller from the dropdown. Changes are saved automatically. Choose "-- Auto (Round-robin) --" to reset.
-                        The list the callers receive is on <strong>Call list &amp; WhatsApp</strong>, under the table.
+                        @if($hasCallList)
+                            The list the callers receive is on <strong>Call list &amp; WhatsApp</strong>, under the table.
+                        @endif
                     </small>
                 @endif
             </div>
