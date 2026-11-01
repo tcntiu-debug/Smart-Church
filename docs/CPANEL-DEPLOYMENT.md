@@ -659,7 +659,9 @@ can never receive one.
 more. The follow-up is no longer thrown away: the row is copied into
 `member_tracking_followup_archive` **before** it is deleted, so the last guide and the last
 comment stay visible under **`/weeklist/guide-history`** (Admins / Super Users; `?search=` and
-`?reason=` filter it). The archive table is created on demand — the command applies its own
+`?reason=` filter it), which the side navigation links from **Tracking-Integration → Guide
+History** — it is a tracking report, not part of the weekly call list, and it used to be a
+button on `/weeklist`. The archive table is created on demand — the command applies its own
 migration, and so do `app:sync-schema` and `app:post-deploy --migrate` — so nothing has to be
 run by hand on the SFTP-only host.
 

@@ -151,29 +151,88 @@ class WeekListCallerAssignmentTest extends TestCase
     }
 
     /**
-     * The `groupedPrintData` payload the modal's "Print List" button renders
-     * from: caller name => list of people to call.
+     * The caller groups on the call list page (/weeklist/call-list):
+     * caller name => list of people to call.
+     *
+     * Read off the rendered page, not a JSON payload: the list is a
+     * server-rendered view now (resources/views/weeklist/call-list.blade.php),
+     * so the markup is the payload.
      */
     private function groupedPrintData(string $html): array
     {
-        preg_match('/var groupedPrintData = (.+?);\r?\n\s*var printTitle/s', $html, $matches);
+        preg_match_all(
+            '/<section class="call-group" data-caller="([^"]*)">(.*?)<\/section>/s',
+            $html,
+            $sections,
+            PREG_SET_ORDER
+        );
 
-        $this->assertNotEmpty($matches, 'Could not find the groupedPrintData payload in the week list.');
+        $this->assertNotEmpty($sections, 'The call list page rendered no caller groups.');
 
-        return json_decode($matches[1], true) ?: [];
+        $groups = [];
+
+        foreach ($sections as $section) {
+            preg_match_all(
+                '/<li data-name="([^"]*)"[^>]*data-phone="([^"]*)"[^>]*data-gender="([^"]*)"'
+                . '[^>]*data-guest-type="([^"]*)"[^>]*data-age="([^"]*)"/s',
+                $section[2],
+                $rows,
+                PREG_SET_ORDER
+            );
+
+            $persons = [];
+            foreach ($rows as $row) {
+                $persons[] = [
+                    'name'       => html_entity_decode($row[1]),
+                    'phone'      => html_entity_decode($row[2]),
+                    'gender'     => html_entity_decode($row[3]),
+                    'guest_type' => html_entity_decode($row[4]),
+                    'age'        => html_entity_decode($row[5]),
+                ];
+            }
+
+            $groups[html_entity_decode($section[1])] = $persons;
+        }
+
+        return $groups;
     }
 
     /**
-     * The `callerWhatsApp` payload the modal's "Print List" button renders the
-     * green WhatsApp buttons from: caller name => [phone, url].
+     * The green WhatsApp button on the call list page: caller name =>
+     * [phone, url]. A caller with no number on file (or "Unassigned") has no
+     * button, exactly as before.
      */
     private function callerWhatsAppData(string $html): array
     {
-        preg_match('/var callerWhatsApp = (.+?);\r?\n/', $html, $matches);
+        preg_match_all(
+            '/<section class="call-group" data-caller="([^"]*)">(.*?)<\/section>/s',
+            $html,
+            $sections,
+            PREG_SET_ORDER
+        );
 
-        $this->assertNotEmpty($matches, 'Could not find the callerWhatsApp payload in the week list.');
+        $this->assertNotEmpty($sections, 'The call list page rendered no caller groups.');
 
-        return json_decode($matches[1], true) ?: [];
+        $links = [];
+
+        foreach ($sections as $section) {
+            if (! preg_match('/<a class="caller-wa" href="([^"]*)"/', $section[2], $match)) {
+                continue;
+            }
+
+            $url = html_entity_decode($match[1]);
+
+            // The number the button dials is the one in the wa.me URL, which is
+            // what WhatsApp will use.
+            preg_match('#^https://wa\.me/([0-9]+)#', $url, $phone);
+
+            $links[html_entity_decode($section[1])] = [
+                'phone' => $phone[1] ?? '',
+                'url'   => $url,
+            ];
+        }
+
+        return $links;
     }
 
     /**
@@ -303,6 +362,33 @@ class WeekListCallerAssignmentTest extends TestCase
 
         $response = $this->actingAs($this->viewer())
             ->get('/weeklist?' . http_build_query($query));
+
+        $response->assertStatus(200);
+
+        return $response;
+    }
+
+    /**
+     * The same window and filters, but the call list page itself - the list the
+     * callers are sent, which the week list links to under the table.
+     *
+     * @param  array<int, string>  $touchpoints
+     * @param  array<int, string>  $guestTypes
+     */
+    private function callListResponse(array $touchpoints = [], array $guestTypes = [])
+    {
+        $query = self::WINDOW;
+
+        if ($touchpoints !== []) {
+            $query['touchpoints'] = $touchpoints;
+        }
+
+        if ($guestTypes !== []) {
+            $query['guest_type'] = $guestTypes;
+        }
+
+        $response = $this->actingAs($this->viewer())
+            ->get('/weeklist/call-list?' . http_build_query($query));
 
         $response->assertStatus(200);
 
@@ -540,7 +626,7 @@ class WeekListCallerAssignmentTest extends TestCase
             $callerGenders[$this->fullName($caller)] = strtolower(trim((string) $caller->gender));
         }
 
-        $data = $this->groupedPrintData($this->weekListResponse()->getContent());
+        $data = $this->groupedPrintData($this->callListResponse()->getContent());
 
         $this->assertNotEmpty($data, 'The call list is empty for the whole window.');
         $this->assertArrayNotHasKey(
@@ -609,13 +695,51 @@ class WeekListCallerAssignmentTest extends TestCase
     }
 
     /**
+     * The call list is a page now, not a print window inside the modal: the week
+     * list carries a "Call list & WhatsApp" button to it - one tap away once the
+     * callers have been picked or reassigned - and the modal no longer prints.
+     *
+     * The page itself has to be tappable: real wa.me anchors (no popup, no
+     * window.print() on load) and a Print button for the desk.
+     */
+    public function test_the_week_list_links_to_the_call_list_page_and_the_modal_no_longer_prints()
+    {
+        $weekList = $this->weekListResponse();
+
+        $weekList->assertSee(route('weeklist.call-list'), false);
+        $weekList->assertSee('Call list &amp; WhatsApp', false);
+        $weekList->assertDontSee('Print List');
+        $weekList->assertDontSee('printCallList', false);
+
+        $callList = $this->callListResponse();
+
+        $callList->assertSee('Weekly Call List');
+        $callList->assertSee('class="call-group"', false);
+        $callList->assertSee('class="caller-wa"', false);
+        $callList->assertSee('https://wa.me/', false);
+        // Printing is a button, never something the page does on its own...
+        $callList->assertSee('window.print()', false);
+        // ...and the filters travel back with the member.
+        $callList->assertSee(route('weeklist.index'), false);
+    }
+
+    /**
+     * The call list repeats the callers' numbers and the first timers' numbers,
+     * so it must sit behind the same sign-in the week list does.
+     */
+    public function test_the_call_list_page_needs_a_signed_in_member()
+    {
+        $this->get('/weeklist/call-list')->assertRedirect(route('login'));
+    }
+
+    /**
      * The printed call list carries one WhatsApp button per caller. Its message
      * greets the caller by the gender stored on their profile ("Good day Sir" /
      * "Good day Ma", or the plain name when it is still blank), names the first
      * timers that caller was handed, and reminds them about the TIU app, the
      * airtime top-up, feedback, and closes with a blessing.
      */
-    public function test_every_caller_gets_a_prefilled_whatsapp_message_on_the_printed_list()
+    public function test_every_caller_gets_a_prefilled_whatsapp_message_on_the_call_list_page()
     {
         $callers = $this->callers()->keyBy(function ($caller) {
             return $this->fullName($caller);
@@ -625,7 +749,7 @@ class WeekListCallerAssignmentTest extends TestCase
             $this->markTestSkipped('No members in the "' . self::CALLER_SUBGROUP . '" subgroup available.');
         }
 
-        $html = $this->weekListResponse()->getContent();
+        $html = $this->callListResponse()->getContent();
         $groups = $this->groupedPrintData($html);
         $links = $this->callerWhatsAppData($html);
 

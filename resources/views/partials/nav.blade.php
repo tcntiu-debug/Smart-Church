@@ -152,6 +152,13 @@ $hasCelebrations = \Illuminate\Support\Facades\Route::has('birthdays.celebration
         <li><a href="{{ url('/fview') }}">First Timer View</a></li>
         <li><a href="{{ url('/fthangout') }}">Hangout Data</a></li>
         @endif
+        {{-- The history of released first timers (last guide, last task, last
+             comment) used to be a button on /weeklist. It lives here because it
+             is a tracking report, not part of the weekly call list. Same roles as
+             WeekListController::guideHistory(), which refuses everybody else. --}}
+        @if(in_array($member_role, ['Admin', 'Admins', 'Super User']))
+        <li><a href="{{ route('weeklist.guide-history') }}">Guide History</a></li>
+        @endif
       </ul>
     </li>
     @endif

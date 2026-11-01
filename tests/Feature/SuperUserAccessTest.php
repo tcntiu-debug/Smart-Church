@@ -128,7 +128,7 @@ class SuperUserAccessTest extends TestCase
             '/lead/house-fellowship', '/lead/cluster', '/ftlead', '/pending-tasks',
             '/fview', '/fthangout', '/my-tasks', '/ft-register', '/my-business',
             '/purchase', '/public', '/private', '/privacy-policy', '/data-policy',
-            '/profile', '/mtouchpoint', '/gallery',
+            '/profile', '/mtouchpoint', '/gallery', '/weeklist/guide-history',
         ];
 
         $paths = array_map(function ($href) {

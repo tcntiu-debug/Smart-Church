@@ -210,8 +210,8 @@
                                 }
                             @endphp
                             <tr class="{{ $row->isDuplicate ? 'table-warning' : '' }}">
-                                <td>{{ $index + 1 }}</td>
-                                <td>
+                                <td data-label="S/N">{{ $index + 1 }}</td>
+                                <td data-label="Full Name">
                                     @if(in_array($member_role, ['Super User', 'Admin']) && $row->status != "Disable")
                                         <a href="https://wa.me/{{ $whatsappPhone }}?text={{ $encodedMessage }}" target="_blank" title="Send WhatsApp message to {{ $row->first_name }} {{ $row->last_name }}">
                                             <i class="fab fa-whatsapp" style="color: green; margin-right: 5px;"></i>
@@ -222,10 +222,10 @@
                                         <span class="badge badge-warning"><i class="fas fa-exclamation-triangle"></i> Possible Duplicate</span>
                                     @endif
                                 </td>
-                                <td>{{ $row->attendant_type }}</td>
-                                <td>{{ $row->church_type_name ?? 'N/A' }}</td>
-                                <td>{{ $row->gender ?? 'N/A' }}</td>
-                                <td>
+                                <td data-label="Guest Type">{{ $row->attendant_type }}</td>
+                                <td data-label="Church Type">{{ $row->church_type_name ?? 'N/A' }}</td>
+                                <td data-label="Gender">{{ $row->gender ?? 'N/A' }}</td>
+                                <td data-label="Guide">
                                     @if($row->isGuideAssigned && $row->status != "Disable")
                                         <a href="https://wa.me/{{ $row->guide_phone }}?text={{ $guideWhatsAppMessage }}" target="_blank" title="Contact guide {{ $row->guide_name }}">
                                             <i class="fab fa-whatsapp" style="color: green; margin-right: 5px;"></i>
@@ -243,25 +243,37 @@
                 </table>
             </div>
 
-            <!-- View Call List button, plus the admin-only bulk actions -->
+            <!-- View Call List (the assignment modal), the call list itself, and
+                 the admin-only bulk action -->
             <div class="text-center mt-4">
                 <button type="button" class="btn btn-info btn-lg mb-2" data-toggle="modal" data-target="#callerModal">
                     <i class="fas fa-phone-alt"></i> View Call List
                 </button>
 
+                {{-- The list the callers are actually sent: every caller with the
+                     first timers they were handed and a pre-filled WhatsApp button
+                     each. It is a page, so it shows the assignments as they are
+                     now - pick or change a caller in the modal above, then open
+                     this. The filters travel with it in the query string. --}}
+                <a href="{{ route('weeklist.call-list', request()->query()) }}" class="btn btn-success btn-lg mb-2 ml-2">
+                    <i class="fab fa-whatsapp"></i> Call list &amp; WhatsApp
+                </a>
+
                 @if($isAdmin)
                     <button type="button" id="unassign-all-guides" class="btn btn-warning btn-lg mb-2 ml-2">
                         <i class="fas fa-user-slash"></i> Unassign all guides
                     </button>
-                    <a href="{{ route('weeklist.guide-history') }}" class="btn btn-secondary btn-lg mb-2 ml-2">
-                        <i class="fas fa-history"></i> Guide history
-                    </a>
-                    <div class="text-muted small mt-2">
-                        <i class="fas fa-info-circle"></i>
-                        These two work on every first timer in the list above (Admin / Super User only).
-                        "Assign all callers" is inside the call list - open <strong>View Call List</strong> above.
-                    </div>
                 @endif
+
+                <div class="text-muted small mt-2">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Call list &amp; WhatsApp</strong> opens the list you send the callers - one green
+                    button per caller with their message already written.
+                    @if($isAdmin)
+                        "Assign all callers" is inside the call list - open <strong>View Call List</strong> above.
+                        Unassigning works on every first timer in the list (Admin / Super User only).
+                    @endif
+                </div>
 
                 <div id="bulk-action-status" class="mt-2"></div>
             </div>
@@ -289,7 +301,7 @@
                     <span class="text-muted">(change the "Call List Touch Point(s)" filter above and press Apply)</span>
                 </div>
                 <div class="table-responsive">
-                    <table class="table table-bordered table-striped">
+                    <table id="caller-table" class="table table-bordered table-striped">
                         <thead class="thead-light">
                             <tr>
                                 <th>#</th>
@@ -310,13 +322,13 @@
                                         : $row->phone_number;
                                 @endphp
                                 <tr data-ftid="{{ $row->first_timer_id }}">
-                                    <td>{{ $index + 1 }}</td>
-                                    <td>{{ $row->first_name }} {{ $row->last_name }}</td>
-                                    <td><a href="tel:{{ $phoneLink }}">{{ $row->phone_number }}</a></td>
-                                    <td>{{ $row->gender }}</td>
-                                    <td>{{ ($row->age !== null && $row->age !== '') ? $row->age : 'Not specified' }}</td>
-                                    <td>{{ $row->attendant_type }}</td>
-                                    <td>
+                                    <td data-label="#">{{ $index + 1 }}</td>
+                                    <td data-label="Name">{{ $row->first_name }} {{ $row->last_name }}</td>
+                                    <td data-label="Phone"><a href="tel:{{ $phoneLink }}">{{ $row->phone_number }}</a></td>
+                                    <td data-label="Gender">{{ $row->gender }}</td>
+                                    <td data-label="Age">{{ ($row->age !== null && $row->age !== '') ? $row->age : 'Not specified' }}</td>
+                                    <td data-label="Guest Type">{{ $row->attendant_type }}</td>
+                                    <td data-label="Caller">
                                         <select class="form-control caller-select" data-ftid="{{ $row->first_timer_id }}">
                                             <option value="">-- Auto (Round-robin) --</option>
                                             @foreach($callers as $caller)
@@ -346,6 +358,7 @@
                     <small class="text-muted">
                         <i class="fas fa-info-circle"></i>
                         Select a caller from the dropdown. Changes are saved automatically. Choose "-- Auto (Round-robin) --" to reset.
+                        The list the callers receive is on <strong>Call list &amp; WhatsApp</strong>, under the table.
                     </small>
                 @endif
             </div>
@@ -363,19 +376,154 @@
                     </div>
                 @endif
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="printCallList();">Print List</button>
             </div>
         </div>
     </div>
 </div>
 
 <style>
+    /* ---------------------------------------------------------------------
+       Phones: the stacked "card" tables.
+       ---------------------------------------------------------------------
+       A seven column table cannot fit a phone, so below 768px each row becomes
+       a card and every cell is prefixed with the column name it came from - the
+       headings live in the cells' `data-label` attributes, because the <thead>
+       is the first thing to go. Both tables on this page (the first timer list
+       and the Weekly Call List modal) get the same treatment; without the
+       labels the modal's cells read as bare numbers on a phone.
+       --------------------------------------------------------------------- */
     @media (max-width: 767px) {
-        #first-timers-table thead { display: none; }
-        #first-timers-table, #first-timers-table tbody, #first-timers-table tr, #first-timers-table td { display: block; width: 100%; }
-        #first-timers-table tr { margin-bottom: 1rem; border: 1px solid #ddd; border-radius: 5px; }
-        #first-timers-table td { text-align: right; padding-left: 50%; position: relative; border-bottom: 1px solid #eee; padding-top: 12px; padding-bottom: 12px; }
-        #first-timers-table td::before { content: attr(data-label); position: absolute; left: 15px; width: 45%; padding-right: 10px; white-space: nowrap; text-align: left; font-weight: bold; }
+        #first-timers-table thead,
+        #caller-table thead {
+            display: none;
+        }
+
+        #first-timers-table,
+        #first-timers-table tbody,
+        #first-timers-table tr,
+        #first-timers-table td,
+        #caller-table,
+        #caller-table tbody,
+        #caller-table tr,
+        #caller-table td {
+            display: block;
+            width: 100%;
+        }
+
+        #first-timers-table tr,
+        #caller-table tr {
+            margin-bottom: 1rem;
+            border: 1px solid #e3e6f3;
+            border-radius: 8px;
+            background-color: #ffffff;
+            overflow: hidden;
+        }
+
+        #first-timers-table td,
+        #caller-table td {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 6px;
+            padding: 10px 12px 10px 42%;
+            position: relative;
+            text-align: left;
+            border-bottom: 1px solid #eef0f8;
+            word-break: break-word;
+        }
+
+        #first-timers-table td:last-child,
+        #caller-table td:last-child {
+            border-bottom: 0;
+        }
+
+        #first-timers-table td::before,
+        #caller-table td::before {
+            content: attr(data-label);
+            position: absolute;
+            left: 12px;
+            top: 10px;
+            width: 38%;
+            padding-right: 8px;
+            text-align: left;
+            font-weight: 600;
+            color: #6c757d;
+        }
+
+        /* A dropdown that has to be tapped needs the room, not a 58% sliver. */
+        #caller-table td[data-label="Caller"] {
+            padding-left: 12px;
+        }
+
+        #caller-table td[data-label="Caller"]::before {
+            position: static;
+            width: 100%;
+            padding: 0;
+        }
+
+        #caller-table .caller-select {
+            width: 100%;
+        }
+    }
+
+    /* ---------------------------------------------------------------------
+       The Weekly Call List modal on a phone.
+       ---------------------------------------------------------------------
+       Bootstrap 4.1 has no scrollable modal: the dialog grew past the screen
+       and its footer (the only place with Close) went with it. Below 768px the
+       panel is the screen; from 768px up the body scrolls inside a bounded
+       dialog, so a long list never hides the buttons.
+       --------------------------------------------------------------------- */
+    #callerModal .modal-body {
+        max-height: calc(100vh - 210px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #callerModal .modal-footer {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    #callerModal .modal-footer .btn {
+        flex: 0 0 auto;
+    }
+
+    /* The caller's name has to fit the closed dropdown, not just the list it
+       opens - a seven-column table leaves that last cell very little room. */
+    #caller-table .caller-select {
+        min-width: 170px;
+    }
+
+    @media (max-width: 767px) {
+        #callerModal .modal-dialog {
+            margin: 0;
+            max-width: 100%;
+            height: 100%;
+        }
+
+        #callerModal .modal-content {
+            height: 100%;
+            border: 0;
+            border-radius: 0;
+        }
+
+        #callerModal .modal-body {
+            max-height: none;
+        }
+
+        #callerModal .modal-footer {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        #callerModal .modal-footer .mr-auto {
+            margin-right: 0 !important;
+        }
+
+        #callerModal .modal-footer .btn {
+            width: 100%;
+        }
     }
 </style>
 @endsection
@@ -383,12 +531,10 @@
 @push('scripts')
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
-    var groupedPrintData = @json($groupedForPrint);
-    var printTitle = @json($page_title . ($selectedTouchpoints ? ' | Caller team: ' . implode(', ', $selectedTouchpoints) : ''));
+    // The filters every AJAX call below carries. The call list is a page now
+    // (weeklist.call-list, linked under the table), not a print window built
+    // from JSON captured at page load, so the caller split stays on the server.
     var selectedTouchpoints = @json($selectedTouchpoints);
-    // Caller name => { phone, url }: the pre-filled wa.me link shown beside
-    // each caller in the printed call list.
-    var callerWhatsApp = @json($callerWhatsApp);
 
     $(document).ready(function () {
         // Turn the touch point and guest type filters into chip-style
@@ -517,84 +663,5 @@
     });
     @endif
 
-    function buildCallerBlock(caller, persons) {
-        var html = '<div class="caller-group"><strong>' + escapeHtml(caller) + ':</strong>';
-
-        // A WhatsApp button beside the caller's name. The message itself is
-        // built server-side (gender-aware greeting + the first timers this
-        // caller was handed), so the print page only has to link to it.
-        var link = callerWhatsApp[caller];
-        if (link && link.url) {
-            html += ' <a class="caller-wa" href="' + escapeHtml(link.url) + '" target="_blank" rel="noopener"'
-                + ' title="Send this call list to ' + escapeHtml(caller) + ' on WhatsApp">'
-                + '<svg viewBox="0 0 448 512" width="13" height="13" aria-hidden="true">'
-                + '<path fill="currentColor" d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/></svg>'
-                + ' WhatsApp</a>';
-        }
-
-        html += '<br>';
-        for (var i = 0; i < persons.length; i++) {
-            var p = persons[i];
-            var line = escapeHtml(p.name) + ' (' + escapeHtml(p.phone) + ') - ' + escapeHtml(p.gender) + ' - ' + escapeHtml(p.guest_type) + ' - ' + escapeHtml(p.age);
-            html += '&nbsp;&nbsp;&nbsp;' + line + '<br>';
-        }
-        return html + '</div><br>';
-    }
-
-    function printCallList() {
-        if (!groupedPrintData || Object.keys(groupedPrintData).length === 0) {
-            alert('No data to print.');
-            return;
-        }
-
-        var contentHtml = '<div class="header"><h2>Weekly Call List</h2><p>' + printTitle + '</p></div>';
-        var sortedCallers = Object.keys(groupedPrintData).sort();
-
-        for (var i = 0; i < sortedCallers.length; i++) {
-            var caller = sortedCallers[i];
-            if (caller === 'Unassigned') continue;
-            contentHtml += buildCallerBlock(caller, groupedPrintData[caller]);
-        }
-        if (groupedPrintData['Unassigned'] && groupedPrintData['Unassigned'].length > 0) {
-            contentHtml += buildCallerBlock('Unassigned', groupedPrintData['Unassigned']);
-        }
-
-        var fullHtml = '<!DOCTYPE html><html><head><title>Weekly Call List - Grouped by Caller</title>'
-            + '<style>'
-            + 'body{font-family:Arial,sans-serif;margin:20px;line-height:1.5;}'
-            + '.header{text-align:center;margin-bottom:30px;}'
-            + '.header h2{margin:0;}'
-            + '.caller-group{margin-bottom:15px;}'
-            + '.caller-group strong{font-size:1.1em;display:inline-block;margin-bottom:5px;}'
-            + '.caller-wa{display:inline-block;margin-left:8px;background:#25D366;color:#fff;text-decoration:none;'
-            + 'font-family:Arial,sans-serif;font-size:11px;font-weight:bold;padding:2px 9px;border-radius:12px;'
-            + 'line-height:1.7;vertical-align:middle;white-space:nowrap;'
-            + '-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
-            + '.caller-wa svg{vertical-align:-2px;margin-right:3px;}'
-            + '.footer{margin-top:30px;font-size:12px;text-align:center;color:#777;}'
-            + '@media print{body{margin:0;}}'
-            + '</style></head><body>'
-            + contentHtml
-            + '<div class="footer">Printed on ' + new Date().toLocaleString() + '</div>'
-            + '</body></html>';
-
-        var printWindow = window.open('', '_blank');
-        printWindow.document.write(fullHtml);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
-    }
-
-    function escapeHtml(str) {
-        if (str === null || str === undefined || str === '') return '';
-        return String(str).replace(/[&<>"']/g, function (m) {
-            if (m === '&') return '&amp;';
-            if (m === '<') return '&lt;';
-            if (m === '>') return '&gt;';
-            if (m === '"') return '&quot;';
-            if (m === "'") return '&#39;';
-            return m;
-        });
-    }
 </script>
 @endpush

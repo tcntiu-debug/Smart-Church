@@ -284,6 +284,10 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     // Lead Views
     Route::get('/lead', [LeadViewController::class, 'departmentLead'])->name('lead.department');
     Route::get('/weeklist', [WeekListController::class, 'index'])->name('weeklist.index');
+    // The call list as a page (weekly/filters carried in the query string): the
+    // caller split with one pre-filled WhatsApp button per caller. It used to be
+    // a print window the bell modal's "Print List" button opened.
+    Route::get('/weeklist/call-list', [WeekListController::class, 'callList'])->name('weeklist.call-list');
     Route::post('/weeklist/assign-caller', [WeekListController::class, 'saveCallerAssignment'])->name('weeklist.assign-caller');
     // Admin-only bulk actions (rendered for Admins / Super Users only - the
     // toolbar under the list and the "Assign all callers" button inside the

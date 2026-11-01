@@ -265,7 +265,11 @@ class FirstTimerReleaseTest extends TestCase
             ->assertOk()
             ->assertSee('Assign all callers')
             ->assertSee('Unassign all guides')
-            ->assertSee('Guide history')
+            // The history of released first timers is a tracking report now, in
+            // the Tracking-Integration menu; the week list points at the call
+            // list page instead of printing from the modal.
+            ->assertSee(route('weeklist.call-list'), false)
+            ->assertDontSee('Print List')
             // "Assign all callers" lives inside the Weekly Call List modal now,
             // next to the callers it is about to hand out.
             ->assertSee('Hands every first timer above to the caller in its row');

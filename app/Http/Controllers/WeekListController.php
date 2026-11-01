@@ -43,13 +43,63 @@ class WeekListController extends Controller
      */
     public function index(Request $request)
     {
+        $data = $this->weekListData($request);
+
+        if ($data === null) {
+            return redirect('/mytask')->with('error', 'Access Denied');
+        }
+
+        return view('weeklist.index', $data);
+    }
+
+    /**
+     * The call list as a page: every caller, the first timers that caller was
+     * handed, and one pre-filled WhatsApp button per caller.
+     *
+     * It replaces the "Print List" window the modal used to open. That window was
+     * built in the browser from JSON captured when /weeklist loaded, so it showed
+     * whatever the assignments were at page load, a phone blocked the popup, and
+     * window.print() dropped a print dialog on top of the links the member wanted
+     * to tap. A server-rendered page gives real wa.me links, the assignments as
+     * they are right now, a shareable URL, and a print that is a button instead
+     * of an ambush - which is also why the week list links here once the callers
+     * have been chosen or reassigned.
+     */
+    public function callList(Request $request)
+    {
+        $data = $this->weekListData($request);
+
+        if ($data === null) {
+            return redirect('/mytask')->with('error', 'Access Denied');
+        }
+
+        return view('weeklist.call-list', [
+            'page_title'          => $data['page_title'],
+            'groupedForPrint'     => $data['groupedForPrint'],
+            'callerWhatsApp'      => $data['callerWhatsApp'],
+            'selectedTouchpoints' => $data['selectedTouchpoints'],
+            'start_date_filter'   => $data['start_date_filter'],
+            'end_date_filter'     => $data['end_date_filter'],
+        ]);
+    }
+
+    /**
+     * Everything the week list needs for the selected window - the rows with
+     * their duplicate flag, guide and WhatsApp copy, the filter dropdowns, and
+     * the caller split - shared by index() and callList() so the page and the
+     * list the callers are sent can never drift apart.
+     *
+     * @return array<string, mixed>|null  Null when the member may not read it.
+     */
+    private function weekListData(Request $request)
+    {
         $user = Auth::user();
         $member_role = $user->member_role ?? 'Guest';
         $userCampusId = $user->campus_id ?? 0;
-        
+
         // Only Workers, Admins, Super Users can access
         if (!in_array($member_role, ['Worker', 'Admin', 'Admins', 'Workers', 'Super User'])) {
-            return redirect('/mytask')->with('error', 'Access Denied');
+            return null;
         }
 
         // Get filter parameters
@@ -165,13 +215,13 @@ class WeekListController extends Controller
         // ------------------------------------------------------------------
         [$callers, $callerNames, $assignments, $groupedForPrint, $callerWhatsApp] = $this->buildCallerData($rows, $selectedTouchpoints);
 
-        return view('weeklist.index', array_merge(
+        return array_merge(
             compact('rows', 'page_title', 'guestTypes', 'churchTypes',
                 'start_date_filter', 'end_date_filter', 'guest_type_filter', 'church_type_id_filter', 'member_role',
                 'callers', 'callerNames', 'assignments', 'groupedForPrint', 'callerWhatsApp',
                 'touchpointOptions', 'selectedTouchpoints'),
             ['isAdmin' => $this->canManageAssignments($member_role)]
-        ));
+        );
     }
 
     /**
@@ -460,8 +510,8 @@ class WeekListController extends Controller
     }
 
     /**
-     * Build the pre-filled WhatsApp links shown beside every caller on the
-     * printed call list ("Print List" in the Weekly Call List modal).
+     * Build the pre-filled WhatsApp links shown beside every caller on the call
+     * list (resources/views/weeklist/call-list.blade.php).
      *
      * @param  array<string, array<int, array<string, mixed>>>  $groupedForPrint
      * @param  array<string, int>  $callerIdByGroup  Printed caller name => tiu_member_id
