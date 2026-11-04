@@ -6,18 +6,36 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use App\Models\TiuMember;
 use App\Models\Occupation;
 use App\Models\Department;
 use App\Models\ChurchType;
 use App\Models\Campus;
 use App\Models\SubGroup;
+use App\Services\MemberVerificationService;
 
 class MemberController extends Controller
 {
-    public function __construct()
+    /**
+     * Activation links (docs/MEMBER-VERIFICATION.md).
+     *
+     * @var MemberVerificationService
+     */
+    protected $verifications;
+
+    public function __construct(MemberVerificationService $verifications)
     {
-        $this->middleware('auth')->except(['publicRegister', 'publicStore']);
+        $this->verifications = $verifications;
+
+        // verifyEmail()/verificationNotice()/resendVerification() are reached by
+        // a member who cannot sign in yet - an unverified account is exactly what
+        // the login form refuses (MemberSessionService::canSignIn()), so they
+        // must stay outside `auth` like the public registration form.
+        $this->middleware('auth')->except([
+            'publicRegister', 'publicStore',
+            'verifyEmail', 'verificationNotice', 'resendVerification',
+        ]);
     }
 
     // ============================================================
@@ -179,7 +197,7 @@ class MemberController extends Controller
         $password = substr(str_shuffle("0123456789abcdefghijklmnopqrstuvwxyz"), 0, 8);
 
         try {
-            DB::table('tiu_member')->insert([
+            $memberId = DB::table('tiu_member')->insertGetId([
                 'first_name' => $first_name,
                 'last_name' => $last_name,
                 'phone_number' => $phone_number,
@@ -204,13 +222,143 @@ class MemberController extends Controller
                 'oversight_extra1' => '[]',
             ]);
 
+            // The activation mail is what makes the new account usable: the row
+            // is created with email_verified = 0 and the login form refuses
+            // that (MemberSessionService::canSignIn()). send() never throws, so
+            // a mail problem cannot roll the registration back; the answer says
+            // which of the two happened instead of promising a link that never
+            // left the server.
+            $mailSent = false;
+
+            try {
+                $member = TiuMember::find($memberId);
+                $mailSent = $member ? $this->verifications->send($member) : false;
+            } catch (\Throwable $e) {
+                Log::error('Activation e-mail could not be built for member ' . $memberId . ': ' . $e->getMessage());
+            }
+
+            if ($email === '') {
+                $message = 'Registration successful!';
+            } elseif ($mailSent) {
+                $message = 'Registration successful! Please check your email to activate your account.';
+            } else {
+                $message = 'Registration successful, but we could not send the activation e-mail just now. '
+                    . 'Open the login page and use "Resend activation email" to try again.';
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => 'Registration successful! If an email was provided, please check it to activate your account.',
+                'message' => $message,
             ]);
         } catch (\Exception $e) {
+            Log::error('Public registration failed: ' . $e->getMessage(), ['email' => $email]);
+
             return response()->json(['success' => false, 'message' => 'Could not create account. Please try again.'], 500);
         }
+    }
+
+    // ============================================================
+    // E-MAIL ACTIVATION (docs/MEMBER-VERIFICATION.md)
+    // ============================================================
+
+    /**
+     * The signed link from the activation mail (route: member.verify).
+     *
+     * Guest route: the member cannot sign in until this runs, because
+     * `email_verified` is what MemberSessionService::canSignIn() reads.
+     *
+     * A stale or edited link does not get an exception page - the member is
+     * sent to the login screen with an explanation, and the resend page is
+     * one click away.
+     */
+    public function verifyEmail(Request $request, $id, $hash)
+    {
+        if (! $request->hasValidSignature()) {
+            Log::warning('Activation link refused: invalid or expired signature', [
+                'member' => $id,
+                'ip' => $request->ip(),
+            ]);
+
+            return redirect()->route('login')->with(
+                'error',
+                'That activation link has expired or is not valid. Use "Resend activation email" on the login page to get a new one.'
+            );
+        }
+
+        $member = TiuMember::find($id);
+
+        if (! $member) {
+            return redirect()->route('login')->with(
+                'error',
+                'That account no longer exists. Please register again or contact the church office.'
+            );
+        }
+
+        if (! hash_equals($this->verifications->hash($member), (string) $hash)) {
+            Log::warning('Activation link refused: hash does not match the address', ['member' => $id]);
+
+            return redirect()->route('login')->with(
+                'error',
+                'That activation link is not valid for this account. Use "Resend activation email" to get a new one.'
+            );
+        }
+
+        if ((string) $member->email_verified === '1') {
+            return redirect()->route('login')->with('success', 'Your email address is already verified. Please sign in.');
+        }
+
+        $this->verifications->markVerified($member);
+
+        Log::info('Member ' . $member->tiu_member_id . ' verified their e-mail address');
+
+        return redirect()->route('login')->with('success', 'Your email address is verified. You can sign in now.');
+    }
+
+    /**
+     * The page a stale link falls back to (route: member.verification.notice).
+     */
+    public function verificationNotice()
+    {
+        return view('auth.verify');
+    }
+
+    /**
+     * Send a fresh activation link (posted by that page).
+     *
+     * Guest route with `throttle:6,1`: six requests a minute is more than one
+     * person needs, and it keeps the endpoint from being used as a free
+     * mail-sending service.
+     */
+    public function resendVerification(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $email = trim((string) $request->input('email'));
+        $member = TiuMember::where('email', $email)->first();
+
+        if (! $member) {
+            return back()->withInput()->withErrors([
+                'email' => 'We could not find an account with that e-mail address.',
+            ]);
+        }
+
+        if ((string) $member->email_verified === '1') {
+            return back()->withInput()->with(
+                'status',
+                'That address is already verified. Sign in with your password, or use "Forgot Password?" if you have not set one yet.'
+            );
+        }
+
+        if (! $this->verifications->send($member)) {
+            return back()->withInput()->withErrors([
+                'email' => 'We could not send the activation e-mail just now. Please try again in a minute, or contact the church office.',
+            ]);
+        }
+
+        return back()->withInput()->with(
+            'status',
+            'A fresh activation link has been sent to ' . $email . '. Please check the inbox (and the spam folder).'
+        );
     }
 
     /**

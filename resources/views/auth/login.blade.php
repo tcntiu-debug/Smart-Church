@@ -96,6 +96,9 @@
                                 <label class="d-block mt-3">
                                     <a href="#" class="btn-link" data-toggle="modal" data-target="#modal-12">Forgot Password?</a>
                                 </label>
+                                <label class="d-block">
+                                    <a href="{{ route('member.verification.notice') }}" class="btn-link">Resend activation email?</a>
+                                </label>
                             </div>
 
                             <button type="submit" class="btn btn-primary mt-4 d-block w-100">

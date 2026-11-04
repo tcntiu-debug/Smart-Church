@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Campus;
+use App\Models\TiuMember;
+use App\Services\MemberVerificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -517,7 +519,30 @@ class AdminFirstTimerController extends Controller
 
                 DB::commit();
 
-                return redirect()->route('admin.first-timers')->with('success', "First timer integrated successfully as a member (ID: {$memberId}). Password: {$password}");
+                // The new account is created with email_verified = 0, so the
+                // member cannot sign in until the activation link is opened
+                // (docs/MEMBER-VERIFICATION.md). send() never throws: a mail
+                // problem must not undo an integration that already committed.
+                $message = "First timer integrated successfully as a member (ID: {$memberId}). Password: {$password}";
+
+                if (!empty($ft->email)) {
+                    // Outside the integration's own failure path: the row is
+                    // committed, so nothing that happens while mailing it may
+                    // turn this answer into "integration failed".
+                    try {
+                        $member = TiuMember::find($memberId);
+                        $mailSent = $member ? app(MemberVerificationService::class)->send($member) : false;
+
+                        $message .= $mailSent
+                            ? " An activation e-mail was sent to {$ft->email}."
+                            : ' The activation e-mail could not be sent; use "Resend activation email" on the login page, or give the member the password directly.';
+                    } catch (\Throwable $e) {
+                        Log::error('Activation e-mail could not be built for member ' . $memberId . ': ' . $e->getMessage());
+                        $message .= ' The activation e-mail could not be sent.';
+                    }
+                }
+
+                return redirect()->route('admin.first-timers')->with('success', $message);
             } catch (\Exception $e) {
                 DB::rollBack();
                 Log::error('Integration failed: ' . $e->getMessage());

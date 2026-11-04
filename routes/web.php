@@ -62,6 +62,18 @@ Route::post('/register', [MemberController::class, 'publicStore'])->name('member
 Route::get('/mregister', [MemberController::class, 'publicRegister'])->name('mregister');
 Route::post('/mregister', [MemberController::class, 'publicStore'])->name('member.public.store');
 
+// Activation links for accounts created with email_verified = 0
+// (docs/MEMBER-VERIFICATION.md). All three are guest routes: the login form
+// refuses an unverified account (MemberSessionService::canSignIn()), so the
+// member who needs them cannot sign in yet.
+//   member.verify               - the signed link inside the mail
+//   member.verification.notice  - the page an expired link falls back to
+//   member.verification.resend  - the form that page posts to
+Route::get('/member/verify/{id}/{hash}', [MemberController::class, 'verifyEmail'])->name('member.verify');
+Route::get('/member/verification/notice', [MemberController::class, 'verificationNotice'])->name('member.verification.notice');
+Route::post('/member/verification/resend', [MemberController::class, 'resendVerification'])
+    ->middleware('throttle:6,1')->name('member.verification.resend');
+
 // Public attendance routes
 Route::get('/attendance', [AttendanceController::class, 'clockIn']);
 Route::post('/attendance/search', [AttendanceController::class, 'search']);
