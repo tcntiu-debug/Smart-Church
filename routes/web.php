@@ -74,6 +74,11 @@ Route::get('/member/verification/notice', [MemberController::class, 'verificatio
 Route::post('/member/verification/resend', [MemberController::class, 'resendVerification'])
     ->middleware('throttle:6,1')->name('member.verification.resend');
 
+// Right after activation: the account was created with a random password nobody
+// was told, so the link lands here and the member chooses one, then signs in.
+Route::get('/member/set-password', [MemberController::class, 'showPasswordForm'])->name('member.password.create');
+Route::post('/member/set-password', [MemberController::class, 'storePassword'])->name('member.password.store');
+
 // Public attendance routes
 Route::get('/attendance', [AttendanceController::class, 'clockIn']);
 Route::post('/attendance/search', [AttendanceController::class, 'search']);

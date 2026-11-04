@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Route;
 use App\Models\TiuMember;
 use App\Models\Occupation;
 use App\Models\Department;
@@ -31,10 +32,12 @@ class MemberController extends Controller
         // verifyEmail()/verificationNotice()/resendVerification() are reached by
         // a member who cannot sign in yet - an unverified account is exactly what
         // the login form refuses (MemberSessionService::canSignIn()), so they
-        // must stay outside `auth` like the public registration form.
+        // must stay outside `auth` like the public registration form. The
+        // password form the link lands on is the same: no session yet.
         $this->middleware('auth')->except([
             'publicRegister', 'publicStore',
             'verifyEmail', 'verificationNotice', 'resendVerification',
+            'showPasswordForm', 'storePassword',
         ]);
     }
 
@@ -304,14 +307,115 @@ class MemberController extends Controller
         }
 
         if ((string) $member->email_verified === '1') {
-            return redirect()->route('login')->with('success', 'Your email address is already verified. Please sign in.');
+            // The link is spent: no second chance to set a password from it.
+            // Somebody who verified but never finished the password form (or
+            // opened the mail after closing that tab) is pointed at the reset
+            // flow instead, which proves the mailbox the same way.
+            return redirect()->route('login')->with(
+                'success',
+                'Your email address is already verified. Please sign in - or use "Forgot Password?" if you have not chosen a password yet.'
+            );
         }
 
         $this->verifications->markVerified($member);
 
         Log::info('Member ' . $member->tiu_member_id . ' verified their e-mail address');
 
-        return redirect()->route('login')->with('success', 'Your email address is verified. You can sign in now.');
+        // The account was created with a random password nobody was told, so the
+        // first activation continues on the "choose your password" page instead
+        // of dropping the member at a login form they cannot fill in. A second
+        // click takes the branch above (login), so the mailed link never turns
+        // into a way to change somebody's existing password.
+        $request->session()->put('member_verification_id', $member->getKey());
+
+        $target = Route::has('member.password.create')
+            ? route('member.password.create')
+            : route('login');
+
+        return redirect()->to($target)->with(
+            'success',
+            'Your email address is verified. Choose a password to finish.'
+        );
+    }
+
+    /**
+     * The page right after activation: set the password the account never had
+     * (public registration stored a random 8-character string nobody saw).
+     *
+     * Guest route, but it only opens for the member the activation link just
+     * verified in *this* browser - see verificationMember().
+     */
+    public function showPasswordForm(Request $request)
+    {
+        $member = $this->verificationMember($request);
+
+        if (! $member) {
+            return redirect()->route('login')->with(
+                'error',
+                'Open the activation link from your e-mail first, or use "Forgot Password?" to set a password.'
+            );
+        }
+
+        return view('auth.member-password', ['email' => $member->email]);
+    }
+
+    /**
+     * Save that password and hand the member back to the login form.
+     *
+     * Same rules as the reset form (ResetsPasswords): at least 8 characters,
+     * typed twice.
+     */
+    public function storePassword(Request $request)
+    {
+        $member = $this->verificationMember($request);
+
+        if (! $member) {
+            return redirect()->route('login')->with(
+                'error',
+                'That page is only for a freshly activated account. Open the activation link from your e-mail, or use "Forgot Password?" to set a password.'
+            );
+        }
+
+        $request->validate([
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $member->forceFill(['password' => Hash::make($request->input('password'))])->save();
+
+        $request->session()->forget('member_verification_id');
+
+        Log::info('Member ' . $member->tiu_member_id . ' chose a password after activation');
+
+        return redirect()->route('login')->with(
+            'success',
+            'Password saved. Sign in with ' . $member->email . ' and the password you just chose.'
+        );
+    }
+
+    /**
+     * The member the activation link verified in this browser.
+     *
+     * The id is written by verifyEmail() and dropped once a password is saved;
+     * the flag is read back from the row, so a stale session cannot open the
+     * form for an account that is not activated.
+     *
+     * @return TiuMember|null
+     */
+    protected function verificationMember(Request $request)
+    {
+        $id = $request->session()->get('member_verification_id');
+
+        if (! $id) {
+            return null;
+        }
+
+        $member = TiuMember::find($id);
+
+        if (! $member || (string) $member->email_verified !== '1') {
+            return null;
+        }
+
+        return $member;
     }
 
     /**

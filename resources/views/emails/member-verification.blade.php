@@ -49,8 +49,8 @@
             <hr style="border:0;border-top:1px solid #e5e7eb;margin:20px 0;">
 
             <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
-                No password is in this e-mail. If you have not chosen one yet, use
-                "Forgot Password?" on the login page to set it.
+                No password is in this e-mail: the button above lets you choose one,
+                then takes you to the login page.
             </p>
         </div>
     </div>

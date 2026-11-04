@@ -35,9 +35,18 @@ verification link never did. Publicly registered members could only get in via
 3. `MemberVerificationMail` (`resources/views/emails/member-verification.blade.php`
    + `-text`) carries that link.
 4. The member opens `GET /member/verify/{id}/{hash}`. The controller checks the
-   signature, the member, the hash and the current flag, sets
-   `email_verified = 1` and redirects to the login page with a success message.
-5. A stale, edited or already-used link never shows an exception page: it
+   signature, the member, the hash and the current flag, then sets
+   `email_verified = 1`.
+5. The link does **not** stop at the login form: public registration stores a
+   random password nobody is told, so the member would have nothing to type.
+   The activation therefore continues on `GET /member/set-password`, where they
+   choose a password (twice, at least 8 characters — the reset form's rule) and
+   are handed to the login page with *"Password saved. Sign in with …"*.
+   That page opens only for the member the link just verified **in this
+   browser** (session id + `email_verified = 1`), is dropped after saving, and
+   a second click on the mailed link goes straight to the login page — the link
+   never becomes a way to change an existing password.
+6. A stale, edited or already-used link never shows an exception page: it
    redirects to `/` with an explanation, and **Resend activation email?** on the
    login page opens `GET /member/verification/notice` (`auth.verify`), which
    posts to `POST /member/verification/resend` (`throttle:6,1`).
@@ -50,7 +59,9 @@ message says whether the mail went out.
 
 | Route | Name | What it does |
 |---|---|---|
-| `GET /member/verify/{id}/{hash}` | `member.verify` | the signed link from the mail |
+| `GET /member/verify/{id}/{hash}` | `member.verify` | the signed link from the mail; sets the flag, then continues to the password page |
+| `GET /member/set-password` | `member.password.create` | choose a password (only right after activation, same browser) |
+| `POST /member/set-password` | `member.password.store` | saves it hashed, then redirects to the login page |
 | `GET /member/verification/notice` | `member.verification.notice` | resend page |
 | `POST /member/verification/resend` | `member.verification.resend` | sends a fresh link, `throttle:6,1` |
 
@@ -90,7 +101,12 @@ written at **error** level.
 transactions):
 
 - the three routes exist and the notice page renders as a guest page;
-- the mail carries the signed link, and opening it sets `email_verified = 1`;
+- the mail carries the signed link, opening it sets `email_verified = 1` and
+  lands on the password form;
+- choosing a password stores it hashed and that pair signs the member in;
+- a mismatched password is refused and writes nothing;
+- the password form does not open without the activation link in that browser;
+- a second click on the link goes to the login page, not to a password change;
 - a changed query string **and** a valid signature over the wrong hash both
   leave the account unverified;
 - `POST /register` sends the mailable and leaves the row unverified;
