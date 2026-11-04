@@ -197,4 +197,24 @@ class StaleRouteCacheTest extends TestCase
         $response->assertSee('Weekly Call List', false);
         $response->assertSee('Unassign all guides', false);
     }
+
+    /**
+     * The activation routes arrived in the "member verification" release, and
+     * the login page links to the resend page by name. A cache baked before
+     * that release makes route('member.verification.notice') throw
+     * RouteNotFoundException, so `/` - the one page nobody can get past -
+     * answered 500 on production while /register stayed up, which reads as a
+     * broken app rather than a stale deploy. The login page has to lose the
+     * link, not itself.
+     */
+    public function test_the_login_page_loses_the_activation_link_not_the_page()
+    {
+        $this->forgetRoute('member.verification.notice');
+
+        $response = $this->get('/');
+
+        $response->assertOk();
+        $response->assertSee('Forgot Password?', false);
+        $response->assertDontSee('/member/verification/notice', false);
+    }
 }

@@ -96,9 +96,16 @@
                                 <label class="d-block mt-3">
                                     <a href="#" class="btn-link" data-toggle="modal" data-target="#modal-12">Forgot Password?</a>
                                 </label>
-                                <label class="d-block">
-                                    <a href="{{ route('member.verification.notice') }}" class="btn-link">Resend activation email?</a>
-                                </label>
+                                @if (\Illuminate\Support\Facades\Route::has('member.verification.notice'))
+                                    {{-- Guarded like the sidebar: bootstrap/cache/routes-v7.php
+                                         on the cPanel hosts can predate this release, and
+                                         route() would throw RouteNotFoundException for a
+                                         name the cache does not carry - a 500 on the login
+                                         page, the one page nobody can get past. --}}
+                                    <label class="d-block">
+                                        <a href="{{ route('member.verification.notice') }}" class="btn-link">Resend activation email?</a>
+                                    </label>
+                                @endif
                             </div>
 
                             <button type="submit" class="btn btn-primary mt-4 d-block w-100">
