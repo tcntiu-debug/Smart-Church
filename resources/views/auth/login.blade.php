@@ -96,16 +96,6 @@
                                 <label class="d-block mt-3">
                                     <a href="#" class="btn-link" data-toggle="modal" data-target="#modal-12">Forgot Password?</a>
                                 </label>
-                                @if (\Illuminate\Support\Facades\Route::has('member.verification.notice'))
-                                    {{-- Guarded like the sidebar: bootstrap/cache/routes-v7.php
-                                         on the cPanel hosts can predate this release, and
-                                         route() would throw RouteNotFoundException for a
-                                         name the cache does not carry - a 500 on the login
-                                         page, the one page nobody can get past. --}}
-                                    <label class="d-block">
-                                        <a href="{{ route('member.verification.notice') }}" class="btn-link">Resend activation email?</a>
-                                    </label>
-                                @endif
                             </div>
 
                             <button type="submit" class="btn btn-primary mt-4 d-block w-100">
@@ -138,6 +128,21 @@
                         <button id="forgot-submit" onclick="passwordReset()" type="button" class="btn btn-primary shadow-none">
                             Reset Password
                         </button>
+
+                        {{-- Only in this flow: a member who never opened the activation
+                             mail cannot sign in, and "forgot my password" is where they
+                             end up. It is noise on the login form itself.
+                             Guarded like the sidebar: bootstrap/cache/routes-v7.php on
+                             the cPanel hosts can predate this release, and route() would
+                             throw RouteNotFoundException for a name the cache does not
+                             carry - a 500 on the login page, the one page nobody can get
+                             past. --}}
+                        @if (\Illuminate\Support\Facades\Route::has('member.verification.notice'))
+                            <p class="mb-0 mt-3">
+                                <small>Never got the activation e-mail?</small><br>
+                                <a href="{{ route('member.verification.notice') }}" class="btn-link">Resend activation email?</a>
+                            </p>
+                        @endif
                     </div>
                 </div>
             </div>
