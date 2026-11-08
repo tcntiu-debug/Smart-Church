@@ -127,7 +127,10 @@ class SuperUserAccessTest extends TestCase
             '/children-church', '/children-church/manage', '/lead/department',
             '/lead/house-fellowship', '/lead/cluster', '/ftlead', '/pending-tasks',
             '/fview', '/fthangout', '/my-tasks', '/ft-register', '/my-business',
-            '/purchase', '/public', '/private', '/privacy-policy', '/data-policy',
+            // Shared Resource -> Public is /resources/public, not /public: on the
+            // hosts /public is the folder that holds index.php, so that URL answers
+            // with the login page (see routes/web.php).
+            '/purchase', '/resources/public', '/private', '/privacy-policy', '/data-policy',
             '/profile', '/mtouchpoint', '/gallery', '/weeklist/guide-history',
         ];
 

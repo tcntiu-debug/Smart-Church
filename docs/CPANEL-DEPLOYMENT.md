@@ -821,6 +821,12 @@ older migration can abort a full run — see *Troubleshooting*.)
   (`GET /` -> `showLoginForm`, named `login`), so `https://your-domain.com/login`
   answers **404** — no such web route exists (`POST /api/login` is the phones'
   endpoint). That 404 is correct behaviour, not a fault.
+- `https://your-domain.com/public` answers **302** and lands on
+  `/resources/public` — Shared Resource → Public (a guest is sent on to the login
+  page). `/public` is the folder that holds `index.php`, so it can never be a page
+  of its own: the front controller forwards the folder's own URL to
+  `/resources/public` (`public/index.php`, first block). A build that shows the
+  login form *at* `/public` is older than this note.
 - `https://your-domain.com/.env` returns **403**; `/artisan`, `/composer.json` and
   `/vendor/` return **404**, because the root `.htaccess` rewrites them into
   `public/` before the `FilesMatch` deny is reached. The rule that matters is

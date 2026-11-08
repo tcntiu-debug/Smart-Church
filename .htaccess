@@ -14,6 +14,13 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # /public is the folder this application's front controller lives in, so it can
+    # never be a route URL: https://host/public answers with the folder itself, and
+    # the front controller is then reached with the path "/" - the login page. That
+    # is why Shared Resource -> Public moved to /resources/public (routes/web.php).
+    # public/index.php forwards the folder's own URL to that page: Apache answers a
+    # request for a folder with its directory index, so this file never sees it.
+
     # Leave requests that already resolve into public/ alone (prevents loops,
     # and also makes subdirectory installs work). The test is the path relative
     # to this file, so it fires for /public/assets/app.css on cPanel and for

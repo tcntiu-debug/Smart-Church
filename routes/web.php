@@ -323,8 +323,21 @@ Route::middleware(['auth', 'profile.complete'])->group(function () {
     Route::get('/lead/house-fellowship', [LeadViewController::class, 'houseFellowshipOnly'])->name('lead.house-fellowship');
     Route::get('/lead/cluster', [LeadViewController::class, 'clusterOnly'])->name('lead.cluster');
 
-    // Resources
-    Route::get('/public', [ResourceController::class, 'publicResources'])->name('resources.public');
+    // Shared Resource -> Public / Private
+    //
+    // `/public` cannot be the URL of a page on the live hosts. The cPanel document
+    // root sits one level above the folder that holds index.php, so https://host/public
+    // answers with that folder, not with Laravel: DirectorySlash redirects to
+    // /public/, the front controller then sees the path "/" and renders the login
+    // page. Every URL that begins with /public belongs to the folder, never to a
+    // route. `php artisan serve` (base path "/") kept answering /public normally,
+    // which is what hid this - the sidebar link only broke on dev and production.
+    //
+    // The page answers on /resources/public now, which no folder shadows, and keeps
+    // its route name. The bare /public route stays registered for local development;
+    // public/index.php forwards the folder's URL to the new address on the hosts.
+    Route::get('/resources/public', [ResourceController::class, 'publicResources'])->name('resources.public');
+    Route::get('/public', [ResourceController::class, 'publicResources'])->name('resources.public.dev');
     Route::get('/private', [ResourceController::class, 'privateResources'])->name('resources.private');
     Route::post('/resources/store', [ResourceController::class, 'store'])->name('resources.store');
     Route::get('/resources/delete/{id}', [ResourceController::class, 'destroy'])->name('resources.delete');

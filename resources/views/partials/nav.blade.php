@@ -128,7 +128,10 @@ $hasCelebrations = \Illuminate\Support\Facades\Route::has('birthdays.celebration
         <span><i class="fas fa-folder fs-16"></i>Shared Resource</span>
       </a>
       <ul id="resource_menu" class="collapse">
-        <li><a href="{{ url('/public') }}">Public</a></li>
+        {{-- route() and not url('/public'): /public is the folder that holds
+             index.php, so on the live hosts that URL answers with the login page
+             (see the comment on the route in routes/web.php). --}}
+        <li><a href="{{ route('resources.public') }}">Public</a></li>
         <li><a href="{{ url('/private') }}">Private</a></li>
       </ul>
     </li>
