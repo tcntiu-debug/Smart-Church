@@ -246,7 +246,7 @@ class MemberController extends Controller
                 $message = 'Registration successful! Please check your email to activate your account.';
             } else {
                 $message = 'Registration successful, but we could not send the activation e-mail just now. '
-                    . 'Open the login page and use "Resend activation email" to try again.';
+                    . 'Open the login page, "Forgot Password?", and use "Resend the activation email" to try again.';
             }
 
             return response()->json([
@@ -284,7 +284,7 @@ class MemberController extends Controller
 
             return redirect()->route('login')->with(
                 'error',
-                'That activation link has expired or is not valid. Use "Resend activation email" on the login page to get a new one.'
+                'That activation link has expired or is not valid. Use "Forgot Password?" on the login page and choose "Resend the activation email" to get a new one.'
             );
         }
 
@@ -302,7 +302,7 @@ class MemberController extends Controller
 
             return redirect()->route('login')->with(
                 'error',
-                'That activation link is not valid for this account. Use "Resend activation email" to get a new one.'
+                'That activation link is not valid for this account. Use "Forgot Password?" on the login page and choose "Resend the activation email" to get a new one.'
             );
         }
 

@@ -132,15 +132,23 @@
                         {{-- Only in this flow: a member who never opened the activation
                              mail cannot sign in, and "forgot my password" is where they
                              end up. It is noise on the login form itself.
+                             The wording says out loud what the two mails are not: this is
+                             the activation link, not the password reset the button above
+                             sends (member.verification.resend vs password.email - two
+                             routes, two mails, two tables).
                              Guarded like the sidebar: bootstrap/cache/routes-v7.php on
                              the cPanel hosts can predate this release, and route() would
                              throw RouteNotFoundException for a name the cache does not
                              carry - a 500 on the login page, the one page nobody can get
                              past. --}}
                         @if (\Illuminate\Support\Facades\Route::has('member.verification.notice'))
-                            <p class="mb-0 mt-3">
-                                <small>Never got the activation e-mail?</small><br>
-                                <a href="{{ route('member.verification.notice') }}" class="btn-link">Resend activation email?</a>
+                            <hr class="mt-4 mb-3">
+                            <p class="mb-0">
+                                <small class="d-block mb-1">
+                                    A different e-mail: the <strong>activation</strong> link for an account
+                                    that was never activated. It does not reset a password.
+                                </small>
+                                <a href="{{ route('member.verification.notice') }}" class="btn-link">Resend the activation email</a>
                             </p>
                         @endif
                     </div>

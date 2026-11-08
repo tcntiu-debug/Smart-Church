@@ -535,7 +535,7 @@ class AdminFirstTimerController extends Controller
 
                         $message .= $mailSent
                             ? " An activation e-mail was sent to {$ft->email}."
-                            : ' The activation e-mail could not be sent; use "Resend activation email" on the login page, or give the member the password directly.';
+                            : ' The activation e-mail could not be sent; use "Forgot Password?" on the login page and choose "Resend the activation email", or give the member the password directly.';
                     } catch (\Throwable $e) {
                         Log::error('Activation e-mail could not be built for member ' . $memberId . ': ' . $e->getMessage());
                         $message .= ' The activation e-mail could not be sent.';
