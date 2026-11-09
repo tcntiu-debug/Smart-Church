@@ -291,17 +291,34 @@ function registerMember() {
         success: function(response) {
             console.log('AJAX Success:', response);
             if (response.success) {
+                // The popup waits for the member instead of disappearing after
+                // three seconds: the account is unusable until the activation mail
+                // is opened, and this is the only place that says which mailbox it
+                // went to and how to get another one. "Resend" posts the activation
+                // flow (member.verification.resend) - it is not a password reset.
+                var resend = response.activate_url
+                    ? '<a href="' + response.activate_url + '" class="btn btn-primary mt-3">Resend the activation email</a>'
+                    : '';
+
                 Swal.fire({
                     icon: 'success',
-                    title: 'Success!',
-                    text: response.message,
-                    timer: 3000,
-                    showConfirmButton: false
-                }).then(() => {
+                    title: 'Registration successful',
+                    html: '<p class="mb-2">' + response.message + '</p>'
+                        + '<p class="mb-0" style="font-size:13px;">If the activation e-mail has not arrived '
+                        + 'within 10 minutes, check the spam folder and then resend it:</p>'
+                        + resend,
+                    confirmButtonText: 'Go to sign-in',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false
+                }).then((result) => {
                     $('#member-register-form')[0].reset();
                     $('#church_type, #community, #gender').val('');
                     $('#other_community_div').hide();
                     $('#parent_guardian_section').hide();
+
+                    if (result.isConfirmed && response.email) {
+                        window.location.href = "{{ route('login') }}?email=" + encodeURIComponent(response.email);
+                    }
                 });
             } else {
                 console.error('Server returned error:', response.message);

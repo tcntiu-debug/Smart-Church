@@ -66,7 +66,17 @@ class CustomAuthController extends Controller
             // password reset asks the same question (MemberSessionService).
             if (! $this->memberSession->canSignIn($user)) {
                 Log::warning('Step 5/6: Sign-in refused (status ' . $user->status . ', email_verified ' . $user->email_verified . ')');
-                return back()->with('error', $this->memberSession->blockedMessage($user));
+
+                $refused = back()->with('error', $this->memberSession->blockedMessage($user));
+
+                // An unverified address is the one refusal the member can fix
+                // alone, and the login page offers the resend link only in this
+                // state (it posts member.verification.resend, not password.email).
+                if ((string) $user->email_verified !== '1') {
+                    $refused->with('activation_blocked', $user->email);
+                }
+
+                return $refused;
             }
 
             Log::info('Step 5 and 6: Account active and email verified');

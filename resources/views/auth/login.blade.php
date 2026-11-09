@@ -63,6 +63,24 @@
                                 </div>
                             @endif
 
+                            {{-- The resend link lives where it is true: right after
+                             registration (member/public-register.blade.php) and here,
+                             when a sign-in or an activation link was refused - the two
+                             moments the member is actually stuck. It is not a password
+                             reset (password.email): this posts member.verification.resend.
+                             Guarded like the sidebar: bootstrap/cache/routes-v7.php on
+                             the cPanel hosts can predate this release, and route() would
+                             throw RouteNotFoundException for a name the cache does not
+                             carry - a 500 on the login page, the one page nobody can get
+                             past. --}}
+                        @if (session('activation_blocked') && \Illuminate\Support\Facades\Route::has('member.verification.notice'))
+                            <p class="mb-2" style="font-size:13px;">
+                                The activation e-mail is a different e-mail from a password reset.
+                                <a href="{{ route('member.verification.notice', session('activation_blocked') ? ['email' => session('activation_blocked')] : []) }}"
+                                    class="btn-link">Resend the activation email</a>
+                            </p>
+                        @endif
+
                             @if(session('error'))
                                 <div class="alert-custom">{{ session('error') }}</div>
                             @endif
@@ -75,7 +93,7 @@
                                 <label for="email">Email Address</label>
                                 <div class="input-group">
                                     <input type="email" name="email" class="form-control" id="email"
-                                        placeholder="Email Address" value="{{ old('email') }}" required autofocus>
+                                        placeholder="Email Address" value="{{ old('email', request('email')) }}" required autofocus>
                                 </div>
                             </div>
 
@@ -128,29 +146,6 @@
                         <button id="forgot-submit" onclick="passwordReset()" type="button" class="btn btn-primary shadow-none">
                             Reset Password
                         </button>
-
-                        {{-- Only in this flow: a member who never opened the activation
-                             mail cannot sign in, and "forgot my password" is where they
-                             end up. It is noise on the login form itself.
-                             The wording says out loud what the two mails are not: this is
-                             the activation link, not the password reset the button above
-                             sends (member.verification.resend vs password.email - two
-                             routes, two mails, two tables).
-                             Guarded like the sidebar: bootstrap/cache/routes-v7.php on
-                             the cPanel hosts can predate this release, and route() would
-                             throw RouteNotFoundException for a name the cache does not
-                             carry - a 500 on the login page, the one page nobody can get
-                             past. --}}
-                        @if (\Illuminate\Support\Facades\Route::has('member.verification.notice'))
-                            <hr class="mt-4 mb-3">
-                            <p class="mb-0">
-                                <small class="d-block mb-1">
-                                    A different e-mail: the <strong>activation</strong> link for an account
-                                    that was never activated. It does not reset a password.
-                                </small>
-                                <a href="{{ route('member.verification.notice') }}" class="btn-link">Resend the activation email</a>
-                            </p>
-                        @endif
                     </div>
                 </div>
             </div>

@@ -245,13 +245,20 @@ class MemberController extends Controller
             } elseif ($mailSent) {
                 $message = 'Registration successful! Please check your email to activate your account.';
             } else {
-                $message = 'Registration successful, but we could not send the activation e-mail just now. '
-                    . 'Open the login page, "Forgot Password?", and use "Resend the activation email" to try again.';
+                $message = 'Registration successful, but the activation e-mail could not be sent just now - '
+                    . 'use "Resend the activation email" below in a minute.';
             }
 
+            // The popup the page shows names the mailbox and can re-send the
+            // activation mail, so it needs the address and the resend page URL
+            // rather than a message the member has to act on from memory.
             return response()->json([
                 'success' => true,
                 'message' => $message,
+                'email' => $email,
+                'activate_url' => Route::has('member.verification.notice')
+                    ? route('member.verification.notice', $email !== '' ? ['email' => $email] : [])
+                    : null,
             ]);
         } catch (\Exception $e) {
             Log::error('Public registration failed: ' . $e->getMessage(), ['email' => $email]);
@@ -282,10 +289,12 @@ class MemberController extends Controller
                 'ip' => $request->ip(),
             ]);
 
-            return redirect()->route('login')->with(
-                'error',
-                'That activation link has expired or is not valid. Use "Forgot Password?" on the login page and choose "Resend the activation email" to get a new one.'
-            );
+            // activation_blocked is what puts the resend link on the login page
+            // (routes/web.php + auth/login.blade.php): the member is stuck until a
+            // fresh activation mail goes out, and that is not a password reset.
+            return redirect()->route('login')
+                ->with('error', 'That activation link has expired or is not valid. Use "Resend the activation email" on the login page to get a new one.')
+                ->with('activation_blocked', optional(TiuMember::find($id))->email);
         }
 
         $member = TiuMember::find($id);
@@ -300,10 +309,9 @@ class MemberController extends Controller
         if (! hash_equals($this->verifications->hash($member), (string) $hash)) {
             Log::warning('Activation link refused: hash does not match the address', ['member' => $id]);
 
-            return redirect()->route('login')->with(
-                'error',
-                'That activation link is not valid for this account. Use "Forgot Password?" on the login page and choose "Resend the activation email" to get a new one.'
-            );
+            return redirect()->route('login')
+                ->with('error', 'That activation link is not valid for this account. Use "Resend the activation email" on the login page to get a new one.')
+                ->with('activation_blocked', $member->email);
         }
 
         if ((string) $member->email_verified === '1') {
